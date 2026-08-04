@@ -1,0 +1,71 @@
+<!doctype html><html><head><meta charset='utf-8'><style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{width:798px;height:1440px;background:#f1f5f9;
+      font-family:'Segoe UI','Inter',Arial,sans-serif;position:relative;overflow:hidden}
+    .title{position:absolute;left:0;top:0;width:798px;height:104px;
+      background:linear-gradient(120deg,#6d28d9,#8b5cf6);color:#fff;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
+      box-shadow:0 3px 12px rgba(2,6,23,.18)}
+    .title h1{font-size:34px;font-weight:800;letter-spacing:.3px}
+    .title p{font-size:16px;font-weight:500;color:#e2e8f0;margin-top:4px}
+    .brand{position:absolute;right:22px;top:20px;font-size:12.5px;color:#dbeafe;font-style:italic}
+    .tab{position:absolute;top:114px;height:44px;border-radius:12px;
+      color:#fff;display:flex;align-items:center;justify-content:center;
+      font-size:16px;box-shadow:0 3px 8px rgba(2,6,23,.22)}
+    .wires{position:absolute;left:0;top:0;z-index:1}
+    .phase{position:absolute;left:32px;width:58px;border-radius:10px;color:#fff;
+      display:flex;align-items:center;justify-content:center;z-index:2;
+      box-shadow:0 2px 6px rgba(2,6,23,.2)}
+    .phase span{writing-mode:vertical-rl;transform:rotate(180deg);
+      font-size:14px;font-weight:700;letter-spacing:.4px;text-align:center;padding:8px 0}
+    .card{position:absolute;z-index:3;background:#fff;border-radius:14px;
+      box-shadow:0 4px 14px rgba(2,6,23,.13);display:flex;align-items:center;
+      gap:14px;padding:0 18px}
+    .card .ico{font-size:38px;line-height:1;filter:drop-shadow(0 1px 1px rgba(0,0,0,.15))}
+    .card .lbl{font-size:17px;font-weight:650;color:#0f172a;line-height:1.25}
+    .card.start{background:linear-gradient(135deg,#065f46,#10b981);color:#fff}
+    .card.start .lbl{color:#fff}
+    .card.end{background:linear-gradient(135deg,#0f172a,#334155);color:#fff}
+    .card.end .lbl{color:#fff}
+    .card.out{background:#f8fafc;border:2px dashed #94a3b8}
+    .card.out .lbl{color:#334155;font-weight:600;font-size:15.5px}
+    .num{position:absolute;left:-13px;top:-13px;width:32px;height:32px;border-radius:50%;
+      color:#fff;font-size:16px;font-weight:800;display:flex;align-items:center;
+      justify-content:center;border:3px solid #fff;box-shadow:0 2px 5px rgba(2,6,23,.25)}
+    .dia{position:absolute;z-index:3}
+    .dia-in{width:106px;height:106px;position:absolute;left:22px;top:22px;
+      background:linear-gradient(135deg,#fde68a,#fbbf24);border:3px solid #d97706;
+      transform:rotate(45deg);border-radius:14px;
+      box-shadow:0 4px 12px rgba(2,6,23,.18);display:flex;flex-direction:column;
+      align-items:center;justify-content:center}
+    .dia-in .ico,.dia-in .dt{transform:rotate(-45deg)}
+    .dia-in .ico{font-size:26px}
+    .dia-in .dt{font-size:13.5px;font-weight:800;color:#7c2d12;text-align:center;
+      width:120px;margin-top:-2px}
+    .footer{position:absolute;left:40px;top:1228px;
+      width:718px;height:130px;display:flex;gap:16px}
+    .bencard{flex:1;background:#fff;border-radius:14px;box-shadow:0 3px 10px rgba(2,6,23,.1);
+      padding:14px 18px;display:flex;flex-wrap:wrap;align-content:center;gap:10px 20px}
+    .bencard .hd{width:100%;font-size:13px;font-weight:800;color:#6d28d9;letter-spacing:.6px;
+      text-transform:uppercase;margin-bottom:2px}
+    .ben{display:flex;align-items:center;gap:9px;width:calc(50% - 12px);font-size:13.5px;
+      color:#334155;font-weight:600}
+    .ben .be{font-size:22px}
+    .summary{width:360px;background:#fff;border-radius:14px;
+      box-shadow:0 3px 10px rgba(2,6,23,.1);padding:14px 16px}
+    .summary .hd{font-size:13px;font-weight:800;color:#fff;background:#6d28d9;
+      border-radius:8px;padding:6px 10px;letter-spacing:.6px;margin-bottom:10px}
+    .srow{display:flex;align-items:center;gap:10px;margin:7px 0;font-size:13.5px;
+      color:#334155;font-weight:600}
+    .sb{color:#fff;font-size:12px;font-weight:800;border-radius:6px;padding:2px 8px;min-width:44px;
+      text-align:center}
+    </style></head><body><div class="title"><h1>Customer Portal (External)</h1><p>Customer self-service — orders, tracking, ledger, payments</p></div>
+    <div class="brand">Stainless-Steel Water-Bottle Manufacturing ERP</div>
+    <div class="tab" style="left:98px;width:314px;background:#2563eb"><b>1. Customer</b></div><div class="tab" style="left:428px;width:314px;background:#16a34a"><b>2. ERP / Support</b></div>
+    <svg class="wires" width="798" height="1440" viewBox="0 0 798 1440"><defs><marker id="ah" markerWidth="12" markerHeight="12" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,1 L9,5 L0,9 Z" fill="#64748b"/></marker><marker id="ahd" markerWidth="12" markerHeight="12" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,1 L9,5 L0,9 Z" fill="#6d28d9"/></marker><marker id="ahr" markerWidth="12" markerHeight="12" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,1 L9,5 L0,9 Z" fill="#dc2626"/></marker></defs><path d="M263.0,324.0 L263.0,376.0" fill="none" stroke="#64748b" stroke-width="3"  marker-end="url(#ah)"/><path d="M263.0,496.0 L263.0,548.0" fill="none" stroke="#64748b" stroke-width="3"  marker-end="url(#ah)"/><path d="M263.0,668.0 L263.0,720.0" fill="none" stroke="#64748b" stroke-width="3"  marker-end="url(#ah)"/><path d="M263.0,840.0 L263.0,892.0" fill="none" stroke="#64748b" stroke-width="3"  marker-end="url(#ah)"/><path d="M263.0,1012.0 L263.0,1038.0 L593.0,1038.0 L593.0,1064.0" fill="none" stroke="#64748b" stroke-width="3"  marker-end="url(#ah)"/><path d="M421.0,608.0 L435.0,608.0" fill="none" stroke="#6d28d9" stroke-width="3" marker-end="url(#ahd)"/></svg>
+    <div class="phase" style="top:186.0px;height:500.0px;background:#8b5cf6"><span>TRACK</span></div><div class="phase" style="top:702.0px;height:500.0px;background:#7c3aed"><span>TRANSACT</span></div>
+    <div class="card start" style="left:113.0px;top:204.0px;width:300px;height:120px;"><div class="num" style="background:#2563eb">1</div><div class="ico">🔐</div><div class="lbl">Customer sign-in</div></div><div class="card" style="left:113.0px;top:376.0px;width:300px;height:120px;border-left:7px solid #2563eb;"><div class="num" style="background:#2563eb">2</div><div class="ico">📦</div><div class="lbl">View order status</div></div><div class="card" style="left:113.0px;top:548.0px;width:300px;height:120px;border-left:7px solid #2563eb;"><div class="num" style="background:#2563eb">3</div><div class="ico">🚚</div><div class="lbl">Track dispatch &amp; POD</div></div><div class="card" style="left:113.0px;top:720.0px;width:300px;height:120px;border-left:7px solid #2563eb;"><div class="num" style="background:#2563eb">4</div><div class="ico">🧾</div><div class="lbl">View invoices &amp; ledger</div></div><div class="card" style="left:113.0px;top:892.0px;width:300px;height:120px;border-left:7px solid #2563eb;"><div class="num" style="background:#2563eb">5</div><div class="ico">💳</div><div class="lbl">Make online payment</div></div><div class="card end" style="left:443.0px;top:1064.0px;width:300px;height:120px;"><div class="num" style="background:#16a34a">6</div><div class="ico">✅</div><div class="lbl">Confirm &amp; receipt</div></div><div class="card out" style="left:443.0px;top:548.0px;width:300px;height:120px;border-left:7px dashed #16a34a;"><div class="ico">📣</div><div class="lbl">Raise complaint / request</div></div>
+    <div class="footer">
+      <div class="bencard"><div class="hd">Why this matters</div><div class="ben"><span class="be">👁️</span><span>Real-time order visibility</span></div><div class="ben"><span class="be">💳</span><span>Easy online payment</span></div><div class="ben"><span class="be">📥</span><span>Self-serve documents</span></div><div class="ben"><span class="be">😊</span><span>Higher satisfaction</span></div></div>
+      <div class="summary"><div class="hd">FLOW SUMMARY</div><div class="srow"><span class="sb" style="background:#6d28d9">1-3</span><span>Sign-in → Orders → Track</span></div><div class="srow"><span class="sb" style="background:#6d28d9">4-6</span><span>Ledger → Pay → Receipt</span></div></div>
+    </div></body></html>

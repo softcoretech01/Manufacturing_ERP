@@ -1,0 +1,706 @@
+import type {
+  ApprovalRule,
+  ApprovalTask,
+  Attachment,
+  AuditEntry,
+  BackgroundJob,
+  BackupRecord,
+  Comment,
+  InAppNotification,
+  IntegrationConfig,
+  LabelTemplate,
+  LicenseInfo,
+  MasterDefinition,
+  NotificationLog,
+  NotificationRule,
+  NotificationTemplate,
+  NumberAllocation,
+  NumberSeries,
+  ReportDefinition,
+  SystemParameter,
+  WorkflowDefinition,
+} from '@/types'
+import { daysAgo, daysAhead } from './data'
+
+/* ═══════════════════════════ DOCUMENT NUMBERING (Ch 11) ══════════════════ */
+
+const series = (
+  uid: string, documentType: string, documentLabel: string, subType: string | null,
+  formatString: string, prefix: string, opts: Partial<NumberSeries> = {},
+): NumberSeries => ({
+  uid, documentType, documentLabel, subType,
+  branchCode: '*', plantCode: '*', fyCode: 'FY26-27',
+  formatString, prefix, separator: '/', paddingWidth: 5,
+  startNumber: 1, currentNumber: 0, incrementBy: 1,
+  resetFrequency: 'FINANCIAL_YEARLY', allocateOn: 'DRAFT',
+  isGapless: false, isStatutory: false, isDefault: true, isActive: true,
+  nextNumber: '', issuedCount: 0, ...opts,
+})
+
+export const numberSeries: NumberSeries[] = [
+  series('nsr-01', 'PURCHASE_REQUISITION', 'Purchase Requisition', null, '{PREFIX}{SEP}{FY}{SEP}{SEQ:5}', 'PR', { currentNumber: 318, issuedCount: 318, nextNumber: 'PR/26-27/00319' }),
+  series('nsr-02', 'RFQ', 'Request for Quotation', null, '{PREFIX}{SEP}{FY}{SEP}{SEQ:4}', 'RFQ', { paddingWidth: 4, currentNumber: 87, issuedCount: 87, nextNumber: 'RFQ/26-27/0088' }),
+  series('nsr-03', 'SUPPLIER_QUOTATION', 'Supplier Quotation', null, '{PREFIX}{SEP}{FY}{SEP}{SEQ:4}', 'SQ', { paddingWidth: 4, currentNumber: 141, issuedCount: 141, nextNumber: 'SQ/26-27/0142' }),
+  series('nsr-04', 'PURCHASE_ORDER', 'Purchase Order', null, '{PREFIX}{SEP}{FY}{SEP}{SEQ:5}', 'PO', { allocateOn: 'APPROVAL', currentNumber: 42, issuedCount: 42, nextNumber: 'PO/26-27/00043' }),
+  series('nsr-05', 'GRN', 'Goods Receipt Note', null, '{PLANT}{SEP}{PREFIX}{SEP}{FY}{SEP}{SEQ:5}', 'GRN', { plantCode: 'P1', allocateOn: 'APPROVAL', isGapless: true, currentNumber: 317, issuedCount: 317, nextNumber: 'P1/GRN/26-27/00318' }),
+  series('nsr-06', 'PURCHASE_RETURN', 'Purchase Return', null, '{PLANT}{SEP}{PREFIX}{SEP}{FY}{SEP}{SEQ:4}', 'PRT', { plantCode: 'P1', paddingWidth: 4, allocateOn: 'APPROVAL', isGapless: true, isStatutory: true, currentNumber: 19, issuedCount: 19, nextNumber: 'P1/PRT/26-27/0020' }),
+  series('nsr-07', 'DEBIT_NOTE', 'Debit Note', null, '{PREFIX}{SEP}{FY}{SEP}{SEQ:4}', 'DN', { paddingWidth: 4, allocateOn: 'APPROVAL', isGapless: true, isStatutory: true, currentNumber: 8, issuedCount: 8, nextNumber: 'DN/26-27/0009' }),
+  series('nsr-08', 'SALES_ORDER', 'Sales Order', null, '{PREFIX}{SEP}{FY}{SEP}{SEQ:5}', 'SO', { allocateOn: 'APPROVAL', currentNumber: 891, issuedCount: 891, nextNumber: 'SO/26-27/00892' }),
+  series('nsr-09', 'SALES_INVOICE', 'Tax Invoice', 'DOMESTIC', '{BRANCH}{PREFIX}{FY}{SEQ:5}', 'INV', { branchCode: 'CHN', separator: '', allocateOn: 'APPROVAL', isGapless: true, isStatutory: true, currentNumber: 189, issuedCount: 189, nextNumber: 'CHNINV26-2700190' }),
+  series('nsr-10', 'SALES_INVOICE', 'Tax Invoice', 'EXPORT', '{BRANCH}{PREFIX}{FY}{SEQ:4}', 'EXP', { branchCode: 'CHN', separator: '', paddingWidth: 4, allocateOn: 'APPROVAL', isGapless: true, isStatutory: true, currentNumber: 23, issuedCount: 23, nextNumber: 'CHNEXP26-270024' }),
+  series('nsr-11', 'CREDIT_NOTE', 'Credit Note', null, '{PREFIX}{SEP}{FY}{SEP}{SEQ:4}', 'CN', { paddingWidth: 4, allocateOn: 'APPROVAL', isGapless: true, isStatutory: true, currentNumber: 11, issuedCount: 11, nextNumber: 'CN/26-27/0012' }),
+  series('nsr-12', 'DELIVERY_CHALLAN', 'Delivery Challan', null, '{PLANT}{SEP}{PREFIX}{SEP}{FY}{SEP}{SEQ:5}', 'DC', { plantCode: 'P1', allocateOn: 'APPROVAL', isGapless: true, isStatutory: true, currentNumber: 604, issuedCount: 604, nextNumber: 'P1/DC/26-27/00605' }),
+  series('nsr-13', 'JOBWORK_CHALLAN', 'Job-work Challan', null, '{PLANT}{SEP}{PREFIX}{SEP}{FY}{SEP}{SEQ:4}', 'JW', { plantCode: 'P1', paddingWidth: 4, allocateOn: 'APPROVAL', isGapless: true, isStatutory: true, currentNumber: 64, issuedCount: 64, nextNumber: 'P1/JW/26-27/0065' }),
+  series('nsr-14', 'MATERIAL_ISSUE', 'Material Issue', null, '{PLANT}{SEP}{PREFIX}{SEP}{FY}{SEP}{SEQ:6}', 'MI', { plantCode: 'P1', paddingWidth: 6, allocateOn: 'APPROVAL', currentNumber: 4218, issuedCount: 4218, nextNumber: 'P1/MI/26-27/004219' }),
+  series('nsr-15', 'STOCK_ADJUSTMENT', 'Stock Adjustment', null, '{PREFIX}{SEP}{FY}{SEP}{SEQ:4}', 'ADJ', { paddingWidth: 4, allocateOn: 'APPROVAL', currentNumber: 12, issuedCount: 12, nextNumber: 'ADJ/26-27/0013' }),
+  series('nsr-16', 'PRODUCTION_ORDER', 'Production Order', null, '{PREFIX}{SEP}{YY}{MM}{SEP}{SEQ:4}', 'PRD', { paddingWidth: 4, resetFrequency: 'MONTHLY', fyCode: null, currentNumber: 128, issuedCount: 128, nextNumber: 'PRD/2607/0129' }),
+  series('nsr-17', 'WORK_ORDER', 'Work Order', null, '{PREFIX}{SEP}{YY}{MM}{SEP}{SEQ:5}', 'WO', { plantCode: 'P1', resetFrequency: 'MONTHLY', fyCode: null, currentNumber: 92140, issuedCount: 9214, nextNumber: 'WO/2607/92141' }),
+  series('nsr-18', 'BATCH', 'Batch', null, '{PREFIX}{YY}{MM}{DD}{SEQ:3}', 'B', { separator: '', paddingWidth: 3, resetFrequency: 'DAILY', fyCode: null, currentNumber: 14, issuedCount: 4218, nextNumber: 'B260728015' }),
+  series('nsr-19', 'INSPECTION', 'Inspection Report', null, '{PREFIX}{SEP}{FY}{SEP}{SEQ:5}', 'QC', { currentNumber: 1842, issuedCount: 1842, nextNumber: 'QC/26-27/01843' }),
+  series('nsr-20', 'NCR', 'Non-Conformance Report', null, '{PREFIX}{SEP}{FY}{SEP}{SEQ:4}', 'NCR', { paddingWidth: 4, currentNumber: 31, issuedCount: 31, nextNumber: 'NCR/26-27/0032' }),
+  series('nsr-21', 'CAPA', 'CAPA', null, '{PREFIX}{SEP}{FY}{SEP}{SEQ:4}', 'CAPA', { paddingWidth: 4, currentNumber: 14, issuedCount: 14, nextNumber: 'CAPA/26-27/0015' }),
+  series('nsr-22', 'CARTON', 'Carton', null, '{PREFIX}{YY}{SEQ:7}', 'CTN', { separator: '', paddingWidth: 7, resetFrequency: 'YEARLY', fyCode: null, currentNumber: 8840, issuedCount: 8840, nextNumber: 'CTN260008841' }),
+  series('nsr-23', 'PALLET', 'Pallet', null, '{PREFIX}{YY}{SEQ:6}', 'PLT', { separator: '', paddingWidth: 6, resetFrequency: 'YEARLY', fyCode: null, currentNumber: 412, issuedCount: 412, nextNumber: 'PLT26000413' }),
+  series('nsr-24', 'PAYMENT_VOUCHER', 'Payment Voucher', null, '{PREFIX}{SEP}{FY}{SEP}{SEQ:5}', 'PV', { allocateOn: 'APPROVAL', isGapless: true, isStatutory: true, currentNumber: 744, issuedCount: 744, nextNumber: 'PV/26-27/00745' }),
+  series('nsr-25', 'RECEIPT_VOUCHER', 'Receipt Voucher', null, '{PREFIX}{SEP}{FY}{SEP}{SEQ:5}', 'RV', { allocateOn: 'APPROVAL', isGapless: true, isStatutory: true, currentNumber: 512, issuedCount: 512, nextNumber: 'RV/26-27/00513' }),
+  series('nsr-26', 'JOURNAL_VOUCHER', 'Journal Voucher', null, '{PREFIX}{SEP}{FY}{SEP}{SEQ:5}', 'JV', { allocateOn: 'APPROVAL', isGapless: true, isStatutory: true, currentNumber: 288, issuedCount: 288, nextNumber: 'JV/26-27/00289' }),
+  series('nsr-27', 'EMPLOYEE', 'Employee Code', null, '{PREFIX}{SEQ:4}', 'EMP', { separator: '', paddingWidth: 4, resetFrequency: 'NEVER', fyCode: null, currentNumber: 214, issuedCount: 214, nextNumber: 'EMP0215' }),
+  series('nsr-28', 'CUSTOMER', 'Customer Code', null, '{PREFIX}{SEQ:5}', 'CUS', { separator: '', resetFrequency: 'NEVER', fyCode: null, currentNumber: 348, issuedCount: 348, nextNumber: 'CUS00349' }),
+  series('nsr-29', 'SUPPLIER', 'Supplier Code', null, '{PREFIX}{SEQ:5}', 'SUP', { separator: '', resetFrequency: 'NEVER', fyCode: null, currentNumber: 176, issuedCount: 176, nextNumber: 'SUP00177' }),
+  series('nsr-30', 'ASSET', 'Asset Code', null, '{PREFIX}{SEP}{SEQ:5}', 'AST', { resetFrequency: 'NEVER', fyCode: null, currentNumber: 941, issuedCount: 941, nextNumber: 'AST/00942' }),
+]
+
+export const numberAllocations: NumberAllocation[] = [
+  { uid: 'nal-01', seriesUid: 'nsr-09', sequence: 189, formattedNumber: 'CHNINV26-2700189', entityLabel: 'Tax Invoice → Reliance Retail Ltd', status: 'CONSUMED', allocatedAt: daysAgo(0, 16), allocatedBy: 'kraman' },
+  { uid: 'nal-02', seriesUid: 'nsr-09', sequence: 188, formattedNumber: 'CHNINV26-2700188', entityLabel: 'Tax Invoice → Metro Cash & Carry', status: 'CONSUMED', allocatedAt: daysAgo(0, 14), allocatedBy: 'kraman' },
+  { uid: 'nal-03', seriesUid: 'nsr-09', sequence: 187, formattedNumber: 'CHNINV26-2700187', entityLabel: 'Tax Invoice (cancelled)', status: 'CONSUMED', reason: 'Document cancelled 26-Jul. Number retained; reported as cancelled in GSTR-1.', allocatedAt: daysAgo(1, 11), allocatedBy: 'kraman' },
+  { uid: 'nal-04', seriesUid: 'nsr-09', sequence: 186, formattedNumber: 'CHNINV26-2700186', entityLabel: 'Tax Invoice → Amazon Seller Services', status: 'CONSUMED', allocatedAt: daysAgo(1, 10), allocatedBy: 'kraman' },
+  { uid: 'nal-05', seriesUid: 'nsr-09', sequence: 185, formattedNumber: 'CHNINV26-2700185', entityLabel: 'Tax Invoice → Decathlon Sports India', status: 'CONSUMED', allocatedAt: daysAgo(2, 15), allocatedBy: 'kraman' },
+  { uid: 'nal-06', seriesUid: 'nsr-04', sequence: 42, formattedNumber: 'PO/26-27/00042', entityLabel: 'Purchase Order → Jindal Steel Ltd', status: 'CONSUMED', allocatedAt: daysAgo(3, 10), allocatedBy: 'psuresh' },
+  { uid: 'nal-07', seriesUid: 'nsr-04', sequence: 41, formattedNumber: 'PO/26-27/00041', entityLabel: 'Purchase Order → Suraj Polymers', status: 'CONSUMED', allocatedAt: daysAgo(4, 11), allocatedBy: 'psuresh' },
+  { uid: 'nal-08', seriesUid: 'nsr-04', sequence: 40, formattedNumber: 'PO/26-27/00040', entityLabel: '(draft abandoned)', status: 'VOIDED', reason: 'Draft deleted before submission. Non-statutory series — gap is acceptable.', allocatedAt: daysAgo(5, 9), allocatedBy: 'psuresh' },
+  { uid: 'nal-09', seriesUid: 'nsr-05', sequence: 317, formattedNumber: 'P1/GRN/26-27/00317', entityLabel: 'GRN → Jindal Steel, SS304 coil', status: 'CONSUMED', allocatedAt: daysAgo(1, 8), allocatedBy: 'kravi' },
+  { uid: 'nal-10', seriesUid: 'nsr-05', sequence: 316, formattedNumber: 'P1/GRN/26-27/00316', entityLabel: 'GRN → Coat Tech, powder coat', status: 'CONSUMED', allocatedAt: daysAgo(2, 9), allocatedBy: 'kravi' },
+]
+
+/* ═══════════════════════════ APPROVAL RULES (Ch 9) ═══════════════════════ */
+
+export const approvalRules: ApprovalRule[] = [
+  {
+    uid: 'apr-01', documentType: 'PURCHASE_ORDER', documentLabel: 'Purchase Order', subType: null,
+    name: 'PO — Emergency / urgent', branchCode: '*', plantCode: '*',
+    conditionType: 'EXPRESSION', minAmount: null, maxAmount: 200000,
+    conditionExpr: "priority == 'URGENT' AND total_amount <= 200000",
+    priority: 1, autoApproveBelow: null, restartOnChange: true,
+    materialChangeFields: ['total_amount', 'supplier', 'items'], isActive: true,
+    levels: [{ levelNo: 1, levelName: 'Works', approverType: 'ROLE', approverValue: 'FACTORY_HEAD', approvalMode: 'ANY_ONE', isParallelWithPrevious: false, slaHours: 4, escalationAction: 'NOTIFY_MANAGER', escalationTarget: 'MD' }],
+  },
+  {
+    uid: 'apr-02', documentType: 'PURCHASE_ORDER', documentLabel: 'Purchase Order', subType: 'CAPITAL',
+    name: 'PO — Capital item', branchCode: '*', plantCode: '*',
+    conditionType: 'EXPRESSION', minAmount: null, maxAmount: null,
+    conditionExpr: "item_category == 'CAPITAL'",
+    priority: 5, autoApproveBelow: null, restartOnChange: true,
+    materialChangeFields: ['total_amount', 'supplier', 'items'], isActive: true,
+    levels: [
+      { levelNo: 1, levelName: 'Plant', approverType: 'PLANT_HEAD', approverValue: '—', approvalMode: 'ANY_ONE', isParallelWithPrevious: false, slaHours: 24, escalationAction: 'NOTIFY_MANAGER', escalationTarget: 'FACTORY_HEAD' },
+      { levelNo: 2, levelName: 'Finance', approverType: 'ROLE', approverValue: 'CFO', approvalMode: 'ANY_ONE', isParallelWithPrevious: false, slaHours: 48, escalationAction: 'NOTIFY_ONLY', escalationTarget: 'MD' },
+      { levelNo: 3, levelName: 'Management', approverType: 'ROLE', approverValue: 'MD', approvalMode: 'ANY_ONE', isParallelWithPrevious: false, slaHours: 72, escalationAction: 'NOTIFY_ONLY', escalationTarget: '—' },
+    ],
+  },
+  {
+    uid: 'apr-03', documentType: 'PURCHASE_ORDER', documentLabel: 'Purchase Order', subType: 'SUBCONTRACT',
+    name: 'PO — Subcontract / job work', branchCode: '*', plantCode: '*',
+    conditionType: 'EXPRESSION', minAmount: null, maxAmount: null,
+    conditionExpr: "po_type == 'SUBCONTRACT'",
+    priority: 5, autoApproveBelow: null, restartOnChange: true,
+    materialChangeFields: ['total_amount', 'supplier'], isActive: true,
+    levels: [
+      { levelNo: 1, levelName: 'Planning', approverType: 'ROLE', approverValue: 'PPC', approvalMode: 'ANY_ONE', isParallelWithPrevious: false, slaHours: 12, escalationAction: 'NOTIFY_MANAGER', escalationTarget: 'FACTORY_HEAD' },
+      { levelNo: 2, levelName: 'Works', approverType: 'ROLE', approverValue: 'FACTORY_HEAD', approvalMode: 'ANY_ONE', isParallelWithPrevious: false, slaHours: 24, escalationAction: 'NOTIFY_ONLY', escalationTarget: 'MD' },
+    ],
+  },
+  {
+    uid: 'apr-04', documentType: 'PURCHASE_ORDER', documentLabel: 'Purchase Order', subType: null,
+    name: 'PO — Routine', branchCode: '*', plantCode: '*',
+    conditionType: 'AMOUNT_BAND', minAmount: 0, maxAmount: 100000, conditionExpr: null,
+    priority: 10, autoApproveBelow: 5000, restartOnChange: true,
+    materialChangeFields: ['total_amount', 'supplier', 'items'], isActive: true,
+    levels: [{ levelNo: 1, levelName: 'Purchase', approverType: 'ROLE', approverValue: 'PURCH_HEAD', approvalMode: 'ANY_ONE', isParallelWithPrevious: false, slaHours: 24, escalationAction: 'NOTIFY_MANAGER', escalationTarget: 'FACTORY_HEAD' }],
+  },
+  {
+    uid: 'apr-05', documentType: 'PURCHASE_ORDER', documentLabel: 'Purchase Order', subType: null,
+    name: 'PO — Mid value', branchCode: '*', plantCode: '*',
+    conditionType: 'AMOUNT_BAND', minAmount: 100001, maxAmount: 1000000, conditionExpr: null,
+    priority: 20, autoApproveBelow: null, restartOnChange: true,
+    materialChangeFields: ['total_amount', 'supplier', 'items'], isActive: true,
+    levels: [
+      { levelNo: 1, levelName: 'Purchase', approverType: 'ROLE', approverValue: 'PURCH_HEAD', approvalMode: 'ANY_ONE', isParallelWithPrevious: false, slaHours: 24, escalationAction: 'NOTIFY_MANAGER', escalationTarget: 'FACTORY_HEAD' },
+      { levelNo: 2, levelName: 'Works', approverType: 'ROLE', approverValue: 'FACTORY_HEAD', approvalMode: 'ANY_ONE', isParallelWithPrevious: false, slaHours: 24, escalationAction: 'NOTIFY_MANAGER', escalationTarget: 'CFO' },
+    ],
+  },
+  {
+    uid: 'apr-06', documentType: 'PURCHASE_ORDER', documentLabel: 'Purchase Order', subType: null,
+    name: 'PO — High value', branchCode: '*', plantCode: '*',
+    conditionType: 'AMOUNT_BAND', minAmount: 1000001, maxAmount: null, conditionExpr: null,
+    priority: 30, autoApproveBelow: null, restartOnChange: true,
+    materialChangeFields: ['total_amount', 'supplier', 'items'], isActive: true,
+    levels: [
+      { levelNo: 1, levelName: 'Purchase', approverType: 'ROLE', approverValue: 'PURCH_HEAD', approvalMode: 'ANY_ONE', isParallelWithPrevious: false, slaHours: 24, escalationAction: 'NOTIFY_MANAGER', escalationTarget: 'FACTORY_HEAD' },
+      { levelNo: 2, levelName: 'Works', approverType: 'ROLE', approverValue: 'FACTORY_HEAD', approvalMode: 'ANY_ONE', isParallelWithPrevious: false, slaHours: 24, escalationAction: 'NOTIFY_MANAGER', escalationTarget: 'CFO' },
+      { levelNo: 3, levelName: 'Finance', approverType: 'ROLE', approverValue: 'CFO', approvalMode: 'ANY_ONE', isParallelWithPrevious: false, slaHours: 48, escalationAction: 'REASSIGN_TO_ESCALATION_TARGET', escalationTarget: 'MD' },
+      { levelNo: 4, levelName: 'Management', approverType: 'ROLE', approverValue: 'MD', approvalMode: 'ANY_ONE', isParallelWithPrevious: false, slaHours: 72, escalationAction: 'NOTIFY_ONLY', escalationTarget: '—' },
+    ],
+  },
+  {
+    uid: 'apr-07', documentType: 'PURCHASE_REQUISITION', documentLabel: 'Purchase Requisition', subType: null,
+    name: 'PR — Standard', branchCode: '*', plantCode: '*',
+    conditionType: 'ALWAYS', minAmount: null, maxAmount: null, conditionExpr: null,
+    priority: 10, autoApproveBelow: 5000, restartOnChange: true,
+    materialChangeFields: ['items', 'quantity'], isActive: true,
+    levels: [
+      { levelNo: 1, levelName: 'Department Head', approverType: 'DEPARTMENT_HEAD', approverValue: '—', approvalMode: 'ANY_ONE', isParallelWithPrevious: false, slaHours: 24, escalationAction: 'NOTIFY_MANAGER', escalationTarget: 'FACTORY_HEAD' },
+      { levelNo: 2, levelName: 'Purchase', approverType: 'ROLE', approverValue: 'PURCH_HEAD', approvalMode: 'ANY_ONE', isParallelWithPrevious: false, slaHours: 24, escalationAction: 'NOTIFY_ONLY', escalationTarget: '—' },
+    ],
+  },
+  {
+    uid: 'apr-08', documentType: 'STOCK_ADJUSTMENT', documentLabel: 'Stock Adjustment', subType: null,
+    name: 'Stock adjustment — value based', branchCode: '*', plantCode: '*',
+    conditionType: 'AMOUNT_BAND', minAmount: 0, maxAmount: null, conditionExpr: null,
+    priority: 10, autoApproveBelow: null, restartOnChange: true,
+    materialChangeFields: ['items', 'quantity', 'value'], isActive: true,
+    levels: [
+      { levelNo: 1, levelName: 'Stores', approverType: 'ROLE', approverValue: 'STORE_HEAD', approvalMode: 'ANY_ONE', isParallelWithPrevious: false, slaHours: 8, escalationAction: 'NOTIFY_MANAGER', escalationTarget: 'FACTORY_HEAD' },
+      { levelNo: 2, levelName: 'Works', approverType: 'ROLE', approverValue: 'FACTORY_HEAD', approvalMode: 'ANY_ONE', isParallelWithPrevious: false, slaHours: 24, escalationAction: 'NOTIFY_ONLY', escalationTarget: 'CFO' },
+      { levelNo: 3, levelName: 'Finance', approverType: 'ROLE', approverValue: 'CFO', approvalMode: 'ANY_ONE', isParallelWithPrevious: false, slaHours: 48, escalationAction: 'NOTIFY_ONLY', escalationTarget: '—' },
+    ],
+  },
+  {
+    uid: 'apr-09', documentType: 'SALES_ORDER', documentLabel: 'Sales Order', subType: null,
+    name: 'SO — Standard', branchCode: '*', plantCode: '*',
+    conditionType: 'AMOUNT_BAND', minAmount: 0, maxAmount: 2500000, conditionExpr: null,
+    priority: 10, autoApproveBelow: null, restartOnChange: true,
+    materialChangeFields: ['total_amount', 'customer', 'items', 'delivery_date'], isActive: true,
+    levels: [{ levelNo: 1, levelName: 'Sales', approverType: 'ROLE', approverValue: 'SALES_HEAD', approvalMode: 'ANY_ONE', isParallelWithPrevious: false, slaHours: 12, escalationAction: 'NOTIFY_MANAGER', escalationTarget: 'MD' }],
+  },
+  {
+    uid: 'apr-10', documentType: 'SALES_ORDER', documentLabel: 'Sales Order', subType: null,
+    name: 'SO — High value / credit exposure', branchCode: '*', plantCode: '*',
+    conditionType: 'AMOUNT_BAND', minAmount: 2500001, maxAmount: null, conditionExpr: null,
+    priority: 20, autoApproveBelow: null, restartOnChange: true,
+    materialChangeFields: ['total_amount', 'customer', 'items'], isActive: true,
+    levels: [
+      { levelNo: 1, levelName: 'Sales', approverType: 'ROLE', approverValue: 'SALES_HEAD', approvalMode: 'ANY_ONE', isParallelWithPrevious: false, slaHours: 12, escalationAction: 'NOTIFY_MANAGER', escalationTarget: 'MD' },
+      { levelNo: 2, levelName: 'Credit control', approverType: 'ROLE', approverValue: 'CFO', approvalMode: 'ANY_ONE', isParallelWithPrevious: false, slaHours: 24, escalationAction: 'NOTIFY_ONLY', escalationTarget: 'MD' },
+    ],
+  },
+  {
+    uid: 'apr-11', documentType: 'MAINT_WO', documentLabel: 'Maintenance Work Order', subType: null,
+    name: 'Maintenance WO — Standard', branchCode: '*', plantCode: 'P1',
+    conditionType: 'ALWAYS', minAmount: null, maxAmount: null, conditionExpr: null,
+    priority: 10, autoApproveBelow: null, restartOnChange: false,
+    materialChangeFields: [], isActive: true,
+    levels: [{ levelNo: 1, levelName: 'Maintenance', approverType: 'ROLE', approverValue: 'MAINT_HEAD', approvalMode: 'ANY_ONE', isParallelWithPrevious: false, slaHours: 24, escalationAction: 'NOTIFY_MANAGER', escalationTarget: 'FACTORY_HEAD' }],
+  },
+]
+
+/* ═══════════════════════════ APPROVAL TASKS (inbox) ══════════════════════ */
+
+export const approvalTasks: ApprovalTask[] = [
+  {
+    uid: 'tsk-01', documentNo: 'PO/26-27/00042', documentType: 'PURCHASE_ORDER', documentLabel: 'Purchase Order',
+    subject: 'Jindal Steel Ltd — SS304 coil 0.5mm × 400mm, 5,000 kg',
+    requester: 'P. Suresh', requesterUid: 'usr-07', amount: 1562292, currency: 'INR', department: 'Purchase',
+    levelNo: 3, totalLevels: 4, levelName: 'Finance',
+    assignedAt: daysAgo(2, 9), dueAt: daysAgo(0, 9), status: 'PENDING', isOverdue: true,
+    warnings: ['Rate ₹245/kg is 24% above last purchase rate (₹198/kg on 02-Jun-26)', 'No alternate quotation on file'],
+    context: [
+      { label: 'Budget CC-PUR', value: '₹1.80 Cr used of ₹2.40 Cr — this PO takes it to 79%', tone: 'warning' },
+      { label: 'Supplier rating', value: 'Jindal Steel · ★ 4.2 · on-time 92%' },
+      { label: 'Rate variance', value: '₹245.00/kg vs last ₹198.00/kg (+23.7%)', tone: 'danger' },
+      { label: 'Justification given', value: '"LME nickel up 18% + domestic surcharge from 01-Jul"' },
+      { label: 'Stock cover', value: 'SS304 coil — 11 days at current run rate', tone: 'warning' },
+      { label: 'Alternate quotes', value: 'None on file', tone: 'danger' },
+    ],
+    history: [
+      { levelNo: 1, levelName: 'Purchase', status: 'APPROVED', actor: 'Ravi Kumar', at: daysAgo(3, 10), comments: 'Rate justified — steel index up. Single-source for this grade.' },
+      { levelNo: 2, levelName: 'Works', status: 'APPROVED', actor: 'S. Balaji', at: daysAgo(3, 16), comments: 'Required for July production schedule. Approve.' },
+      { levelNo: 3, levelName: 'Finance', status: 'PENDING', actor: 'K. Raman', at: null, comments: null },
+      { levelNo: 4, levelName: 'Management', status: 'UPCOMING', actor: 'R. Krishnan', at: null, comments: null },
+    ],
+  },
+  {
+    uid: 'tsk-02', documentNo: 'PR/26-27/00318', documentType: 'PURCHASE_REQUISITION', documentLabel: 'Purchase Requisition',
+    subject: 'Coating chemicals — polyester powder, primer, thinner',
+    requester: 'M. Devi', requesterUid: 'usr-08', amount: 82400, currency: 'INR', department: 'Production',
+    levelNo: 2, totalLevels: 2, levelName: 'Purchase',
+    assignedAt: daysAgo(1, 11), dueAt: daysAgo(0, 11), status: 'PENDING', isOverdue: true,
+    warnings: ['Requested delivery in 3 days — standard lead time is 10 days'],
+    context: [
+      { label: 'Budget CC-PRD-03', value: '₹1.60 Cr used of ₹2.40 Cr (67%)' },
+      { label: 'Current stock', value: 'Ocean Blue powder — 2,180 kg (18 days cover)' },
+      { label: 'Requested delivery', value: 'In 3 days — below standard 10-day lead time', tone: 'warning' },
+      { label: 'Last purchase', value: '₹412/kg from Coat Tech Industries, 14-Jun-26' },
+    ],
+    history: [
+      { levelNo: 1, levelName: 'Department Head', status: 'APPROVED', actor: 'J. Mohan', at: daysAgo(1, 10), comments: 'Needed for Metro order coating run.' },
+      { levelNo: 2, levelName: 'Purchase', status: 'PENDING', actor: 'Ravi Kumar', at: null, comments: null },
+    ],
+  },
+  {
+    uid: 'tsk-03', documentNo: 'ADJ/26-27/0012', documentType: 'STOCK_ADJUSTMENT', documentLabel: 'Stock Adjustment',
+    subject: 'RM shortage found in cycle count — SS201 coil, RM-01',
+    requester: 'K. Ravi', requesterUid: 'usr-06', amount: -124000, currency: 'INR', department: 'Stores',
+    levelNo: 2, totalLevels: 3, levelName: 'Works',
+    assignedAt: daysAgo(0, 9), dueAt: daysAhead(0), status: 'PENDING', isOverdue: false,
+    warnings: ['Negative variance is 2.1% of RM stock value — above the 1% tolerance'],
+    context: [
+      { label: 'Variance', value: '−624 kg SS201 coil (−₹1,24,000)', tone: 'danger' },
+      { label: 'Tolerance', value: '2.1% of RM value — limit is 1.0%', tone: 'danger' },
+      { label: 'Cycle count', value: 'CC/26-27/0044 dated 27-Jul-26' },
+      { label: 'Reason code', value: 'PHYSICAL_SHORTAGE — "Coil weight variance at receipt"' },
+      { label: 'Prior adjustments', value: '3 in the last 90 days for this item', tone: 'warning' },
+    ],
+    history: [
+      { levelNo: 1, levelName: 'Stores', status: 'APPROVED', actor: 'K. Ravi', at: daysAgo(0, 9), comments: 'Verified by recount on 27-Jul with two witnesses.' },
+      { levelNo: 2, levelName: 'Works', status: 'PENDING', actor: 'S. Balaji', at: null, comments: null },
+      { levelNo: 3, levelName: 'Finance', status: 'UPCOMING', actor: 'K. Raman', at: null, comments: null },
+    ],
+  },
+  {
+    uid: 'tsk-04', documentNo: 'SO/26-27/00891', documentType: 'SALES_ORDER', documentLabel: 'Sales Order',
+    subject: 'Metro Cash & Carry — 12,000 bottles, SS-750-BLK / SS-1000-BLU',
+    requester: 'A. Kumar', requesterUid: 'usr-10', amount: 4280000, currency: 'INR', department: 'Sales',
+    levelNo: 2, totalLevels: 2, levelName: 'Credit control',
+    assignedAt: daysAgo(0, 10), dueAt: daysAhead(0), status: 'PENDING', isOverdue: false,
+    warnings: ['Customer credit limit 82% utilised', 'Requested delivery date is 6 days inside standard lead time'],
+    context: [
+      { label: 'Credit limit', value: '₹1.20 Cr · used ₹98.4 L (82%) · this order takes it to 118%', tone: 'danger' },
+      { label: 'Payment history', value: 'Avg 41 days against 30-day terms · 2 overdue invoices' },
+      { label: 'Overdue', value: '₹8.4 L overdue > 60 days', tone: 'danger' },
+      { label: 'Requested delivery', value: '18-Aug-2026 — 6 days inside standard lead time', tone: 'warning' },
+      { label: 'Capacity', value: 'Line A has 74% free capacity in the window' },
+      { label: 'Margin', value: '22.4% gross — above the 18% floor' },
+    ],
+    history: [
+      { levelNo: 1, levelName: 'Sales', status: 'APPROVED', actor: 'A. Kumar', at: daysAgo(0, 10), comments: 'Key account. Customer has agreed to advance 30%.' },
+      { levelNo: 2, levelName: 'Credit control', status: 'PENDING', actor: 'K. Raman', at: null, comments: null },
+    ],
+  },
+  {
+    uid: 'tsk-05', documentNo: 'MWO/26-27/0044', documentType: 'MAINT_WO', documentLabel: 'Maintenance Work Order',
+    subject: 'Preventive maintenance — Deep Draw Press 2 (DDP-02)',
+    requester: 'Maintenance team', requesterUid: 'usr-13', amount: null, currency: 'INR', department: 'Maintenance',
+    levelNo: 1, totalLevels: 1, levelName: 'Maintenance',
+    assignedAt: daysAgo(0, 8), dueAt: daysAhead(3), status: 'PENDING', isOverdue: false,
+    warnings: [],
+    context: [
+      { label: 'Machine', value: 'DDP-02 · Deep Draw Press 2 (160T)' },
+      { label: 'Last PM', value: '18-Apr-2026 (101 days ago) · schedule is 90 days', tone: 'warning' },
+      { label: 'Downtime impact', value: '6 hours planned — Line A output −4,800 bottles' },
+      { label: 'Spares required', value: 'Die set gasket ×2, hydraulic filter ×1 — in stock' },
+    ],
+    history: [{ levelNo: 1, levelName: 'Maintenance', status: 'PENDING', actor: 'D. Anand', at: null, comments: null }],
+  },
+  {
+    uid: 'tsk-06', documentNo: 'PR/26-27/00317', documentType: 'PURCHASE_REQUISITION', documentLabel: 'Purchase Requisition',
+    subject: 'Silicone sealing rings 68mm food-grade — 50,000 nos',
+    requester: 'A. Lakshmi', requesterUid: 'usr-09', amount: 168000, currency: 'INR', department: 'Production Planning',
+    levelNo: 2, totalLevels: 2, levelName: 'Purchase',
+    assignedAt: daysAgo(3, 9), dueAt: daysAgo(2, 9), status: 'PENDING', isOverdue: true,
+    warnings: ['Reorder level breached — 4 days of cover remaining'],
+    context: [
+      { label: 'Current stock', value: '12,400 nos · 4 days cover', tone: 'danger' },
+      { label: 'Reorder level', value: '20,000 nos — breached on 25-Jul' },
+      { label: 'MRP suggestion', value: '48,600 nos for the next 8 weeks' },
+      { label: 'Preferred supplier', value: 'Suraj Polymers · ★ 4.5 · on-time 96%' },
+    ],
+    history: [
+      { levelNo: 1, levelName: 'Department Head', status: 'APPROVED', actor: 'S. Balaji', at: daysAgo(3, 9), comments: 'MRP-driven. Approve urgently.' },
+      { levelNo: 2, levelName: 'Purchase', status: 'PENDING', actor: 'Ravi Kumar', at: null, comments: null },
+    ],
+  },
+  {
+    uid: 'tsk-07', documentNo: 'PO/26-27/00043', documentType: 'PURCHASE_ORDER', documentLabel: 'Purchase Order',
+    subject: 'Coat Tech Industries — powder coating job work, 18,000 bodies',
+    requester: 'A. Lakshmi', requesterUid: 'usr-09', amount: 648000, currency: 'INR', department: 'Purchase',
+    levelNo: 2, totalLevels: 2, levelName: 'Works',
+    assignedAt: daysAgo(0, 11), dueAt: daysAhead(1), status: 'PENDING', isOverdue: false,
+    warnings: ['Subcontract PO — material issue on job-work challan required before despatch'],
+    context: [
+      { label: 'PO type', value: 'Subcontract (job work) — Coat Tech Industries' },
+      { label: 'Material to issue', value: '18,000 semi-finished bodies + 940 kg powder' },
+      { label: 'Job-work rate', value: '₹36.00 per body' },
+      { label: 'Turnaround committed', value: '5 working days' },
+      { label: 'Open job-work stock', value: '₹21.4 L already lying with this processor', tone: 'warning' },
+    ],
+    history: [
+      { levelNo: 1, levelName: 'Planning', status: 'APPROVED', actor: 'A. Lakshmi', at: daysAgo(0, 11), comments: 'Required for Metro order, Line C under maintenance.' },
+      { levelNo: 2, levelName: 'Works', status: 'PENDING', actor: 'S. Balaji', at: null, comments: null },
+    ],
+  },
+  {
+    uid: 'tsk-08', documentNo: 'ADJ/26-27/0011', documentType: 'STOCK_ADJUSTMENT', documentLabel: 'Stock Adjustment',
+    subject: 'Scrap reclassification — press shop offcuts to SS scrap',
+    requester: 'K. Ravi', requesterUid: 'usr-06', amount: -42000, currency: 'INR', department: 'Stores',
+    levelNo: 2, totalLevels: 3, levelName: 'Works',
+    assignedAt: daysAgo(4, 10), dueAt: daysAgo(3, 10), status: 'PENDING', isOverdue: true,
+    warnings: [],
+    context: [
+      { label: 'Movement', value: '1,120 kg SS201 offcut → scrap yard' },
+      { label: 'Recoverable value', value: '₹38/kg scrap rate = ₹42,560' },
+      { label: 'Yield impact', value: 'Press shop yield 87.4% vs 89.0% standard', tone: 'warning' },
+    ],
+    history: [
+      { levelNo: 1, levelName: 'Stores', status: 'APPROVED', actor: 'K. Ravi', at: daysAgo(4, 10), comments: 'Routine monthly scrap booking.' },
+      { levelNo: 2, levelName: 'Works', status: 'PENDING', actor: 'S. Balaji', at: null, comments: null },
+      { levelNo: 3, levelName: 'Finance', status: 'UPCOMING', actor: 'K. Raman', at: null, comments: null },
+    ],
+  },
+]
+
+/* ═══════════════════════════ WORKFLOW DESIGNER ═══════════════════════════ */
+
+export const workflowDefinitions: WorkflowDefinition[] = [
+  {
+    uid: 'wfd-01', code: 'SUPPLIER_ONBOARD', name: 'Supplier Onboarding',
+    description: 'New supplier registration with conditional quality audit and parallel legal/compliance review.',
+    documentType: 'SUPPLIER', version: 2, status: 'DRAFT', runningInstances: 3,
+    nodes: [
+      { id: 'n1', type: 'START', label: 'Start', x: 40, y: 180 },
+      { id: 'n2', type: 'APPROVAL', label: 'Purchase review', subtitle: 'Role: PURCH_HEAD · SLA 24h', x: 170, y: 165 },
+      { id: 'n3', type: 'CONDITION', label: 'Critical item?', subtitle: 'item_category IN (CRITICAL)', x: 350, y: 170 },
+      { id: 'n4', type: 'APPROVAL', label: 'Quality audit', subtitle: 'Role: QC_HEAD · SLA 72h', x: 520, y: 80 },
+      { id: 'n5', type: 'APPROVAL', label: 'Finance credit check', subtitle: 'Role: CFO · SLA 48h', x: 700, y: 165 },
+      { id: 'n6', type: 'PARALLEL_SPLIT', label: 'Split', x: 880, y: 175 },
+      { id: 'n7', type: 'APPROVAL', label: 'Legal review', subtitle: 'Role: SYS_ADMIN · SLA 48h', x: 990, y: 90 },
+      { id: 'n8', type: 'APPROVAL', label: 'Compliance check', subtitle: 'Role: AUDITOR · SLA 48h', x: 990, y: 250 },
+      { id: 'n9', type: 'PARALLEL_JOIN', label: 'Join', x: 1180, y: 175 },
+      { id: 'n10', type: 'ACTION', label: 'Activate supplier', subtitle: 'System action', x: 1280, y: 165 },
+      { id: 'n11', type: 'END', label: 'End', x: 1450, y: 180 },
+    ],
+    edges: [
+      { from: 'n1', to: 'n2' }, { from: 'n2', to: 'n3' },
+      { from: 'n3', to: 'n4', label: 'yes' }, { from: 'n3', to: 'n5', label: 'no' },
+      { from: 'n4', to: 'n5' }, { from: 'n5', to: 'n6' },
+      { from: 'n6', to: 'n7' }, { from: 'n6', to: 'n8' },
+      { from: 'n7', to: 'n9' }, { from: 'n8', to: 'n9' },
+      { from: 'n9', to: 'n10' }, { from: 'n10', to: 'n11' },
+    ],
+  },
+  {
+    uid: 'wfd-02', code: 'ECN_APPROVAL', name: 'Engineering Change Note',
+    description: 'Design change routing with impact assessment and customer notification.',
+    documentType: 'ECN', version: 1, status: 'ACTIVE', runningInstances: 1,
+    nodes: [
+      { id: 'n1', type: 'START', label: 'Start', x: 40, y: 140 },
+      { id: 'n2', type: 'APPROVAL', label: 'Engineering review', subtitle: 'Role: PPC · SLA 48h', x: 170, y: 125 },
+      { id: 'n3', type: 'CONDITION', label: 'Affects FG spec?', x: 380, y: 130 },
+      { id: 'n4', type: 'APPROVAL', label: 'Quality sign-off', subtitle: 'Role: QC_HEAD', x: 560, y: 50 },
+      { id: 'n5', type: 'NOTIFICATION', label: 'Notify customers', subtitle: 'Affected SKU customers', x: 740, y: 50 },
+      { id: 'n6', type: 'APPROVAL', label: 'Works approval', subtitle: 'Role: FACTORY_HEAD', x: 640, y: 210 },
+      { id: 'n7', type: 'END', label: 'End', x: 920, y: 140 },
+    ],
+    edges: [
+      { from: 'n1', to: 'n2' }, { from: 'n2', to: 'n3' },
+      { from: 'n3', to: 'n4', label: 'yes' }, { from: 'n3', to: 'n6', label: 'no' },
+      { from: 'n4', to: 'n5' }, { from: 'n5', to: 'n7' }, { from: 'n6', to: 'n7' },
+    ],
+  },
+  {
+    uid: 'wfd-03', code: 'CAPA_CLOSURE', name: 'CAPA Closure',
+    description: 'Corrective action verification with a mandatory effectiveness wait period.',
+    documentType: 'CAPA', version: 3, status: 'ACTIVE', runningInstances: 4,
+    nodes: [
+      { id: 'n1', type: 'START', label: 'Start', x: 40, y: 120 },
+      { id: 'n2', type: 'APPROVAL', label: 'Action verification', subtitle: 'Role: QC_INSP · SLA 24h', x: 170, y: 105 },
+      { id: 'n3', type: 'WAIT', label: 'Effectiveness period', subtitle: '30 days', x: 380, y: 110 },
+      { id: 'n4', type: 'APPROVAL', label: 'Effectiveness review', subtitle: 'Role: QC_HEAD · SLA 48h', x: 540, y: 105 },
+      { id: 'n5', type: 'CONDITION', label: 'Effective?', x: 750, y: 110 },
+      { id: 'n6', type: 'ACTION', label: 'Close CAPA', x: 900, y: 40 },
+      { id: 'n7', type: 'END', label: 'End', x: 1060, y: 120 },
+    ],
+    edges: [
+      { from: 'n1', to: 'n2' }, { from: 'n2', to: 'n3' }, { from: 'n3', to: 'n4' },
+      { from: 'n4', to: 'n5' }, { from: 'n5', to: 'n6', label: 'yes' },
+      { from: 'n5', to: 'n2', label: 'no — rework' }, { from: 'n6', to: 'n7' },
+    ],
+  },
+]
+
+/* ═══════════════════════════ NOTIFICATIONS (Ch 10) ═══════════════════════ */
+
+export const notificationRules: NotificationRule[] = [
+  { uid: 'ntr-01', eventName: 'workflow.approval.requested', eventLabel: 'Approval pending — assigned to you', category: 'Approvals', recipientRule: 'CURRENT_APPROVER', recipientValue: '—', channels: ['IN_APP', 'EMAIL', 'PUSH'], templateCode: 'TPL_APPROVAL_PENDING', urgency: 'HIGH', condition: null, isMandatory: true, isActive: true },
+  { uid: 'ntr-02', eventName: 'workflow.approval.completed', eventLabel: 'Document approved', category: 'Approvals', recipientRule: 'DOCUMENT_CREATOR', recipientValue: '—', channels: ['IN_APP', 'EMAIL'], templateCode: 'TPL_APPROVED', urgency: 'NORMAL', condition: null, isMandatory: false, isActive: true },
+  { uid: 'ntr-03', eventName: 'workflow.approval.rejected', eventLabel: 'Document rejected', category: 'Approvals', recipientRule: 'DOCUMENT_CREATOR', recipientValue: '—', channels: ['IN_APP', 'EMAIL'], templateCode: 'TPL_REJECTED', urgency: 'HIGH', condition: null, isMandatory: false, isActive: true },
+  { uid: 'ntr-04', eventName: 'workflow.approval.escalated', eventLabel: 'Approval SLA breached', category: 'Approvals', recipientRule: 'ROLE', recipientValue: 'FACTORY_HEAD', channels: ['IN_APP', 'EMAIL', 'SMS'], templateCode: 'TPL_ESCALATION', urgency: 'HIGH', condition: null, isMandatory: true, isActive: true },
+  { uid: 'ntr-05', eventName: 'procurement.purchase_order.approved', eventLabel: 'PO approved — notify supplier', category: 'Procurement', recipientRule: 'SUPPLIER_CONTACT', recipientValue: '—', channels: ['EMAIL', 'WHATSAPP'], templateCode: 'TPL_PO_SUPPLIER', urgency: 'NORMAL', condition: null, isMandatory: false, isActive: true },
+  { uid: 'ntr-06', eventName: 'inventory.reorder_level.breached', eventLabel: 'Reorder level breached', category: 'Inventory', recipientRule: 'ITEM_PLANNER', recipientValue: '—', channels: ['IN_APP', 'EMAIL'], templateCode: 'TPL_REORDER', urgency: 'HIGH', condition: 'days_cover < 7', isMandatory: false, isActive: true },
+  { uid: 'ntr-07', eventName: 'inventory.stock.negative', eventLabel: 'Negative stock detected', category: 'Inventory', recipientRule: 'ROLE', recipientValue: 'STORE_HEAD', channels: ['IN_APP', 'EMAIL', 'SMS'], templateCode: 'TPL_NEG_STOCK', urgency: 'CRITICAL', condition: null, isMandatory: true, isActive: true },
+  { uid: 'ntr-08', eventName: 'maintenance.breakdown.reported', eventLabel: 'Machine breakdown reported', category: 'Maintenance', recipientRule: 'ROLE', recipientValue: 'MAINT_HEAD', channels: ['IN_APP', 'PUSH', 'SMS'], templateCode: 'TPL_BREAKDOWN', urgency: 'CRITICAL', condition: null, isMandatory: true, isActive: true },
+  { uid: 'ntr-09', eventName: 'quality.inspection.rejected', eventLabel: 'QC rejection above threshold', category: 'Quality', recipientRule: 'ROLE', recipientValue: 'QC_HEAD', channels: ['IN_APP', 'EMAIL', 'SMS'], templateCode: 'TPL_QC_REJECT', urgency: 'HIGH', condition: 'reject_pct > 5', isMandatory: false, isActive: true },
+  { uid: 'ntr-10', eventName: 'production.finished_goods.received', eventLabel: 'Production completed', category: 'Production', recipientRule: 'ROLE', recipientValue: 'PPC', channels: ['IN_APP'], templateCode: 'TPL_PROD_DONE', urgency: 'NORMAL', condition: null, isMandatory: false, isActive: true },
+  { uid: 'ntr-11', eventName: 'dispatch.shipment.ready', eventLabel: 'Dispatch ready', category: 'Dispatch', recipientRule: 'ROLE', recipientValue: 'SALES_HEAD', channels: ['IN_APP', 'EMAIL'], templateCode: 'TPL_DISPATCH_READY', urgency: 'NORMAL', condition: null, isMandatory: false, isActive: true },
+  { uid: 'ntr-12', eventName: 'finance.invoice.posted', eventLabel: 'Invoice generated — notify customer', category: 'Finance', recipientRule: 'CUSTOMER_CONTACT', recipientValue: '—', channels: ['EMAIL', 'WHATSAPP'], templateCode: 'TPL_INVOICE', urgency: 'NORMAL', condition: null, isMandatory: false, isActive: true },
+  { uid: 'ntr-13', eventName: 'iam.user.password_changed', eventLabel: 'Security: password changed', category: 'Security', recipientRule: 'USER', recipientValue: '—', channels: ['EMAIL', 'SMS'], templateCode: 'TPL_SEC_PWD', urgency: 'CRITICAL', condition: null, isMandatory: true, isActive: true },
+  { uid: 'ntr-14', eventName: 'iam.user.new_device_login', eventLabel: 'Security: login from new device', category: 'Security', recipientRule: 'USER', recipientValue: '—', channels: ['EMAIL'], templateCode: 'TPL_SEC_DEVICE', urgency: 'CRITICAL', condition: null, isMandatory: true, isActive: true },
+  { uid: 'ntr-15', eventName: 'org.registration.expiring', eventLabel: 'Statutory registration expiring', category: 'Compliance', recipientRule: 'ROLE', recipientValue: 'SYS_ADMIN', channels: ['IN_APP', 'EMAIL'], templateCode: 'TPL_REG_EXPIRY', urgency: 'HIGH', condition: 'days_to_expiry IN (90,60,30,7)', isMandatory: true, isActive: true },
+  { uid: 'ntr-16', eventName: 'system.job.failed', eventLabel: 'Background job failed', category: 'System', recipientRule: 'ROLE', recipientValue: 'SYS_ADMIN', channels: ['IN_APP', 'EMAIL'], templateCode: 'TPL_JOB_FAIL', urgency: 'HIGH', condition: null, isMandatory: true, isActive: true },
+]
+
+export const notificationTemplates: NotificationTemplate[] = [
+  { uid: 'ntt-01', code: 'TPL_APPROVAL_PENDING', name: 'Approval pending', channel: 'EMAIL', language: 'en-IN', subject: '[{{company_code}}] Approval required: {{document_type}} {{document_no}}', body: 'Hello {{approver_name}},\n\n{{document_type}} {{document_no}} raised by {{requester_name}} is awaiting your approval at level {{level_no}} of {{total_levels}}.\n\nSubject : {{subject}}\nAmount  : {{currency}} {{amount}}\nDue by  : {{due_at}}\n\n{{#warnings}}⚠ {{.}}\n{{/warnings}}\n\nOpen: {{document_url}}\n\n— {{company_name}} ERP', variables: ['company_code', 'company_name', 'approver_name', 'document_type', 'document_no', 'requester_name', 'level_no', 'total_levels', 'subject', 'currency', 'amount', 'due_at', 'warnings', 'document_url'], version: 3, isActive: true },
+  { uid: 'ntt-02', code: 'TPL_APPROVAL_PENDING', name: 'Approval pending (in-app)', channel: 'IN_APP', language: 'en-IN', subject: 'Approval required', body: '{{document_type}} {{document_no}} from {{requester_name}} — {{currency}} {{amount}}. Due {{due_at}}.', variables: ['document_type', 'document_no', 'requester_name', 'currency', 'amount', 'due_at'], version: 2, isActive: true },
+  { uid: 'ntt-03', code: 'TPL_APPROVAL_PENDING', name: 'Approval pending (SMS)', channel: 'SMS', language: 'en-IN', subject: '', body: '{{company_code}}: {{document_type}} {{document_no}} ({{currency}} {{amount}}) awaits your approval. Due {{due_at}}.', variables: ['company_code', 'document_type', 'document_no', 'currency', 'amount', 'due_at'], version: 1, isActive: true },
+  { uid: 'ntt-04', code: 'TPL_PO_SUPPLIER', name: 'PO issued to supplier', channel: 'EMAIL', language: 'en-IN', subject: 'Purchase Order {{document_no}} from {{company_name}}', body: 'Dear {{supplier_contact}},\n\nPlease find attached Purchase Order {{document_no}} dated {{po_date}} for {{currency}} {{amount}}.\n\nDelivery required by : {{delivery_date}}\nShip to              : {{ship_to}}\nPayment terms        : {{payment_terms}}\n\nPlease acknowledge within 48 hours on the supplier portal.\n\nRegards,\n{{buyer_name}}\n{{company_name}}', variables: ['supplier_contact', 'company_name', 'document_no', 'po_date', 'currency', 'amount', 'delivery_date', 'ship_to', 'payment_terms', 'buyer_name'], version: 5, isActive: true },
+  { uid: 'ntt-05', code: 'TPL_PO_SUPPLIER', name: 'PO issued (WhatsApp)', channel: 'WHATSAPP', language: 'en-IN', subject: 'po_issued_v2', body: 'Hello {{1}}, Purchase Order {{2}} for ₹{{3}} has been issued by {{4}}. Delivery required by {{5}}. Please acknowledge on the supplier portal.', variables: ['1', '2', '3', '4', '5'], version: 2, whatsappApprovalStatus: 'APPROVED', isActive: true },
+  { uid: 'ntt-06', code: 'TPL_BREAKDOWN', name: 'Machine breakdown', channel: 'SMS', language: 'en-IN', subject: '', body: 'URGENT {{plant_code}}: {{machine_code}} ({{machine_name}}) breakdown reported by {{reporter}} at {{time}}. Line {{line_code}} stopped.', variables: ['plant_code', 'machine_code', 'machine_name', 'reporter', 'time', 'line_code'], version: 2, isActive: true },
+  { uid: 'ntt-07', code: 'TPL_REORDER', name: 'Reorder level breached', channel: 'EMAIL', language: 'en-IN', subject: '[{{company_code}}] Reorder alert: {{item_code}} — {{days_cover}} days cover', body: '{{item_name}} ({{item_code}}) has fallen to {{current_stock}} {{uom}}, below the reorder level of {{reorder_level}} {{uom}}.\n\nDays of cover : {{days_cover}}\nOpen POs      : {{open_po_qty}} {{uom}}\nMRP suggests  : {{suggested_qty}} {{uom}}\n\nRaise a requisition: {{action_url}}', variables: ['company_code', 'item_code', 'item_name', 'current_stock', 'uom', 'reorder_level', 'days_cover', 'open_po_qty', 'suggested_qty', 'action_url'], version: 4, isActive: true },
+  { uid: 'ntt-08', code: 'TPL_SEC_PWD', name: 'Password changed', channel: 'EMAIL', language: 'en-IN', subject: 'Your {{company_name}} ERP password was changed', body: 'Your password was changed on {{changed_at}} from {{ip_address}} ({{device}}).\n\nIf this was not you, contact IT immediately on {{support_phone}}.', variables: ['company_name', 'changed_at', 'ip_address', 'device', 'support_phone'], version: 2, isActive: true },
+  { uid: 'ntt-09', code: 'TPL_INVOICE', name: 'Invoice to customer', channel: 'EMAIL', language: 'en-IN', subject: 'Tax Invoice {{document_no}} — {{company_name}}', body: 'Dear {{customer_contact}},\n\nTax Invoice {{document_no}} dated {{invoice_date}} for {{currency}} {{amount}} is attached.\n\nIRN      : {{irn}}\nDue date : {{due_date}}\nE-way bill: {{ewb_no}}\n\nRegards,\n{{company_name}} Accounts', variables: ['customer_contact', 'company_name', 'document_no', 'invoice_date', 'currency', 'amount', 'irn', 'due_date', 'ewb_no'], version: 6, isActive: true },
+  { uid: 'ntt-10', code: 'TPL_QC_REJECT', name: 'QC rejection alert', channel: 'EMAIL', language: 'en-IN', subject: '[{{plant_code}}] QC rejection {{reject_pct}}% — {{item_code}} batch {{batch_no}}', body: 'Inspection {{inspection_no}} on {{item_name}} ({{item_code}}), batch {{batch_no}}, rejected {{reject_qty}} of {{inspected_qty}} ({{reject_pct}}%).\n\nTop defects:\n{{#defects}}  • {{name}} — {{count}}\n{{/defects}}\n\nAn NCR has been raised: {{ncr_no}}', variables: ['plant_code', 'inspection_no', 'item_code', 'item_name', 'batch_no', 'reject_qty', 'inspected_qty', 'reject_pct', 'defects', 'ncr_no'], version: 3, isActive: true },
+  { uid: 'ntt-11', code: 'TPL_ESCALATION', name: 'SLA breach escalation', channel: 'EMAIL', language: 'en-IN', subject: '[ESCALATION] {{document_type}} {{document_no}} overdue by {{overdue_hours}}h', body: '{{document_type}} {{document_no}} has been pending with {{assignee_name}} at level {{level_no}} for {{overdue_hours}} hours beyond its {{sla_hours}}-hour SLA.\n\nRequester : {{requester_name}}\nAmount    : {{currency}} {{amount}}\n\nOpen: {{document_url}}', variables: ['document_type', 'document_no', 'assignee_name', 'level_no', 'overdue_hours', 'sla_hours', 'requester_name', 'currency', 'amount', 'document_url'], version: 2, isActive: true },
+  { uid: 'ntt-12', code: 'TPL_REG_EXPIRY', name: 'Registration expiring', channel: 'EMAIL', language: 'en-IN', subject: '[{{company_code}}] {{registration_type}} expires in {{days_left}} days', body: '{{registration_type}} {{registration_no}} issued by {{authority}} expires on {{valid_to}} ({{days_left}} days from now).\n\nRenew and update the record in System Administration → Company → Statutory Registrations.', variables: ['company_code', 'registration_type', 'registration_no', 'authority', 'valid_to', 'days_left'], version: 1, isActive: true },
+]
+
+export const notificationLogs: NotificationLog[] = [
+  { uid: 'nlg-01', eventName: 'workflow.approval.requested', recipient: 'k.raman@ssbindustries.co.in', channel: 'EMAIL', subject: 'Approval required: Purchase Order PO/26-27/00042', status: 'READ', attempts: 1, error: null, sentAt: daysAgo(2, 9) },
+  { uid: 'nlg-02', eventName: 'workflow.approval.requested', recipient: '+91 98400 33221', channel: 'SMS', subject: 'PO/26-27/00042 awaits approval', status: 'DELIVERED', attempts: 1, error: null, sentAt: daysAgo(2, 9) },
+  { uid: 'nlg-03', eventName: 'procurement.purchase_order.approved', recipient: 'a.sharma@jindalsteel.example', channel: 'EMAIL', subject: 'Purchase Order PO/26-27/00041 from SSB Industries', status: 'DELIVERED', attempts: 1, error: null, sentAt: daysAgo(4, 12) },
+  { uid: 'nlg-04', eventName: 'procurement.purchase_order.approved', recipient: '+91 98110 44221', channel: 'WHATSAPP', subject: 'po_issued_v2', status: 'READ', attempts: 1, error: null, sentAt: daysAgo(4, 12) },
+  { uid: 'nlg-05', eventName: 'inventory.reorder_level.breached', recipient: 'a.lakshmi@ssbindustries.co.in', channel: 'EMAIL', subject: 'Reorder alert: RM-SIL-068 — 4 days cover', status: 'READ', attempts: 1, error: null, sentAt: daysAgo(3, 8) },
+  { uid: 'nlg-06', eventName: 'finance.invoice.posted', recipient: 'accounts@decathlon.example', channel: 'EMAIL', subject: 'Tax Invoice CHNINV26-2700185', status: 'BOUNCED', attempts: 3, error: 'SMTP 550 — mailbox unavailable', sentAt: daysAgo(2, 16) },
+  { uid: 'nlg-07', eventName: 'maintenance.breakdown.reported', recipient: '+91 98401 32786', channel: 'SMS', subject: 'URGENT P1: DDP-02 breakdown', status: 'DELIVERED', attempts: 1, error: null, sentAt: daysAgo(1, 14) },
+  { uid: 'nlg-08', eventName: 'org.registration.expiring', recipient: 'it@ssbindustries.co.in', channel: 'EMAIL', subject: 'LEGAL_METROLOGY expires in 7 days', status: 'SENT', attempts: 1, error: null, sentAt: daysAgo(0, 6) },
+  { uid: 'nlg-09', eventName: 'quality.inspection.rejected', recipient: 's.meena@ssbindustries.co.in', channel: 'EMAIL', subject: 'QC rejection 7.2% — SF-BODY-750 batch B260726008', status: 'READ', attempts: 1, error: null, sentAt: daysAgo(2, 11) },
+  { uid: 'nlg-10', eventName: 'workflow.approval.escalated', recipient: 's.balaji@ssbindustries.co.in', channel: 'EMAIL', subject: '[ESCALATION] PO/26-27/00042 overdue by 48h', status: 'FAILED', attempts: 5, error: 'Connection timeout to smtp relay', sentAt: daysAgo(0, 9) },
+  { uid: 'nlg-11', eventName: 'iam.user.password_changed', recipient: 'k.raman@ssbindustries.co.in', channel: 'EMAIL', subject: 'Your SSB ERP password was changed', status: 'DELIVERED', attempts: 1, error: null, sentAt: daysAgo(6, 10) },
+  { uid: 'nlg-12', eventName: 'system.job.failed', recipient: 'it@ssbindustries.co.in', channel: 'IN_APP', subject: 'MRP run failed — BOM cycle detected', status: 'READ', attempts: 1, error: null, sentAt: daysAgo(1, 2) },
+]
+
+export const inAppNotifications: InAppNotification[] = [
+  { uid: 'inn-01', title: 'Approval required — PO/26-27/00042', body: 'Purchase Order from P. Suresh for ₹15,62,292. Overdue by 2 days.', category: 'Approvals', urgency: 'HIGH', link: '/workflow/inbox', isRead: false, at: daysAgo(2, 9) },
+  { uid: 'inn-02', title: 'Approval required — ADJ/26-27/0012', body: 'Stock adjustment −₹1,24,000 from K. Ravi. Due today.', category: 'Approvals', urgency: 'HIGH', link: '/workflow/inbox', isRead: false, at: daysAgo(0, 9) },
+  { uid: 'inn-03', title: 'Legal Metrology registration expires in 7 days', body: 'TN/LM/PC/2023/0912 expires soon. Renew and update the record.', category: 'Compliance', urgency: 'HIGH', link: '/admin/company', isRead: false, at: daysAgo(0, 6) },
+  { uid: 'inn-04', title: 'Reorder level breached — Silicone ring 68mm', body: 'Stock at 12,400 nos, 4 days cover. MRP suggests 48,600 nos.', category: 'Inventory', urgency: 'HIGH', link: '#', isRead: false, at: daysAgo(0, 8) },
+  { uid: 'inn-05', title: 'Machine breakdown — DDP-02', body: 'Deep Draw Press 2 reported down by Anand P. Line A affected.', category: 'Maintenance', urgency: 'CRITICAL', link: '#', isRead: true, at: daysAgo(1, 14) },
+  { uid: 'inn-06', title: 'MRP run failed', body: 'BOM cycle detected between SF-BODY-750 and SF-INNER-750. Job JOB-2291.', category: 'System', urgency: 'HIGH', link: '/admin/jobs', isRead: true, at: daysAgo(1, 2) },
+  { uid: 'inn-07', title: 'Delegation active', body: 'K. Raman delegated Purchase Order approvals to you until 02-Aug-2026.', category: 'Approvals', urgency: 'NORMAL', link: '/admin/delegations', isRead: true, at: daysAgo(2, 8) },
+  { uid: 'inn-08', title: 'QC rejection 7.2% above threshold', body: 'SF-BODY-750 batch B260726008 — leak test failures. NCR/26-27/0031 raised.', category: 'Quality', urgency: 'HIGH', link: '#', isRead: true, at: daysAgo(2, 11) },
+  { uid: 'inn-09', title: 'Backup completed', body: 'Nightly full backup succeeded — 18.4 GB in 6m 12s.', category: 'System', urgency: 'LOW', link: '/admin/backup', isRead: true, at: daysAgo(0, 2) },
+  { uid: 'inn-10', title: 'API key expiring in 21 days', body: 'Biometric attendance puller (ssb_live_c81) expires soon.', category: 'Security', urgency: 'NORMAL', link: '/admin/api-keys', isRead: true, at: daysAgo(3, 9) },
+]
+
+/* ═══════════════════════════ AUDIT (Ch 15) ══════════════════════════════ */
+
+export const auditEntries: AuditEntry[] = [
+  { uid: 'aud-01', entityType: 'prc_purchase_order', entityLabel: 'Purchase Order', documentNo: 'PO/26-27/00042', action: 'APPROVE', changes: [{ field: 'status', old: 'PENDING_APPROVAL', new: 'PENDING_APPROVAL' }, { field: 'workflow_level', old: '1', new: '2' }], reasonCode: null, comments: 'Required for July production schedule. Approve.', userName: 'S. Balaji', roleCode: 'FACTORY_HEAD', ipAddress: '10.2.14.90', userAgent: 'Chrome 131 / Windows', channel: 'WEB', correlationId: '01J8XYZK2M4P7Q9R', at: daysAgo(3, 16) },
+  { uid: 'aud-02', entityType: 'prc_purchase_order', entityLabel: 'Purchase Order', documentNo: 'PO/26-27/00042', action: 'SUBMIT', changes: [{ field: 'status', old: 'DRAFT', new: 'PENDING_APPROVAL' }], reasonCode: null, comments: null, userName: 'P. Suresh', roleCode: 'PURCH_EXEC', ipAddress: '10.2.14.112', userAgent: 'Chrome 131 / Windows', channel: 'WEB', correlationId: '01J8XYZ8B1C3D5E7', at: daysAgo(3, 10) },
+  { uid: 'aud-03', entityType: 'prc_purchase_order', entityLabel: 'Purchase Order', documentNo: 'PO/26-27/00042', action: 'UPDATE', changes: [{ field: 'items[0].rate', old: '198.00', new: '245.00' }, { field: 'total_amount', old: '1284420.00', new: '1562292.00' }], reasonCode: 'PRICE_REVISION', comments: 'LME nickel up 18% + domestic surcharge from 01-Jul', userName: 'P. Suresh', roleCode: 'PURCH_EXEC', ipAddress: '10.2.14.112', userAgent: 'Chrome 131 / Windows', channel: 'WEB', correlationId: '01J8XYZ7A0B2C4D6', at: daysAgo(3, 9) },
+  { uid: 'aud-04', entityType: 'iam_role', entityLabel: 'Role', documentNo: 'PURCH_HEAD', action: 'PERMISSION_CHANGE', changes: [{ field: 'permissions', old: '82 permissions', new: '84 permissions' }, { field: 'added', old: null, new: 'MASTER.SUPPLIER.APPROVE, PROCUREMENT.RETURN.CANCEL' }], reasonCode: null, comments: 'Approved by IT change request CR-2026-0118', userName: 'System Administrator', roleCode: 'SYS_ADMIN', ipAddress: '10.2.14.10', userAgent: 'Chrome 131 / Windows', channel: 'WEB', correlationId: '01J8XYW4K8L2M6N0', at: daysAgo(5, 15) },
+  { uid: 'aud-05', entityType: 'iam_user', entityLabel: 'User', documentNo: 'jmohan', action: 'UPDATE', changes: [{ field: 'status', old: 'ACTIVE', new: 'SUSPENDED' }], reasonCode: 'DISCIPLINARY', comments: 'Suspended pending HR enquiry. 2 pending approvals reassigned to T. Ganesh.', userName: 'P. Vidya', roleCode: 'HR', ipAddress: '10.2.14.55', userAgent: 'Chrome 131 / Windows', channel: 'WEB', correlationId: '01J8XYV1G5H9J3K7', at: daysAgo(55, 11) },
+  { uid: 'aud-06', entityType: 'sys_period_status', entityLabel: 'Accounting Period', documentNo: 'June 2026 / FINANCE', action: 'CLOSE', changes: [{ field: 'status', old: 'OPEN', new: 'CLOSED' }], reasonCode: null, comments: '3 blockers waived: 14 GRNs without invoice, 3 unposted production confirmations, 22 unreconciled bank entries', userName: 'K. Raman', roleCode: 'CFO', ipAddress: '10.2.14.66', userAgent: 'Chrome 131 / Windows', channel: 'WEB', correlationId: '01J8XYU9F4G8H2J6', at: daysAgo(23, 17) },
+  { uid: 'aud-07', entityType: 'core_number_series', entityLabel: 'Numbering Series', documentNo: 'SALES_INVOICE / DOMESTIC', action: 'CONFIG_CHANGE', changes: [{ field: 'padding_width', old: '4', new: '5' }], reasonCode: null, comments: 'Widened before FY roll — series was at 92% of 4-digit capacity', userName: 'System Administrator', roleCode: 'SYS_ADMIN', ipAddress: '10.2.14.10', userAgent: 'Chrome 131 / Windows', channel: 'WEB', correlationId: '01J8XYT6D3E7F1G5', at: daysAgo(112, 10) },
+  { uid: 'aud-08', entityType: 'sal_sales_invoice', entityLabel: 'Tax Invoice', documentNo: 'CHNINV26-2700187', action: 'CANCEL', changes: [{ field: 'status', old: 'APPROVED', new: 'CANCELLED' }], reasonCode: 'CUSTOMER_REJECTED_GOODS', comments: 'Customer refused delivery — damaged cartons. Credit note CN/26-27/0011 raised.', userName: 'K. Raman', roleCode: 'CFO', ipAddress: '10.2.14.66', userAgent: 'Chrome 131 / Windows', channel: 'WEB', correlationId: '01J8XYS3B2C6D0E4', at: daysAgo(1, 11) },
+  { uid: 'aud-09', entityType: 'hrm_employee', entityLabel: 'Employee', documentNo: 'EMP0142', action: 'UNMASK', changes: [{ field: 'bank_account_no', old: '***', new: '***' }], reasonCode: 'PAYROLL_VERIFICATION', comments: 'Bank details verified for salary transfer failure investigation', userName: 'P. Vidya', roleCode: 'HR', ipAddress: '10.2.14.55', userAgent: 'Chrome 131 / Windows', channel: 'WEB', correlationId: '01J8XYR0A1B5C9D3', at: daysAgo(8, 14) },
+  { uid: 'aud-10', entityType: 'inv_stock_adjustment', entityLabel: 'Stock Adjustment', documentNo: 'ADJ/26-27/0012', action: 'CREATE', changes: [{ field: 'status', old: null, new: 'DRAFT' }, { field: 'total_value', old: null, new: '-124000.00' }], reasonCode: 'PHYSICAL_SHORTAGE', comments: 'Coil weight variance at receipt — verified by recount', userName: 'K. Ravi', roleCode: 'STORE_HEAD', ipAddress: '10.2.31.44', userAgent: 'Zebra TC26 / Android', channel: 'MOBILE', correlationId: '01J8XYQ8Z0A4B8C2', at: daysAgo(0, 9) },
+  { uid: 'aud-11', entityType: 'sys_company', entityLabel: 'Company', documentNo: 'SSB', action: 'CONFIG_CHANGE', changes: [{ field: 'registrations.PCB_CONSENT.valid_to', old: '2026-03-31', new: '2026-09-14' }], reasonCode: null, comments: 'TNPCB consent renewed', userName: 'System Administrator', roleCode: 'SYS_ADMIN', ipAddress: '10.2.14.10', userAgent: 'Chrome 131 / Windows', channel: 'WEB', correlationId: '01J8XYP5Y9Z3A7B1', at: daysAgo(30, 12) },
+  { uid: 'aud-12', entityType: 'core_approval_rule', entityLabel: 'Approval Rule', documentNo: 'PO — High value', action: 'UPDATE', changes: [{ field: 'levels[2].sla_hours', old: '24', new: '48' }, { field: 'levels[2].escalation_action', old: 'NOTIFY_ONLY', new: 'REASSIGN_TO_ESCALATION_TARGET' }], reasonCode: null, comments: 'CFO requested longer SLA with automatic escalation to MD', userName: 'System Administrator', roleCode: 'SYS_ADMIN', ipAddress: '10.2.14.10', userAgent: 'Chrome 131 / Windows', channel: 'WEB', correlationId: '01J8XYN2X8Y2Z6A0', at: daysAgo(18, 16) },
+  { uid: 'aud-13', entityType: 'iam_session', entityLabel: 'Session', documentNo: 'sysadmin', action: 'LOGIN_FAILED', changes: [], reasonCode: 'ACCOUNT_LOCKED', comments: '5 failed attempts in 15 minutes from 203.0.113.77', userName: 'System Administrator', roleCode: 'SYS_ADMIN', ipAddress: '203.0.113.77', userAgent: 'python-requests/2.31', channel: 'API', correlationId: '01J8XYM9W7X1Y5Z9', at: daysAgo(0, 3) },
+  { uid: 'aud-14', entityType: 'prc_purchase_order', entityLabel: 'Purchase Order', documentNo: 'PO/26-27/00042', action: 'EXPORT', changes: [], reasonCode: null, comments: 'Exported 1 document to PDF', userName: 'N. Vasanth', roleCode: 'AUDITOR', ipAddress: '10.2.14.201', userAgent: 'Chrome 131 / Windows', channel: 'WEB', correlationId: '01J8XYL6V6W0X4Y8', at: daysAgo(2, 11) },
+  { uid: 'aud-15', entityType: 'sys_warehouse', entityLabel: 'Warehouse', documentNo: 'RM-01', action: 'UPDATE', changes: [{ field: 'bin_count', old: '0', new: '708' }], reasonCode: null, comments: 'Bulk bin generation: 720 requested, 12 existing skipped', userName: 'K. Ravi', roleCode: 'STORE_HEAD', ipAddress: '10.2.14.77', userAgent: 'Chrome 131 / Windows', channel: 'WEB', correlationId: '01J8XYK3U5V9W3X7', at: daysAgo(64, 15) },
+]
+
+/* ═══════════════════════════ ATTACHMENTS / COMMENTS (Ch 13, 14) ═════════ */
+
+export const attachments: Attachment[] = [
+  { uid: 'att-01', entityType: 'prc_purchase_order', entityUid: 'po-42', fileName: 'Jindal_quotation_SS304_Jul2026.pdf', fileType: 'application/pdf', category: 'Supplier quotation', sizeBytes: 284_512, version: 1, uploadedBy: 'P. Suresh', uploadedAt: daysAgo(3, 9), status: 'AVAILABLE' },
+  { uid: 'att-02', entityType: 'prc_purchase_order', entityUid: 'po-42', fileName: 'Rate_comparison_SS304_3suppliers.xlsx', fileType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', category: 'Comparison', sizeBytes: 41_208, version: 2, uploadedBy: 'P. Suresh', uploadedAt: daysAgo(3, 9), status: 'AVAILABLE' },
+  { uid: 'att-03', entityType: 'prc_purchase_order', entityUid: 'po-42', fileName: 'LME_nickel_index_Jul2026.pdf', fileType: 'application/pdf', category: 'Justification', sizeBytes: 118_004, version: 1, uploadedBy: 'Ravi Kumar', uploadedAt: daysAgo(3, 10), status: 'AVAILABLE' },
+  { uid: 'att-04', entityType: 'eng_drawing', entityUid: 'drw-750', fileName: 'SS-750-BLK_body_rev_C.dwg', fileType: 'application/acad', category: 'CAD drawing', sizeBytes: 4_812_990, version: 3, uploadedBy: 'A. Lakshmi', uploadedAt: daysAgo(21, 11), status: 'AVAILABLE' },
+  { uid: 'att-05', entityType: 'qcm_inspection', entityUid: 'qc-1842', fileName: 'leak_test_failure_batch_B260726008.jpg', fileType: 'image/jpeg', category: 'QC photo', sizeBytes: 2_104_882, version: 1, uploadedBy: 'S. Meena', uploadedAt: daysAgo(2, 11), status: 'AVAILABLE' },
+  { uid: 'att-06', entityType: 'prc_grn', entityUid: 'grn-317', fileName: 'Jindal_mill_test_certificate_heat_H4471.pdf', fileType: 'application/pdf', category: 'Test certificate', sizeBytes: 512_004, version: 1, uploadedBy: 'K. Ravi', uploadedAt: daysAgo(1, 8), status: 'AVAILABLE' },
+  { uid: 'att-07', entityType: 'sys_company', entityUid: 'cmp-01', fileName: 'Factory_licence_TN_FAC_2019_4471.pdf', fileType: 'application/pdf', category: 'Statutory', sizeBytes: 890_112, version: 1, uploadedBy: 'System Administrator', uploadedAt: daysAgo(210, 10), status: 'AVAILABLE' },
+  { uid: 'att-08', entityType: 'prc_purchase_order', entityUid: 'po-42', fileName: 'supplier_bank_mandate.pdf', fileType: 'application/pdf', category: 'Banking', sizeBytes: 98_440, version: 1, uploadedBy: 'P. Suresh', uploadedAt: daysAgo(0, 11), status: 'SCANNING' },
+]
+
+export const comments: Comment[] = [
+  { uid: 'cmt-01', entityType: 'prc_purchase_order', entityUid: 'po-42', body: 'Rate is well above our last purchase. @Ravi Kumar can you confirm the LME movement justifies 24%?', visibility: 'INTERNAL', author: 'K. Raman', mentions: ['Ravi Kumar'], at: daysAgo(2, 10) },
+  { uid: 'cmt-02', entityType: 'prc_purchase_order', entityUid: 'po-42', body: 'Confirmed. LME nickel is up 18% since 01-Jun and Jindal has added a ₹12/kg domestic surcharge. I have attached the index sheet. We are single-source on 0.5mm 304 at this width — the alternative is a 6-week lead time from Posco.', visibility: 'INTERNAL', author: 'Ravi Kumar', mentions: [], at: daysAgo(2, 12) },
+  { uid: 'cmt-03', entityType: 'prc_purchase_order', entityUid: 'po-42', body: 'Stock cover is 11 days. If this slips past Friday, Line A stops on 08-Aug. @S. Balaji flagging for visibility.', visibility: 'INTERNAL', author: 'A. Lakshmi', mentions: ['S. Balaji'], at: daysAgo(1, 9) },
+  { uid: 'cmt-04', entityType: 'prc_purchase_order', entityUid: 'po-42', body: 'Noted. Please proceed — I will take this up in the monthly cost review.', visibility: 'INTERNAL', author: 'S. Balaji', mentions: [], at: daysAgo(1, 16) },
+  { uid: 'cmt-05', entityType: 'prc_purchase_order', entityUid: 'po-42', body: 'Dear Sir, we confirm despatch within 7 working days of PO release. Mill test certificates will accompany each coil.', visibility: 'EXTERNAL', author: 'Jindal Steel — A. Sharma', mentions: [], at: daysAgo(0, 11) },
+]
+
+/* ═══════════════════════════ SYSTEM (Ch 6, 22, 27, 28) ══════════════════ */
+
+export const systemParameters: SystemParameter[] = [
+  { uid: 'prm-01', key: 'ALLOW_SELF_APPROVAL', name: 'Allow self-approval', group: 'Workflow', valueType: 'BOOLEAN', value: 'false', defaultValue: 'false', description: 'When off, a document creator can never approve their own document even if they hold the permission.', scope: 'COMPANY', isSensitive: false },
+  { uid: 'prm-02', key: 'COLLAPSE_DUPLICATE_APPROVERS', name: 'Collapse duplicate approvers', group: 'Workflow', valueType: 'BOOLEAN', value: 'false', defaultValue: 'false', description: 'If the same user resolves to two levels, auto-satisfy the later level instead of escalating.', scope: 'COMPANY', isSensitive: false },
+  { uid: 'prm-03', key: 'WORKFLOW_RESTART_ON_CHANGE', name: 'Restart workflow on material change', group: 'Workflow', valueType: 'BOOLEAN', value: 'true', defaultValue: 'true', description: 'Editing a material field after submission restarts approval from level 1.', scope: 'COMPANY', isSensitive: false },
+  { uid: 'prm-04', key: 'PASSWORD_MIN_LENGTH', name: 'Minimum password length', group: 'Security', valueType: 'NUMBER', value: '10', defaultValue: '10', description: 'Minimum characters for a user password.', scope: 'COMPANY', isSensitive: false },
+  { uid: 'prm-05', key: 'PASSWORD_HISTORY_COUNT', name: 'Password history barred', group: 'Security', valueType: 'NUMBER', value: '5', defaultValue: '5', description: 'Number of previous passwords a user may not reuse.', scope: 'COMPANY', isSensitive: false },
+  { uid: 'prm-06', key: 'PASSWORD_MAX_AGE_DAYS', name: 'Password maximum age (days)', group: 'Security', valueType: 'NUMBER', value: '90', defaultValue: '90', description: '0 disables expiry.', scope: 'COMPANY', isSensitive: false },
+  { uid: 'prm-07', key: 'MAX_LOGIN_ATTEMPTS', name: 'Max failed login attempts', group: 'Security', valueType: 'NUMBER', value: '5', defaultValue: '5', description: 'Failures within 15 minutes before lockout.', scope: 'COMPANY', isSensitive: false },
+  { uid: 'prm-08', key: 'LOCKOUT_MINUTES', name: 'Lockout duration (minutes)', group: 'Security', valueType: 'NUMBER', value: '30', defaultValue: '30', description: 'How long an account stays locked after too many failures.', scope: 'COMPANY', isSensitive: false },
+  { uid: 'prm-09', key: 'SESSION_IDLE_MINUTES', name: 'Session idle timeout (minutes)', group: 'Security', valueType: 'NUMBER', value: '30', defaultValue: '30', description: 'Inactivity before automatic sign-out.', scope: 'COMPANY', isSensitive: false },
+  { uid: 'prm-10', key: 'MFA_MANDATORY_ROLES', name: 'Roles requiring MFA', group: 'Security', valueType: 'JSON', value: '["SYS_ADMIN","CFO","MD"]', defaultValue: '["SYS_ADMIN"]', description: 'Roles for which two-factor authentication cannot be disabled.', scope: 'COMPANY', isSensitive: false },
+  { uid: 'prm-11', key: 'MAX_CONCURRENT_SESSIONS', name: 'Max concurrent sessions', group: 'Security', valueType: 'NUMBER', value: '3', defaultValue: '3', description: 'Per internal user. Portal users are limited to 1.', scope: 'COMPANY', isSensitive: false },
+  { uid: 'prm-12', key: 'ALLOW_NEGATIVE_STOCK', name: 'Allow negative stock', group: 'Inventory', valueType: 'BOOLEAN', value: 'false', defaultValue: 'false', description: 'Global default. Can be overridden per warehouse.', scope: 'COMPANY', isSensitive: false },
+  { uid: 'prm-13', key: 'BACKDATE_TOLERANCE_DAYS', name: 'Back-dating tolerance (days)', group: 'Finance', valueType: 'NUMBER', value: '7', defaultValue: '7', description: 'How far back a document may be dated without the POST_BACKDATED permission.', scope: 'COMPANY', isSensitive: false },
+  { uid: 'prm-14', key: 'FUTURE_DATE_TOLERANCE_DAYS', name: 'Future-dating tolerance (days)', group: 'Finance', valueType: 'NUMBER', value: '0', defaultValue: '0', description: 'Financial documents. Planning documents use 7.', scope: 'COMPANY', isSensitive: false },
+  { uid: 'prm-15', key: 'DEFAULT_PAGE_SIZE', name: 'Default page size', group: 'General', valueType: 'NUMBER', value: '50', defaultValue: '50', description: 'Rows per page on list screens.', scope: 'COMPANY', isSensitive: false },
+  { uid: 'prm-16', key: 'EXPORT_SYNC_ROW_LIMIT', name: 'Synchronous export row limit', group: 'General', valueType: 'NUMBER', value: '5000', defaultValue: '5000', description: 'Exports above this run as a background job.', scope: 'INSTALLATION', isSensitive: false },
+  { uid: 'prm-17', key: 'QUIET_HOURS', name: 'Notification quiet hours', group: 'Notification', valueType: 'STRING', value: '21:00-07:00', defaultValue: '22:00-06:00', description: 'SMS/WhatsApp/push suppressed except CRITICAL categories.', scope: 'COMPANY', isSensitive: false },
+  { uid: 'prm-18', key: 'NOTIFICATION_RETRY_MAX', name: 'Notification retry attempts', group: 'Notification', valueType: 'NUMBER', value: '5', defaultValue: '5', description: 'Backoff 1m, 5m, 15m, 1h, 4h.', scope: 'INSTALLATION', isSensitive: false },
+  { uid: 'prm-19', key: 'AUDIT_ONLINE_MONTHS', name: 'Audit log online window (months)', group: 'Compliance', valueType: 'NUMBER', value: '24', defaultValue: '24', description: 'Older rows move to cold archive but stay queryable.', scope: 'INSTALLATION', isSensitive: false },
+  { uid: 'prm-20', key: 'AUDIT_RETENTION_YEARS', name: 'Audit retention (years)', group: 'Compliance', valueType: 'NUMBER', value: '8', defaultValue: '8', description: 'Indian statutory books retention minimum.', scope: 'INSTALLATION', isSensitive: false },
+  { uid: 'prm-21', key: 'MAX_UPLOAD_MB', name: 'Maximum upload size (MB)', group: 'General', valueType: 'NUMBER', value: '25', defaultValue: '25', description: 'CAD drawings are allowed 100 MB.', scope: 'INSTALLATION', isSensitive: false },
+  { uid: 'prm-22', key: 'DATE_FORMAT', name: 'Default date format', group: 'General', valueType: 'ENUM', value: 'dd-MMM-yyyy', defaultValue: 'dd-MMM-yyyy', options: ['dd-MMM-yyyy', 'dd/MM/yyyy', 'yyyy-MM-dd'], description: 'Never ambiguous dd/mm vs mm/dd.', scope: 'COMPANY', isSensitive: false },
+  { uid: 'prm-23', key: 'NUMBER_FORMAT', name: 'Default number format', group: 'General', valueType: 'ENUM', value: 'IN', defaultValue: 'IN', options: ['IN', 'INTL'], description: 'IN uses the Indian lakh/crore grouping.', scope: 'COMPANY', isSensitive: false },
+  { uid: 'prm-24', key: 'BASE_CURRENCY', name: 'Base currency', group: 'Finance', valueType: 'STRING', value: 'INR', defaultValue: 'INR', description: 'Immutable after the first financial transaction.', scope: 'COMPANY', isSensitive: false },
+]
+
+export const backups: BackupRecord[] = [
+  { uid: 'bkp-01', type: 'FULL', status: 'SUCCESS', sizeMb: 18_432, startedAt: daysAgo(0, 2), durationSec: 372, location: 's3://ssberp-backup/full/2026-07-28', retentionUntil: daysAhead(30), restoreTested: false },
+  { uid: 'bkp-02', type: 'INCREMENTAL', status: 'SUCCESS', sizeMb: 412, startedAt: daysAgo(0, 14), durationSec: 22, location: 's3://ssberp-backup/binlog/2026-07-28-14', retentionUntil: daysAhead(30), restoreTested: false },
+  { uid: 'bkp-03', type: 'INCREMENTAL', status: 'SUCCESS', sizeMb: 388, startedAt: daysAgo(0, 12), durationSec: 19, location: 's3://ssberp-backup/binlog/2026-07-28-12', retentionUntil: daysAhead(30), restoreTested: false },
+  { uid: 'bkp-04', type: 'FULL', status: 'SUCCESS', sizeMb: 18_211, startedAt: daysAgo(1, 2), durationSec: 366, location: 's3://ssberp-backup/full/2026-07-27', retentionUntil: daysAhead(29), restoreTested: true },
+  { uid: 'bkp-05', type: 'FULL', status: 'FAILED', sizeMb: 0, startedAt: daysAgo(2, 2), durationSec: 44, location: '—', retentionUntil: daysAhead(28), restoreTested: false },
+  { uid: 'bkp-06', type: 'MANUAL', status: 'SUCCESS', sizeMb: 17_998, startedAt: daysAgo(3, 18), durationSec: 358, location: 's3://ssberp-backup/manual/pre-upgrade-1.2', retentionUntil: daysAhead(90), restoreTested: true },
+  { uid: 'bkp-07', type: 'FULL', status: 'SUCCESS', sizeMb: 17_820, startedAt: daysAgo(7, 2), durationSec: 349, location: 's3://ssberp-backup/weekly/2026-W29', retentionUntil: daysAhead(77), restoreTested: true },
+]
+
+export const licenseInfo: LicenseInfo = {
+  licenseKey: 'SSBE-2026-XXXX-XXXX-4471',
+  licensedTo: 'SSB Industries Private Limited',
+  edition: 'Manufacturing Enterprise',
+  validFrom: '2026-04-01',
+  validTo: '2027-03-31',
+  namedUsers: 500,
+  usedUsers: 214,
+  companies: 5,
+  usedCompanies: 2,
+  plants: 10,
+  usedPlants: 2,
+  status: 'ACTIVE',
+  modules: [
+    { code: 'CORE', name: 'Core Framework', enabled: true },
+    { code: 'MASTERS', name: 'Master Data', enabled: true },
+    { code: 'CRM', name: 'CRM & Sales', enabled: true },
+    { code: 'PROC', name: 'Procurement', enabled: true },
+    { code: 'INV', name: 'Inventory & Warehouse', enabled: true },
+    { code: 'ENG', name: 'Product Engineering & BOM', enabled: true },
+    { code: 'PLAN', name: 'Production Planning (MRP/MPS)', enabled: true },
+    { code: 'PROD', name: 'Shop Floor Execution', enabled: true },
+    { code: 'QC', name: 'Quality Management', enabled: true },
+    { code: 'MAINT', name: 'Maintenance', enabled: true },
+    { code: 'PACK', name: 'Packing & Dispatch', enabled: true },
+    { code: 'FIN', name: 'Finance & Accounting', enabled: true },
+    { code: 'HRMS', name: 'HRMS & Payroll', enabled: true },
+    { code: 'ASSET', name: 'Asset Management', enabled: true },
+    { code: 'DMS', name: 'Document Management', enabled: true },
+    { code: 'MOBILE', name: 'Mobile Application', enabled: true },
+    { code: 'PORTAL', name: 'Supplier & Customer Portal', enabled: true },
+    { code: 'AI', name: 'AI Forecasting & Insights', enabled: false },
+  ],
+}
+
+export const integrations: IntegrationConfig[] = [
+  { uid: 'int-01', code: 'SMTP', name: 'Email (SMTP)', category: 'EMAIL', provider: 'Office 365', status: 'CONNECTED', lastTestedAt: daysAgo(0, 8), settings: [{ key: 'host', label: 'SMTP host', value: 'smtp.office365.com' }, { key: 'port', label: 'Port', value: '587' }, { key: 'user', label: 'Username', value: 'noreply@ssbindustries.co.in' }, { key: 'password', label: 'Password', value: '••••••••••••', secret: true }, { key: 'tls', label: 'Use TLS', value: 'Yes' }, { key: 'from', label: 'From address', value: 'SSB ERP <noreply@ssbindustries.co.in>' }] },
+  { uid: 'int-02', code: 'SMS', name: 'SMS Gateway', category: 'SMS', provider: 'MSG91', status: 'CONNECTED', lastTestedAt: daysAgo(1, 10), settings: [{ key: 'api_key', label: 'API key', value: '••••••••••••', secret: true }, { key: 'sender_id', label: 'Sender ID', value: 'SSBERP' }, { key: 'route', label: 'Route', value: 'Transactional (DLT)' }, { key: 'dlt_entity', label: 'DLT entity ID', value: '1701158944712' }] },
+  { uid: 'int-03', code: 'WHATSAPP', name: 'WhatsApp Business API', category: 'WHATSAPP', provider: 'Meta Cloud API (via Gupshup)', status: 'CONNECTED', lastTestedAt: daysAgo(2, 11), settings: [{ key: 'phone_id', label: 'Phone number ID', value: '108441122334455' }, { key: 'token', label: 'Access token', value: '••••••••••••', secret: true }, { key: 'waba_id', label: 'WABA ID', value: '229944112233445' }, { key: 'templates', label: 'Approved templates', value: '6 of 8 approved' }] },
+  { uid: 'int-04', code: 'EINVOICE', name: 'GST e-Invoice (IRP)', category: 'STATUTORY', provider: 'ClearTax GSP', status: 'CONNECTED', lastTestedAt: daysAgo(0, 11), settings: [{ key: 'gstin', label: 'GSTIN', value: '33AABCS1234K1ZP' }, { key: 'username', label: 'API username', value: 'ssb_api_prod' }, { key: 'password', label: 'API password', value: '••••••••••••', secret: true }, { key: 'env', label: 'Environment', value: 'Production' }] },
+  { uid: 'int-05', code: 'EWAYBILL', name: 'E-Way Bill (NIC)', category: 'STATUTORY', provider: 'ClearTax GSP', status: 'CONNECTED', lastTestedAt: daysAgo(0, 14), settings: [{ key: 'gstin', label: 'GSTIN', value: '33AABCS1234K1ZP' }, { key: 'username', label: 'API username', value: 'ssb_ewb_prod' }, { key: 'password', label: 'API password', value: '••••••••••••', secret: true }] },
+  { uid: 'int-06', code: 'S3', name: 'Object Storage', category: 'STORAGE', provider: 'MinIO (on-premise)', status: 'CONNECTED', lastTestedAt: daysAgo(0, 2), settings: [{ key: 'endpoint', label: 'Endpoint', value: 'https://minio.ssb.local:9000' }, { key: 'bucket', label: 'Bucket', value: 'ssberp' }, { key: 'access_key', label: 'Access key', value: '••••••••', secret: true }] },
+  { uid: 'int-07', code: 'BANK', name: 'Bank Statement Feed', category: 'BANK', provider: 'HDFC Bank (MT940)', status: 'NOT_CONFIGURED', lastTestedAt: null, settings: [{ key: 'account', label: 'Account number', value: '—' }, { key: 'sftp_host', label: 'SFTP host', value: '—' }] },
+  { uid: 'int-08', code: 'LABEL_PRINTER', name: 'Label Printers (ZPL)', category: 'PRINTER', provider: 'Zebra ZT411 / TSC TE244', status: 'CONNECTED', lastTestedAt: daysAgo(0, 7), settings: [{ key: 'rm_printer', label: 'RM Store printer', value: '10.2.50.21:9100' }, { key: 'fg_printer', label: 'FG Store printer', value: '10.2.50.22:9100' }, { key: 'pack_printer', label: 'Packing line printer', value: '10.2.50.23:9100' }] },
+  { uid: 'int-09', code: 'BIOMETRIC', name: 'Biometric Attendance', category: 'STORAGE', provider: 'eSSL x990', status: 'ERROR', lastTestedAt: daysAgo(0, 6), settings: [{ key: 'devices', label: 'Devices', value: '4 configured, 1 unreachable' }, { key: 'poll_interval', label: 'Poll interval', value: '15 minutes' }] },
+]
+
+export const backgroundJobs: BackgroundJob[] = [
+  { uid: 'job-01', type: 'MRP_RUN', label: 'MRP run — Plant 1, 8-week horizon', status: 'RUNNING', progressPct: 42, message: 'Exploding BOM level 3 of 5 — 2,140 of 5,000 items', startedAt: daysAgo(0, 11), durationSec: null, triggeredBy: 'A. Lakshmi' },
+  { uid: 'job-02', type: 'BACKUP_FULL', label: 'Nightly full backup', status: 'SUCCESS', progressPct: 100, message: 'Completed — 18.4 GB written to s3://ssberp-backup/full/2026-07-28', startedAt: daysAgo(0, 2), durationSec: 372, triggeredBy: 'Scheduler' },
+  { uid: 'job-03', type: 'EXPORT', label: 'Export — Stock ledger, FY26-27 (128,441 rows)', status: 'SUCCESS', progressPct: 100, message: 'Ready for download (expires in 24 h)', startedAt: daysAgo(0, 10), durationSec: 84, triggeredBy: 'N. Vasanth' },
+  { uid: 'job-04', type: 'MRP_RUN', label: 'MRP run — Plant 1, 12-week horizon', status: 'FAILED', progressPct: 61, message: 'BOM cycle detected: SF-BODY-750 → SF-INNER-750 → SF-BODY-750', startedAt: daysAgo(1, 2), durationSec: 214, triggeredBy: 'Scheduler' },
+  { uid: 'job-05', type: 'NOTIFICATION_DISPATCH', label: 'Notification dispatcher', status: 'RUNNING', progressPct: 0, message: 'Queue depth 12 — draining', startedAt: daysAgo(0, 0), durationSec: null, triggeredBy: 'Scheduler' },
+  { uid: 'job-06', type: 'EINVOICE_SUBMIT', label: 'E-invoice IRN generation — 14 pending invoices', status: 'QUEUED', progressPct: 0, message: 'Waiting for worker slot', startedAt: daysAgo(0, 0), durationSec: null, triggeredBy: 'Scheduler' },
+  { uid: 'job-07', type: 'IMPORT', label: 'Import — Item master (2,140 rows)', status: 'SUCCESS', progressPct: 100, message: '2,118 created, 22 skipped (duplicate code)', startedAt: daysAgo(4, 15), durationSec: 128, triggeredBy: 'System Administrator' },
+  { uid: 'job-08', type: 'STOCK_RECON', label: 'Stock ledger ↔ balance reconciliation', status: 'SUCCESS', progressPct: 100, message: 'Matched — 0 divergences across 48,219 balance rows', startedAt: daysAgo(0, 3), durationSec: 96, triggeredBy: 'Scheduler' },
+  { uid: 'job-09', type: 'PARTITION_MAINT', label: 'Monthly partition maintenance', status: 'SUCCESS', progressPct: 100, message: 'Created Aug-2026 partitions on 4 tables', startedAt: daysAgo(0, 1), durationSec: 12, triggeredBy: 'Scheduler' },
+  { uid: 'job-10', type: 'PAYROLL', label: 'Payroll run — July 2026 (214 employees)', status: 'QUEUED', progressPct: 0, message: 'Scheduled for 31-Jul 20:00', startedAt: daysAhead(3), durationSec: null, triggeredBy: 'Scheduler' },
+]
+
+/* ═══════════════════════════ BARCODE / LABELS (Ch 19) ═══════════════════ */
+
+export const labelTemplates: LabelTemplate[] = [
+  { uid: 'lbl-01', code: 'LBL_RM_COIL', name: 'Raw material coil tag', objectType: 'Raw material lot', symbology: 'CODE128 + QR', widthMm: 100, heightMm: 75, dpi: 203, payloadFormat: 'v1|RM|{item_code}|{lot_no}|{heat_no}|{grade}|{thickness}|{width}|{weight_kg}|{grn_no}', sample: 'v1|RM|RM-SS304-05|LOT260728004|H4471|SS304|0.5|400|2240|P1/GRN/26-27/00317', isDefault: true },
+  { uid: 'lbl-02', code: 'LBL_BIN', name: 'Bin / rack location label', objectType: 'Bin location', symbology: 'CODE128', widthMm: 75, heightMm: 25, dpi: 203, payloadFormat: 'v1|LOC|{warehouse}|{zone}|{bin}', sample: 'v1|LOC|RM-01|Rack Area A|A-01-1-1', isDefault: true },
+  { uid: 'lbl-03', code: 'LBL_WIP', name: 'WIP travel card', objectType: 'Production order', symbology: 'QR', widthMm: 100, heightMm: 150, dpi: 203, payloadFormat: 'v1|PO|{production_order_no}|{operation_seq}', sample: 'v1|PO|PRD/2607/0128|30', isDefault: true },
+  { uid: 'lbl-04', code: 'LBL_SF_BODY', name: 'Semi-finished body bin card', objectType: 'Semi-finished item', symbology: 'QR', widthMm: 75, heightMm: 50, dpi: 203, payloadFormat: 'v1|SF|{item_code}|{batch_no}|{prod_order_no}|{op_seq}', sample: 'v1|SF|SF-BODY-750|B260728014|PRD/2607/0128|60', isDefault: true },
+  { uid: 'lbl-05', code: 'LBL_FG_BOTTLE', name: 'Finished bottle label', objectType: 'Finished goods', symbology: 'DATAMATRIX', widthMm: 25, heightMm: 25, dpi: 300, payloadFormat: 'v1|FG|{sku}|{serial_no}|{batch_no}|{mfg_date}', sample: 'v1|FG|SS-750-BLK|SN260728004412|B260728014|2026-07-28', isDefault: false },
+  { uid: 'lbl-06', code: 'LBL_INNER_BOX', name: 'Inner box label', objectType: 'Inner box', symbology: 'CODE128 + QR', widthMm: 75, heightMm: 50, dpi: 203, payloadFormat: 'v1|IB|{sku}|{batch_no}|{qty}|{box_no}', sample: 'v1|IB|SS-750-BLK|B260728014|6|IB26000044112', isDefault: true },
+  { uid: 'lbl-07', code: 'LBL_CARTON', name: 'Carton label (GS1-128)', objectType: 'Carton', symbology: 'GS1_128', widthMm: 100, heightMm: 100, dpi: 203, payloadFormat: '(00){sscc}(01){gtin}(10){batch}(11){mfg_date}(37){count}', sample: '(00)089012345000088410(01)08901234500018(10)B260728014(11)260728(37)24', isDefault: true },
+  { uid: 'lbl-08', code: 'LBL_PALLET', name: 'Pallet placard', objectType: 'Pallet', symbology: 'GS1_128', widthMm: 150, heightMm: 210, dpi: 203, payloadFormat: '(00){sscc}(02){gtin}(37){carton_count}', sample: '(00)089012345000041307(02)08901234500018(37)48', isDefault: true },
+  { uid: 'lbl-09', code: 'LBL_ASSET', name: 'Asset / machine plate', objectType: 'Asset', symbology: 'CODE128 + QR', widthMm: 50, heightMm: 25, dpi: 300, payloadFormat: 'v1|AST|{asset_code}', sample: 'v1|AST|AST/00942', isDefault: true },
+  { uid: 'lbl-10', code: 'LBL_INVOICE_QR', name: 'Tax invoice QR (statutory)', objectType: 'Tax invoice', symbology: 'QR', widthMm: 35, heightMm: 35, dpi: 300, payloadFormat: 'GST signed QR (IRN payload) — statutory format, not editable', sample: 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9…', isDefault: true },
+]
+
+/* ═══════════════════════════ REPORTS (Ch 18) ════════════════════════════ */
+
+export const reportDefinitions: ReportDefinition[] = [
+  { uid: 'rpt-01', code: 'RPT_USER_ACCESS', name: 'User Access Rights', module: 'System', variant: 'DETAIL', description: 'Per user: every effective permission and the role that granted it — the standard IT-audit artefact.', isScheduled: false, lastRunAt: daysAgo(2, 11) },
+  { uid: 'rpt-02', code: 'RPT_ROLE_DEF', name: 'Role Definition Report', module: 'System', variant: 'DETAIL', description: 'Per role: permissions, field policies and current holders.', isScheduled: false, lastRunAt: daysAgo(9, 15) },
+  { uid: 'rpt-03', code: 'RPT_LOGIN_ACTIVITY', name: 'Login Activity', module: 'System', variant: 'DETAIL', description: 'Successes, failures and lockouts by user, IP, date and channel.', isScheduled: true, lastRunAt: daysAgo(0, 6) },
+  { uid: 'rpt-04', code: 'RPT_DORMANT_USERS', name: 'Dormant Users', module: 'System', variant: 'EXCEPTION', description: 'Active accounts with no login for 60 days — an access-review control.', isScheduled: true, lastRunAt: daysAgo(0, 6) },
+  { uid: 'rpt-05', code: 'RPT_SOD', name: 'Segregation of Duties Violations', module: 'System', variant: 'EXCEPTION', description: 'Users holding conflicting permission pairs, with overrides and justifications.', isScheduled: true, lastRunAt: daysAgo(0, 6) },
+  { uid: 'rpt-06', code: 'RPT_PENDING_APPROVALS', name: 'Pending Approvals', module: 'Workflow', variant: 'PENDING', description: 'All in-flight approvals by document type, level, approver and age.', isScheduled: false, lastRunAt: daysAgo(0, 9) },
+  { uid: 'rpt-07', code: 'RPT_APPROVAL_AGEING', name: 'Approval Ageing', module: 'Workflow', variant: 'AGEING', description: 'Bucketed by days pending — identifies chronic approval bottlenecks.', isScheduled: true, lastRunAt: daysAgo(0, 6) },
+  { uid: 'rpt-08', code: 'RPT_APPROVER_PERF', name: 'Approver Performance', module: 'Workflow', variant: 'MIS', description: 'Per approver: volume, average turnaround, % within SLA, % overdue.', isScheduled: true, lastRunAt: daysAgo(7, 6) },
+  { uid: 'rpt-09', code: 'RPT_SELF_APPROVAL', name: 'Self-approval Exceptions', module: 'Workflow', variant: 'EXCEPTION', description: 'Every self-approval permitted by parameter — a key audit control.', isScheduled: true, lastRunAt: daysAgo(0, 6) },
+  { uid: 'rpt-10', code: 'RPT_AUTO_APPROVAL', name: 'Auto-approval Log', module: 'Workflow', variant: 'EXCEPTION', description: 'Every auto-approval with the rule that caused it.', isScheduled: false, lastRunAt: daysAgo(14, 10) },
+  { uid: 'rpt-11', code: 'RPT_GAP_ANALYSIS', name: 'Numbering Gap Analysis', module: 'Numbering', variant: 'EXCEPTION', description: 'Per series: missing sequences with the reason each is missing — the artefact a GST auditor asks for.', isScheduled: false, lastRunAt: daysAgo(1, 14) },
+  { uid: 'rpt-12', code: 'RPT_ALLOCATION_LOG', name: 'Number Allocation Log', module: 'Numbering', variant: 'DETAIL', description: 'Every number issued with document, status, user and timestamp.', isScheduled: false, lastRunAt: daysAgo(1, 14) },
+  { uid: 'rpt-13', code: 'RPT_AUDIT_TRAIL', name: 'Audit Trail', module: 'Compliance', variant: 'DETAIL', description: 'Full change history filterable by entity, document, user, action and date.', isScheduled: false, lastRunAt: daysAgo(0, 10) },
+  { uid: 'rpt-14', code: 'RPT_BACKDATED', name: 'Back-dated Postings', module: 'Compliance', variant: 'EXCEPTION', description: 'Every posting made into a prior period, with user and reason.', isScheduled: true, lastRunAt: daysAgo(0, 6) },
+  { uid: 'rpt-15', code: 'RPT_PERIOD_REOPEN', name: 'Period Reopen Log', module: 'Compliance', variant: 'EXCEPTION', description: 'Every period reopen with reason and approver.', isScheduled: false, lastRunAt: daysAgo(23, 17) },
+  { uid: 'rpt-16', code: 'RPT_REG_EXPIRY', name: 'Statutory Registration Register', module: 'Compliance', variant: 'SUMMARY', description: 'All registrations with validity and expiry status across companies.', isScheduled: true, lastRunAt: daysAgo(0, 6) },
+  { uid: 'rpt-17', code: 'RPT_ORG_STRUCTURE', name: 'Organisation Structure', module: 'System', variant: 'SUMMARY', description: 'Full hierarchy with codes — the artefact given to auditors.', isScheduled: false, lastRunAt: daysAgo(31, 11) },
+  { uid: 'rpt-18', code: 'RPT_BIN_UTIL', name: 'Bin Utilisation', module: 'System', variant: 'SUMMARY', description: 'Occupancy % by warehouse, zone and bin type.', isScheduled: false, lastRunAt: daysAgo(3, 9) },
+  { uid: 'rpt-19', code: 'RPT_NOTIF_DELIVERY', name: 'Notification Delivery', module: 'Notification', variant: 'DETAIL', description: 'Delivery status by channel with failures and retries.', isScheduled: false, lastRunAt: daysAgo(0, 8) },
+  { uid: 'rpt-20', code: 'RPT_API_USAGE', name: 'API Key Usage', module: 'System', variant: 'SUMMARY', description: 'Keys, last used, call volume and expiry.', isScheduled: false, lastRunAt: daysAgo(5, 12) },
+]
+
+/* ═══════════════════════════ MASTER FRAMEWORK (Ch 12) ═══════════════════ */
+
+export const masterDefinitions: MasterDefinition[] = [
+  { code: 'CUSTOMER', name: 'Customer', module: 'Business Partner', recordCount: 348, hasApproval: true, hasRevision: true, hasAttachment: true, isConfigured: true, route: '/masters/customer' },
+  { code: 'SUPPLIER', name: 'Supplier', module: 'Business Partner', recordCount: 176, hasApproval: true, hasRevision: true, hasAttachment: true, isConfigured: true, route: '/masters/supplier' },
+  { code: 'EMPLOYEE', name: 'Employee', module: 'Business Partner', recordCount: 214, hasApproval: true, hasRevision: true, hasAttachment: true, isConfigured: true, route: '/masters/employee' },
+  { code: 'TRANSPORTER', name: 'Transporter', module: 'Business Partner', recordCount: 22, hasApproval: false, hasRevision: false, hasAttachment: true, isConfigured: true, route: '/masters/transporter' },
+  { code: 'ITEM', name: 'Item / Product', module: 'Product', recordCount: 4128, hasApproval: true, hasRevision: true, hasAttachment: true, isConfigured: true, route: '/masters/item' },
+  { code: 'BOTTLE_MODEL', name: 'Bottle Model', module: 'Product', recordCount: 34, hasApproval: true, hasRevision: true, hasAttachment: true, isConfigured: true, route: '/masters/bottle-model' },
+  { code: 'BOTTLE_CAPACITY', name: 'Bottle Capacity', module: 'Product', recordCount: 9, hasApproval: false, hasRevision: false, hasAttachment: false, isConfigured: true, route: '/masters/bottle-capacity' },
+  { code: 'BOTTLE_COLOUR', name: 'Bottle Colour', module: 'Product', recordCount: 27, hasApproval: false, hasRevision: false, hasAttachment: true, isConfigured: true, route: '/masters/bottle-colour' },
+  { code: 'LID_TYPE', name: 'Lid Type', module: 'Product', recordCount: 12, hasApproval: false, hasRevision: false, hasAttachment: true, isConfigured: true, route: '/masters/lid-type' },
+  { code: 'STEEL_GRADE', name: 'Steel Grade', module: 'Product', recordCount: 6, hasApproval: false, hasRevision: false, hasAttachment: true, isConfigured: true, route: '/masters/steel-grade' },
+  { code: 'STEEL_THICKNESS', name: 'Steel Thickness', module: 'Product', recordCount: 8, hasApproval: false, hasRevision: false, hasAttachment: false, isConfigured: true, route: '/masters/steel-thickness' },
+  { code: 'PACKAGING', name: 'Packaging Material', module: 'Product', recordCount: 41, hasApproval: false, hasRevision: false, hasAttachment: true, isConfigured: true, route: '/masters/packaging' },
+  { code: 'MACHINE', name: 'Machine', module: 'Manufacturing', recordCount: 48, hasApproval: false, hasRevision: true, hasAttachment: true, isConfigured: true, route: '/masters/machine' },
+  { code: 'PRODUCTION_LINE', name: 'Production Line', module: 'Manufacturing', recordCount: 5, hasApproval: false, hasRevision: false, hasAttachment: false, isConfigured: true, route: '/admin/plants' },
+  { code: 'SHIFT', name: 'Shift', module: 'Manufacturing', recordCount: 3, hasApproval: false, hasRevision: false, hasAttachment: false, isConfigured: true, route: '/masters/shift' },
+  { code: 'HOLIDAY_CALENDAR', name: 'Holiday Calendar', module: 'Manufacturing', recordCount: 2, hasApproval: false, hasRevision: false, hasAttachment: false, isConfigured: true, route: '/masters/holiday-calendar' },
+  { code: 'QUALITY_PARAM', name: 'Quality Parameter', module: 'Quality', recordCount: 64, hasApproval: true, hasRevision: true, hasAttachment: false, isConfigured: true, route: '/masters/quality-parameter' },
+  { code: 'DEFECT', name: 'Defect Master', module: 'Quality', recordCount: 82, hasApproval: false, hasRevision: false, hasAttachment: true, isConfigured: true, route: '/masters/defect' },
+  { code: 'UOM', name: 'Unit of Measure', module: 'Reference', recordCount: 24, hasApproval: false, hasRevision: false, hasAttachment: false, isConfigured: true, route: '/masters/uom' },
+  { code: 'HSN', name: 'HSN / SAC Code', module: 'Reference', recordCount: 118, hasApproval: false, hasRevision: false, hasAttachment: false, isConfigured: true, route: '/masters/hsn' },
+  { code: 'TAX', name: 'Tax Master', module: 'Reference', recordCount: 18, hasApproval: false, hasRevision: true, hasAttachment: false, isConfigured: true, route: '/masters/tax' },
+  { code: 'CURRENCY', name: 'Currency', module: 'Reference', recordCount: 6, hasApproval: false, hasRevision: false, hasAttachment: false, isConfigured: true, route: '/admin/currency' },
+  { code: 'COUNTRY', name: 'Country', module: 'Geography', recordCount: 195, hasApproval: false, hasRevision: false, hasAttachment: false, isConfigured: true, route: '/masters/country' },
+  { code: 'STATE', name: 'State', module: 'Geography', recordCount: 37, hasApproval: false, hasRevision: false, hasAttachment: false, isConfigured: true, route: '/masters/state' },
+  { code: 'CITY', name: 'City', module: 'Geography', recordCount: 1284, hasApproval: false, hasRevision: false, hasAttachment: false, isConfigured: true, route: '/masters/city' },
+  { code: 'REASON_CODE', name: 'Reason Code', module: 'Configuration', recordCount: 56, hasApproval: false, hasRevision: false, hasAttachment: false, isConfigured: true, route: '/masters/reason-code' },
+  { code: 'BANK', name: 'Bank', module: 'Configuration', recordCount: 14, hasApproval: false, hasRevision: false, hasAttachment: false, isConfigured: true, route: '/masters/bank' },
+  { code: 'COST_CENTRE', name: 'Cost Centre', module: 'Configuration', recordCount: 12, hasApproval: false, hasRevision: false, hasAttachment: false, isConfigured: true, route: '/admin/cost-centres' },
+]

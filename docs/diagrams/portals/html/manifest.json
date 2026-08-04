@@ -1,0 +1,100 @@
+[
+  {
+    "slug": "01-admin",
+    "html": "D:/Manufacturing ERP/docs/diagrams/portals/html\\01-admin.html",
+    "w": 1128,
+    "h": 1612,
+    "title": "Admin / Core Framework Portal"
+  },
+  {
+    "slug": "02-crm-sales",
+    "html": "D:/Manufacturing ERP/docs/diagrams/portals/html\\02-crm-sales.html",
+    "w": 1458,
+    "h": 1784,
+    "title": "CRM & Sales Portal"
+  },
+  {
+    "slug": "03-procurement",
+    "html": "D:/Manufacturing ERP/docs/diagrams/portals/html\\03-procurement.html",
+    "w": 1458,
+    "h": 1956,
+    "title": "Procurement Portal"
+  },
+  {
+    "slug": "04-supplier",
+    "html": "D:/Manufacturing ERP/docs/diagrams/portals/html\\04-supplier.html",
+    "w": 798,
+    "h": 1784,
+    "title": "Supplier Portal (External)"
+  },
+  {
+    "slug": "05-customer",
+    "html": "D:/Manufacturing ERP/docs/diagrams/portals/html\\05-customer.html",
+    "w": 798,
+    "h": 1440,
+    "title": "Customer Portal (External)"
+  },
+  {
+    "slug": "06-inventory",
+    "html": "D:/Manufacturing ERP/docs/diagrams/portals/html\\06-inventory.html",
+    "w": 1128,
+    "h": 1612,
+    "title": "Inventory & Warehouse Portal"
+  },
+  {
+    "slug": "07-engineering",
+    "html": "D:/Manufacturing ERP/docs/diagrams/portals/html\\07-engineering.html",
+    "w": 1128,
+    "h": 1784,
+    "title": "Engineering & Planning Portal"
+  },
+  {
+    "slug": "08-production",
+    "html": "D:/Manufacturing ERP/docs/diagrams/portals/html\\08-production.html",
+    "w": 1458,
+    "h": 1612,
+    "title": "Production / Shop-Floor Portal"
+  },
+  {
+    "slug": "09-quality",
+    "html": "D:/Manufacturing ERP/docs/diagrams/portals/html\\09-quality.html",
+    "w": 798,
+    "h": 1612,
+    "title": "Quality Management Portal"
+  },
+  {
+    "slug": "10-maintenance",
+    "html": "D:/Manufacturing ERP/docs/diagrams/portals/html\\10-maintenance.html",
+    "w": 1128,
+    "h": 1612,
+    "title": "Maintenance Portal"
+  },
+  {
+    "slug": "11-packing-dispatch",
+    "html": "D:/Manufacturing ERP/docs/diagrams/portals/html\\11-packing-dispatch.html",
+    "w": 1128,
+    "h": 1612,
+    "title": "Packing & Dispatch Portal"
+  },
+  {
+    "slug": "12-finance",
+    "html": "D:/Manufacturing ERP/docs/diagrams/portals/html\\12-finance.html",
+    "w": 1128,
+    "h": 1612,
+    "title": "Finance & Accounting Portal"
+  },
+  {
+    "slug": "13-hrms",
+    "html": "D:/Manufacturing ERP/docs/diagrams/portals/html\\13-hrms.html",
+    "w": 1128,
+    "h": 1612,
+    "title": "HRMS Portal"
+  },
+  {
+    "slug": "14-reports",
+    "html": "D:/Manufacturing ERP/docs/diagrams/portals/html\\14-reports.html",
+    "w": 798,
+    "h": 1440,
+    "title": "Reports & Dashboards (MIS) Portal"
+  }
+]

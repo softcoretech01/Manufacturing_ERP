@@ -1,0 +1,218 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Design tokens (V0-UIR-024). Light and dark are both first-class.
+   ───────────────────────────────────────────────────────────────────────── */
+@layer base {
+  :root {
+    --bg: 245 247 252; /* #F5F7FC */
+    --surface: 255 255 255; /* #FFFFFF */
+    --surface-2: 250 251 253; /* #FAFBFD */
+    --surface-3: 243 247 255; /* #F3F7FF */
+    --border: 231 236 245; /* #E7ECF5 */
+    --border-strong: 217 226 242; /* #D9E2F2 */
+
+    --fg: 30 41 59; /* #1E293B */
+    --fg-muted: 100 116 139; /* #64748B */
+    --fg-subtle: 148 163 184;
+    --fg-inverse: 255 255 255;
+
+    --brand-50: 238 243 255; /* #EEF3FF */
+    --brand-100: 216 228 255;
+    --brand-200: 184 204 255;
+    --brand-300: 138 171 255;
+    --brand-400: 92 131 255;
+    --brand-500: 47 91 255; /* #2F5BFF */
+    --brand-600: 29 78 216; /* #1D4ED8 */
+    --brand-700: 30 64 175;
+    --brand-800: 30 58 138;
+    --brand-900: 23 37 84;
+
+    --st-draft: 148 163 184;
+    --st-planned: 148 163 184;
+    --st-released: 47 91 255;
+    --st-progress: 47 91 255;
+    --st-hold: 245 158 11;
+    --st-completed: 22 163 74;
+    --st-closed: 22 163 74;
+    --st-cancelled: 229 57 53;
+    --st-approved: 22 163 74;
+    --st-rejected: 229 57 53;
+
+    --st-warning: 245 158 11;
+    --st-danger: 229 57 53;
+    --st-success: 22 163 74;
+    --st-neutral: 148 163 184;
+
+    --panel: 255 255 255;
+    --panel-2: 245 247 252;
+    --panel-3: 238 243 255;
+    --panel-fg: 30 41 59;
+    --panel-fg-muted: 100 116 139;
+    --panel-fg-subtle: 148 163 184;
+    --panel-accent: 47 91 255;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-bg text-fg font-sans text-[15px] leading-relaxed;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'tnum';
+  }
+
+  /* Visible focus rings everywhere — WCAG 2.1 AA (V0-NFR-050) */
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-bg;
+  }
+
+  ::-webkit-scrollbar {
+    @apply h-2.5 w-2.5;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-border-strong;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-fg-subtle;
+  }
+
+  /* Numeric columns align on the decimal point */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-[18px] border border-border bg-white p-6 shadow-card transition-shadow duration-300;
+  }
+  .card:hover {
+    box-shadow: 0 12px 40px rgba(15,23,42,0.12);
+  }
+
+  .field-label {
+    @apply mb-1 block text-xs font-medium text-fg-muted;
+  }
+
+  .required::after {
+    content: ' *';
+    @apply text-danger;
+  }
+
+  /*
+   * Data grid ------------------------------------------------------------
+   *
+   * Compact density on purpose. A planner comparing forty rows should be able
+   * to see forty rows, so the padding is 4px rather than 8px and stacked cell
+   * text runs tight — roughly a 28px single-line row and 34px where a cell
+   * stacks a name over its code. That is tighter than SAP Fiori's compact mode
+   * and about where Dynamics grids sit. `dense` on DataTable tightens it
+   * further where a screen is genuinely a wall of numbers.
+   */
+  .grid-table {
+    @apply w-full border-collapse text-[15px];
+  }
+  .grid-table thead th {
+    @apply sticky top-0 z-10 whitespace-nowrap border-b border-border bg-[#F7F9FD]
+           px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-fg-muted;
+  }
+  .grid-table tbody td {
+    @apply border-b border-border/70 px-4 py-3 align-middle;
+    height: 52px;
+  }
+  /*
+   * Two-line cells — a name over its code — are the main source of row height,
+   * so the stacked lines are pulled tight and the second line loses its own
+   * margin. A two-line row lands near 34px, a single-line one near 28px.
+   */
+  .grid-table tbody td p {
+    @apply my-0 leading-[1.15];
+  }
+  .grid-table tbody td p + p {
+    @apply mt-px;
+  }
+  /* Badges and chips must not be what sets the row height. */
+  .grid-table tbody td .badge,
+  .grid-table tbody td [data-chip] {
+    @apply py-0;
+  }
+  .grid-table tbody tr:nth-child(even) {
+    @apply bg-[#FAFBFD];
+  }
+  .grid-table tbody tr:hover {
+    @apply bg-[#F3F7FF];
+  }
+  .grid-table tbody tr[data-selected='true'] {
+    @apply bg-[#EEF3FF];
+  }
+
+  .skeleton {
+    @apply relative overflow-hidden rounded bg-surface-3;
+  }
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0 -translate-x-full;
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0.12) 20%,
+      rgba(255, 255, 255, 0.22) 60%,
+      rgba(255, 255, 255, 0)
+    );
+    animation: shimmer 1.6s infinite;
+  }
+
+  .kbd {
+    @apply inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded border
+           border-border-strong bg-surface-2 px-1 font-mono text-2xs text-fg-muted;
+  }
+
+  /*
+   * Date and time fields. The browser's calendar glyph is nearly invisible on a
+   * dark surface, and it is the only part of the control that opens the picker,
+   * so it gets a visible, full-height hit area. The field also opens the picker
+   * on click from anywhere — see Input.tsx.
+   */
+  .picker-field {
+    @apply cursor-pointer;
+  }
+
+  .picker-field::-webkit-calendar-picker-indicator {
+    @apply cursor-pointer rounded opacity-60 transition-opacity;
+    padding: 0.25rem;
+    margin-right: -0.125rem;
+  }
+
+  .picker-field::-webkit-calendar-picker-indicator:hover {
+    @apply opacity-100;
+    background-color: rgb(0 0 0 / 0.06);
+  }
+
+  .picker-field::-webkit-calendar-picker-indicator {
+    @apply cursor-pointer rounded opacity-60 transition-opacity;
+    padding: 0.25rem;
+    margin-right: -0.125rem;
+  }
+
+  .picker-field::-webkit-calendar-picker-indicator:hover {
+    @apply opacity-100;
+    background-color: rgb(0 0 0 / 0.06);
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
