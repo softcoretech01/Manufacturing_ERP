@@ -128,7 +128,7 @@ export function LoginPage() {
       </div>
 
       {/* Footer */}
-      <div className="absolute bottom-0 inset-x-0 z-20 border-t border-white/10 bg-black/20 py-3.5 text-center text-[12.5px] text-white/50">
+      <div className="absolute bottom-0 inset-x-0 z-20 border-t border-white/10 bg-black/20 py-2 text-center text-[12px] text-white/50">
         © {new Date().getFullYear()} SSB Industries. All rights reserved.
         <span className="mx-3 text-white/20">|</span>
         Version 1.0.0
@@ -208,7 +208,7 @@ function PortalChooser({ active, onPick }: { active: PortalCode; onPick: (c: Por
       </div>
 
       {/* 2-column portal grid */}
-      <div className="grid grid-cols-2 gap-3 overflow-y-auto max-h-[460px] pr-0.5">
+      <div className="grid grid-cols-2 gap-3">
         {live.map((p, i) => {
           const Icon = p.icon
           const isActive = active === p.code
@@ -249,20 +249,7 @@ function PortalChooser({ active, onPick }: { active: PortalCode; onPick: (c: Por
         })}
       </div>
 
-      {/* Stats strip */}
-      <div className="mt-6 grid grid-cols-4 gap-2 rounded-[16px] bg-[#F7F9FD] px-4 py-3.5 border border-border">
-        {[
-          { value: '13', label: 'Portals' },
-          { value: '20+', label: 'Modules' },
-          { value: '500+', label: 'Users' },
-          { value: '24/7', label: 'Support' },
-        ].map((s) => (
-          <div key={s.label} className="text-center">
-            <p className="text-[18px] font-bold text-brand-600">{s.value}</p>
-            <p className="mt-0.5 text-[11px] font-medium text-fg-muted">{s.label}</p>
-          </div>
-        ))}
-      </div>
+
     </div>
   )
 }
@@ -282,8 +269,8 @@ function Credentials({
   onSuccess: () => void
   portal: { name: string; icon: LucideIcon; gradient: string }
 }) {
-  const [loginId, setLoginId] = useState('')
-  const [password, setPassword] = useState('')
+  const [loginId, setLoginId] = useState('admin@gmail.com')
+  const [password, setPassword] = useState('admin123')
   const [show, setShow] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -330,43 +317,47 @@ function Credentials({
 
       {/* Username */}
       <div className="space-y-5">
-        <div className="relative">
-          <span className="pointer-events-none absolute inset-y-0 left-4 flex items-center text-fg-subtle">
-            <UserIcon className="h-[18px] w-[18px]" />
-          </span>
-          <input
-            required
-            autoFocus
-            autoComplete="username"
-            value={loginId}
-            onChange={(e) => setLoginId(e.target.value)}
-            placeholder="Username / Email"
-            className="block h-[48px] w-full rounded-[12px] border border-transparent bg-slate-100 pl-11 pr-4 text-[15px] text-fg placeholder:text-fg-muted transition-all duration-200 focus:bg-white focus:border-brand-500 focus:outline-none focus:ring-[3px] focus:ring-brand-500/20 hover:bg-slate-200"
-          />
+        <div>
+          <label className="block text-[13px] font-medium text-fg mb-1.5">User name</label>
+          <div className="relative">
+            <span className="pointer-events-none absolute inset-y-0 left-4 flex items-center text-fg-subtle">
+              <UserIcon className="h-[18px] w-[18px]" />
+            </span>
+            <input
+              required
+              autoFocus
+              autoComplete="username"
+              value={loginId}
+              onChange={(e) => setLoginId(e.target.value)}
+              className="block h-[48px] w-full rounded-[12px] border border-transparent bg-slate-100 pl-11 pr-4 text-[15px] text-fg transition-all duration-200 focus:bg-white focus:border-brand-500 focus:outline-none focus:ring-[3px] focus:ring-brand-500/20 hover:bg-slate-200"
+            />
+          </div>
         </div>
 
         {/* Password */}
-        <div className="relative">
-          <span className="pointer-events-none absolute inset-y-0 left-4 flex items-center text-fg-subtle">
-            <Lock className="h-[18px] w-[18px]" />
-          </span>
-          <input
-            required
-            type={show ? 'text' : 'password'}
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
-            className="block h-[48px] w-full rounded-[12px] border border-transparent bg-slate-100 pl-11 pr-11 text-[15px] text-fg placeholder:text-fg-muted transition-all duration-200 focus:bg-white focus:border-brand-500 focus:outline-none focus:ring-[3px] focus:ring-brand-500/20 hover:bg-slate-200"
-          />
-          <button
-            type="button"
-            onClick={() => setShow((s) => !s)}
-            className="absolute inset-y-0 right-0 flex items-center pr-4 text-fg-subtle hover:text-brand-500"
-            tabIndex={-1}
-          >
-            {show ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
-          </button>
+        <div>
+          <label className="block text-[13px] font-medium text-fg mb-1.5">Password</label>
+          <div className="relative">
+            <span className="pointer-events-none absolute inset-y-0 left-4 flex items-center text-fg-subtle">
+              <Lock className="h-[18px] w-[18px]" />
+            </span>
+            <input
+              required
+              type={show ? 'text' : 'password'}
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="block h-[48px] w-full rounded-[12px] border border-transparent bg-slate-100 pl-11 pr-11 text-[15px] text-fg transition-all duration-200 focus:bg-white focus:border-brand-500 focus:outline-none focus:ring-[3px] focus:ring-brand-500/20 hover:bg-slate-200"
+            />
+            <button
+              type="button"
+              onClick={() => setShow((s) => !s)}
+              className="absolute inset-y-0 right-0 flex items-center pr-4 text-fg-subtle hover:text-brand-500"
+              tabIndex={-1}
+            >
+              {show ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
+            </button>
+          </div>
         </div>
 
         {/* Remember me + Forgot */}
