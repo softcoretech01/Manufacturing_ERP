@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { ChevronDown, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { cn } from '@/lib/cn'
@@ -18,7 +18,7 @@ export function Sidebar() {
   const [open, setOpen] = useState<Record<string, boolean>>({})
 
   const portal = portalOf(portalCode)
-  const navigation = navigationFor(portal.code)
+  const navigation = useMemo(() => navigationFor(portal.code), [portal.code])
 
   // Auto-expand ONLY the group containing the active route (Accordion style).
   useEffect(() => {
