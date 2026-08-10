@@ -12,15 +12,11 @@ import {
   Factory,
   GaugeCircle,
   KeyRound,
-  LayoutGrid,
-  Plus,
   ScrollText,
   ShieldCheck,
   Users,
 } from 'lucide-react'
 import {
-  Area,
-  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -73,23 +69,11 @@ export function DashboardPage() {
     { day: 'Sun', raised: 4, approved: 4, overdue: 0 },
   ]
 
-  const loginTrend = Array.from({ length: 14 }, (_, i) => ({
-    d: `${i + 15}`,
-    logins: 120 + Math.round(Math.sin(i / 2) * 30) + (i % 7 === 0 ? -70 : 0),
-    failed: 2 + (i % 5),
-  }))
-
   const roleDistribution = roles
     .filter((r) => r.userCount > 0)
     .sort((a, b) => b.userCount - a.userCount)
     .slice(0, 6)
     .map((r) => ({ name: r.code, value: r.userCount }))
-
-  const stockByWarehouse = warehouses
-    .filter((w) => w.stockValue > 0)
-    .sort((a, b) => b.stockValue - a.stockValue)
-    .slice(0, 6)
-    .map((w) => ({ name: w.code, value: Math.round(w.stockValue / 100_000) }))
 
   return (
     <div>
@@ -101,24 +85,16 @@ export function DashboardPage() {
           </>
         }
         actions={
-          <>
-            <Tabs
-              variant="pill"
-              tabs={[
-                { id: '7d', label: '7 days' },
-                { id: '30d', label: '30 days' },
-                { id: '90d', label: '90 days' },
-              ]}
-              active={range}
-              onChange={setRange}
-            />
-            <Button variant="outline" size="sm" icon={<LayoutGrid className="h-4 w-4" />}>
-              Customise
-            </Button>
-            <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />}>
-              Add widget
-            </Button>
-          </>
+          <Tabs
+            variant="pill"
+            tabs={[
+              { id: '7d', label: '7 days' },
+              { id: '30d', label: '30 days' },
+              { id: '90d', label: '90 days' },
+            ]}
+            active={range}
+            onChange={setRange}
+          />
         }
       />
 
@@ -204,45 +180,6 @@ export function DashboardPage() {
                 <Tooltip content={<ChartTooltip />} />
                 <Legend wrapperStyle={{ fontSize: 10 }} iconSize={7} />
               </PieChart>
-            </ResponsiveContainer>
-          </CardBody>
-        </Card>
-      </div>
-
-      <div className="mb-5 grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader title="Login activity" description="Successful logins and failures, last 14 days" icon={<Users className="h-4 w-4" />} />
-          <CardBody className="h-56 pl-0">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={loginTrend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#2F5BFF" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="#2F5BFF" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" vertical={false} />
-                <XAxis dataKey="d" tick={{ fontSize: 10, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 10, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} width={28} />
-                <Tooltip content={<ChartTooltip />} />
-                <Area type="monotone" dataKey="logins" name="Logins" stroke="#2F5BFF" strokeWidth={2} fill="url(#g1)" />
-                <Area type="monotone" dataKey="failed" name="Failed" stroke="#E53935" strokeWidth={1.5} fill="transparent" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </CardBody>
-        </Card>
-
-        <Card>
-          <CardHeader title="Stock value by warehouse" description="₹ lakh" icon={<Boxes className="h-4 w-4" />} />
-          <CardBody className="h-56 pl-0">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={stockByWarehouse} layout="vertical" margin={{ top: 4, right: 12, left: 8, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 10, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} width={54} />
-                <Tooltip content={<ChartTooltip suffix=" L" />} cursor={{ fill: 'rgb(var(--surface-3))' }} />
-                <Bar dataKey="value" name="Value" fill="#10B981" radius={[0, 3, 3, 0]} maxBarSize={18} />
-              </BarChart>
             </ResponsiveContainer>
           </CardBody>
         </Card>

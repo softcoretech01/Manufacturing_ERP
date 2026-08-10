@@ -73,14 +73,17 @@ export default {
         '2xs': ['0.6875rem', { lineHeight: '1rem' }],
       },
       borderRadius: {
-        DEFAULT: '12px',
-        card: '18px',
-        popup: '20px',
+        DEFAULT: '10px',
+        card: '14px',
+        popup: '14px',
       },
       boxShadow: {
-        card: '0 8px 30px rgba(15,23,42,0.08)',
-        'card-hover': '0 12px 40px rgba(15,23,42,0.12)',
-        pop: '0 10px 30px -10px rgb(0 0 0 / 0.25), 0 4px 12px -4px rgb(0 0 0 / 0.12)',
+        // Hairline-first. The card's border does the separating; the shadow only
+        // lifts it a hair off the page background so surfaces don't merge.
+        card: '0 1px 2px rgba(15,23,42,0.04)',
+        'card-hover': '0 2px 8px rgba(15,23,42,0.06)',
+        // Menus and popovers still need a real, but restrained, elevation.
+        pop: '0 8px 24px -12px rgb(15 23 42 / 0.18), 0 2px 6px -2px rgb(15 23 42 / 0.08)',
       },
       spacing: {
         sidebar: '280px',

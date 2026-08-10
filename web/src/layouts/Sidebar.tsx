@@ -86,12 +86,12 @@ export function Sidebar() {
                 }}
                 title={collapsed ? group.label : undefined}
                 className={cn(
-                  'group flex w-full items-center gap-2.5 rounded-[12px] px-4 py-3 text-left text-[15px] font-medium transition-all duration-200',
+                  'group flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors duration-200',
                   'text-[#5B6478] hover:bg-[#F5F8FF] hover:text-fg',
                   collapsed && 'justify-center',
                 )}
               >
-                {group.icon && <group.icon className="h-5 w-5 shrink-0 text-[#7C8AA5] group-hover:text-brand-500" />}
+                {group.icon && <group.icon className="h-[18px] w-[18px] shrink-0 text-[#7C8AA5] group-hover:text-brand-500" />}
                 {!collapsed && (
                   <>
                     <span className="flex-1 truncate">{group.label}</span>
@@ -154,11 +154,11 @@ function NavRow({
       <div
         title="Delivered in a later volume"
         className={cn(
-          'flex cursor-not-allowed items-center gap-2.5 rounded-[12px] px-4 py-3 text-[15px] text-fg-subtle border-l-[4px] border-transparent',
+          'flex cursor-not-allowed items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-fg-subtle border-l-[3px] border-transparent',
           collapsed && 'justify-center',
         )}
       >
-        {item.icon && <item.icon className="h-5 w-5 shrink-0 opacity-50 text-[#7C8AA5]" />}
+        {item.icon && <item.icon className="h-[18px] w-[18px] shrink-0 opacity-50 text-[#7C8AA5]" />}
         {!collapsed && (
           <>
             <span className="flex-1 truncate">{item.label}</span>
@@ -176,12 +176,12 @@ function NavRow({
       title={collapsed ? item.label : undefined}
       className={({ isActive }) =>
         cn(
-          'group flex items-center gap-2.5 rounded-[12px] px-4 py-3 text-[15px] transition-all duration-200',
+          'group flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors duration-200',
           isActive
-            ? 'bg-[#EEF3FF] font-medium text-brand-500 border-l-[4px] border-brand-500'
-            : 'text-[#5B6478] hover:bg-[#F5F8FF] hover:text-fg border-l-[4px] border-transparent',
+            ? 'bg-[#EEF3FF] font-medium text-brand-500 border-l-[3px] border-brand-500'
+            : 'text-[#5B6478] hover:bg-[#F5F8FF] hover:text-fg border-l-[3px] border-transparent',
           collapsed && 'justify-center',
-          nested && 'text-[13px] py-2.5 px-4',
+          nested && 'text-[13px] py-1.5 px-3',
         )
       }
     >
@@ -192,7 +192,7 @@ function NavRow({
               className={cn(
                 'shrink-0',
                 isActive ? 'text-brand-500' : 'text-[#7C8AA5] group-hover:text-brand-500',
-                nested ? 'h-4 w-4' : 'h-5 w-5'
+                nested ? 'h-4 w-4' : 'h-[18px] w-[18px]'
               )}
             />
           )}

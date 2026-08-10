@@ -6,12 +6,12 @@ type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success' | 'outli
 type Size = 'xs' | 'sm' | 'md' | 'lg' | 'icon' | 'icon-sm'
 
 const VARIANTS: Record<Variant, string> = {
-  primary: 'bg-brand-500 text-white hover:bg-brand-600 shadow-[0_4px_12px_rgba(47,91,255,0.24)]',
+  primary: 'bg-brand-500 text-white hover:bg-brand-600',
   secondary: 'bg-brand-50 text-brand-500 hover:bg-[#E0E9FF]',
   outline: 'border border-border-strong bg-surface text-fg hover:bg-surface-2',
   ghost: 'text-fg-muted hover:bg-surface-3 hover:text-fg',
-  danger: 'bg-danger text-white hover:brightness-110 active:brightness-95 shadow-sm',
-  success: 'bg-success text-white hover:brightness-110 active:brightness-95 shadow-sm',
+  danger: 'bg-danger text-white hover:brightness-110 active:brightness-95',
+  success: 'bg-success text-white hover:brightness-110 active:brightness-95',
   link: 'text-brand-500 hover:underline underline-offset-4 p-0 h-auto',
 }
 
@@ -41,7 +41,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       ref={ref}
       disabled={disabled || loading}
       className={cn(
-        'inline-flex select-none items-center justify-center whitespace-nowrap rounded-xl font-medium',
+        'inline-flex select-none items-center justify-center whitespace-nowrap rounded-lg font-medium',
         'transition-all duration-200 ease-in-out',
         'disabled:pointer-events-none disabled:opacity-50',
         VARIANTS[variant],
