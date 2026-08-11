@@ -55,10 +55,13 @@ class Entity(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), nullable=True)
     deleted_by: Mapped[int | None] = mapped_column(BIGINT(unsigned=True), nullable=True)
     # Generated companion column so unique keys can include it (CLAUDE.md §4.2).
-    deleted_key: Mapped[datetime] = mapped_column(
+    # Declared nullable for DDL portability (MariaDB rejects `STORED NOT NULL`);
+    # the IFNULL expression always yields the sentinel, so it is never actually
+    # NULL and the soft-delete-aware unique keys behave identically.
+    deleted_key: Mapped[datetime | None] = mapped_column(
         DATETIME(fsp=6),
         Computed(f"IFNULL(deleted_at, '{SOFT_DELETE_SENTINEL}')", persisted=True),
-        nullable=False,
+        nullable=True,
     )
 
     @property

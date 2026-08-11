@@ -25,14 +25,14 @@ async def login(body: LoginRequest, request: Request, session: SessionDep) -> To
         company_uid=body.company_uid,
         ip=ip,
     )
-    return TokenResponse(**bundle.__dict__)
+    return TokenResponse.model_validate(bundle)
 
 
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh(body: RefreshRequest, request: Request, session: SessionDep) -> TokenResponse:
     ip = request.client.host if request.client else None
     bundle = await auth_service.rotate_refresh(session, refresh_token=body.refresh_token, ip=ip)
-    return TokenResponse(**bundle.__dict__)
+    return TokenResponse.model_validate(bundle)
 
 
 @router.post("/logout", status_code=204)
