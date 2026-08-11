@@ -176,9 +176,7 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     )
 
 
-async def validation_error_handler(
-    request: Request, exc: RequestValidationError
-) -> JSONResponse:
+async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     errors = [
         {
             "field": ".".join(str(p) for p in err["loc"][1:]) or str(err["loc"][0]),
@@ -187,9 +185,7 @@ async def validation_error_handler(
         }
         for err in exc.errors()
     ]
-    problem = ValidationFailedError(
-        f"{len(errors)} field(s) failed validation", errors=errors
-    )
+    problem = ValidationFailedError(f"{len(errors)} field(s) failed validation", errors=errors)
     return JSONResponse(
         status_code=problem.status_code,
         content=problem.to_problem(str(request.url.path), _correlation_id(request)),
