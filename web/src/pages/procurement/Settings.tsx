@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Lock, Pencil, Scale, SlidersHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
-import { Card, CardHeader } from '@/components/ui/Card'
+import { Card, CardHeader, CardBody } from '@/components/ui/Card'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { Badge } from '@/components/ui/Badge'
 import { Modal } from '@/components/ui/Modal'
@@ -12,24 +12,11 @@ import { Alert, PageHeader, ProgressBar } from '@/components/ui/Misc'
 import { Tabs } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
-import { useCollection } from '@/store/data'
-import {
-  evalWeights as seedWeights,
-  procParameters as seedParams,
-  procReasonCodes as seedReasons,
-} from '@/mock/procurementSettings'
+import { api } from '@/lib/api'
 import type { EvalWeight, ProcParameter, ProcReasonCode } from '@/types/procurement'
+import { cn } from '@/lib/utils'
 
-/**
- * Procurement settings.
- *
- * Everything a buyer argues with — tolerances, thresholds, scoring weights,
- * reason codes — lives here as configuration rather than in code, because a
- * receipt tolerance that needs a deployment to change will instead be worked
- * around at the gate.
- */
-
-const GROUP_LABEL: Record<ProcParameter['group'], string> = {
+const GROUP_LABEL: Record<string, string> = {
   GENERAL: 'General',
   TOLERANCE: 'Tolerances',
   APPROVAL: 'Approval & budget',
@@ -39,17 +26,6 @@ const GROUP_LABEL: Record<ProcParameter['group'], string> = {
 export function ProcurementSettingsPage() {
   const toast = useToast()
   const [tab, setTab] = useState('parameters')
-
-  const paramSeed = useMemo(() => seedParams, [])
-  const weightSeed = useMemo(() => seedWeights, [])
-  const reasonSeed = useMemo(() => seedReasons, [])
-
-  const params = useCollection<ProcParameter>('proc:params', paramSeed)
-  const weights = useCollection<EvalWeight>('proc:weights', weightSeed)
-  const reasons = useCollection<ProcReasonCode>('proc:reasons', reasonSeed)
-
-  const sets = [...new Set(weights.rows.map((w) => w.setCode))]
-  const badSets = sets.filter((s) => Math.abs(weights.rows.filter((w) => w.setCode === s).reduce((a, w) => a + w.weightPct, 0) - 100) > 0.001)
 
   return (
     <div>
@@ -61,18 +37,18 @@ export function ProcurementSettingsPage() {
             active={tab}
             onChange={setTab}
             tabs={[
-              { id: 'parameters', label: 'Parameters & tolerances', count: params.rows.length },
-              { id: 'weights', label: 'Evaluation weights', count: sets.length },
-              { id: 'reasons', label: 'Reason codes', count: reasons.rows.length },
+              { id: 'parameters', label: 'Parameters & tolerances' },
+              { id: 'weights', label: 'Evaluation weights' },
+              { id: 'reasons', label: 'Reason codes' },
               { id: 'related', label: 'Related configuration' },
             ]}
           />
         }
       />
 
-      {tab === 'parameters' && <ParametersTab store={params} toast={toast} />}
-      {tab === 'weights' && <WeightsTab store={weights} toast={toast} />}
-      {tab === 'reasons' && <ReasonsTab store={reasons} toast={toast} />}
+      {tab === 'parameters' && <ParametersTab toast={toast} />}
+      {tab === 'weights' && <WeightsTab toast={toast} />}
+      {tab === 'reasons' && <ReasonsTab toast={toast} />}
       {tab === 'related' && <RelatedTab />}
     </div>
   )
@@ -82,10 +58,39 @@ type Toast = ReturnType<typeof useToast>
 
 /* ═══════════════════════ Parameters ═══════════════════════ */
 
-function ParametersTab({ store, toast }: { store: ReturnType<typeof useCollection<ProcParameter>>; toast: Toast }) {
-  const { rows, update } = store
+function ParametersTab({ toast }: { toast: Toast }) {
+  const [rows, setRows] = useState<ProcParameter[]>([])
   const [editing, setEditing] = useState<ProcParameter | null>(null)
   const [value, setValue] = useState('')
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchParams()
+  }, [])
+
+  const fetchParams = async () => {
+    try {
+      const data = await api.getProcParameters()
+      setRows(data)
+    } catch (err) {
+      toast.error('Error', 'Failed to load parameters')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleUpdate = async () => {
+    if (!editing) return
+    if (!value.trim()) { toast.error('Value required', 'A parameter cannot be blank.'); return }
+    try {
+      await api.updateProcParameter(editing.uid, value.trim())
+      toast.success('Parameter updated', `${editing.name} set to ${value.trim()}${editing.unit ? ` ${editing.unit}` : ''}.`)
+      setEditing(null)
+      fetchParams()
+    } catch (err) {
+      toast.error('Error', 'Failed to update parameter')
+    }
+  }
 
   const columns: Column<ProcParameter>[] = [
     { key: 'name', header: 'Parameter', sortable: true, render: (r) => (
@@ -97,7 +102,7 @@ function ParametersTab({ store, toast }: { store: ReturnType<typeof useCollectio
     { key: 'description', header: 'What it controls', className: 'max-w-md', render: (r) => <span className="text-2xs text-fg-muted">{r.description}</span> },
     { key: 'group', header: 'Group', sortable: true, width: '10rem', render: (r) => (
       <Badge tone={r.group === 'STATUTORY' ? 'danger' : r.group === 'TOLERANCE' ? 'warning' : 'neutral'} size="sm" dot={false}>
-        {GROUP_LABEL[r.group]}
+        {GROUP_LABEL[r.group] || r.group}
       </Badge>
     ) },
     { key: 'value', header: 'Value', align: 'right', width: '10rem', render: (r) => (
@@ -110,6 +115,8 @@ function ParametersTab({ store, toast }: { store: ReturnType<typeof useCollectio
       r.editable ? null : <Lock className="mx-auto h-3.5 w-3.5 text-fg-subtle" aria-label="Statutory — not editable" />
     ) },
   ]
+
+  if (loading) return <div>Loading...</div>
 
   return (
     <>
@@ -130,6 +137,7 @@ function ParametersTab({ store, toast }: { store: ReturnType<typeof useCollectio
         emptyTitle="No parameters"
         rowActions={(r) => (
           <MenuItem
+            key="edit"
             label={r.editable ? 'Edit value' : 'Locked — statutory'}
             icon={<Pencil />}
             disabled={!r.editable}
@@ -146,18 +154,7 @@ function ParametersTab({ store, toast }: { store: ReturnType<typeof useCollectio
         footer={
           <>
             <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
-            <Button
-              variant="primary"
-              onClick={() => {
-                if (!editing) return
-                if (!value.trim()) { toast.error('Value required', 'A parameter cannot be blank.'); return }
-                update(editing.uid, { value: value.trim() })
-                toast.success('Parameter updated', `${editing.name} set to ${value.trim()}${editing.unit ? ` ${editing.unit}` : ''}. The change is effective-dated and audited.`)
-                setEditing(null)
-              }}
-            >
-              Save
-            </Button>
+            <Button variant="primary" onClick={handleUpdate}>Save</Button>
           </>
         }
       >
@@ -175,9 +172,47 @@ function ParametersTab({ store, toast }: { store: ReturnType<typeof useCollectio
 
 /* ═══════════════════════ Evaluation weights ═══════════════════════ */
 
-function WeightsTab({ store, toast }: { store: ReturnType<typeof useCollection<EvalWeight>>; toast: Toast }) {
-  const { rows, update } = store
+function WeightsTab({ toast }: { toast: Toast }) {
+  const [rows, setRows] = useState<EvalWeight[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchWeights()
+  }, [])
+
+  const fetchWeights = async () => {
+    try {
+      const data = await api.getProcWeights()
+      setRows(data)
+    } catch (err) {
+      toast.error('Error', 'Failed to load weights')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const updateWeight = (uid: string, pct: number) => {
+    setRows(rows.map(w => w.uid === uid ? { ...w, weightPct: pct } : w))
+  }
+
+  const saveSet = async (setCode: string) => {
+    const set = rows.filter(w => w.setCode === setCode)
+    try {
+      // API expects all weights for the set to be passed
+      // We will create new UIDs for the new version backend handles it?
+      // Actually backend expects new Uids to be generated or we pass it
+      const newVersion = set.map(w => ({ ...w, uid: `w-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}` }))
+      await api.saveProcWeights(newVersion)
+      toast.success('Weight set saved', 'Saved as a new version.')
+      fetchWeights()
+    } catch (err) {
+      toast.error('Error', 'Failed to save weights')
+    }
+  }
+
   const sets = [...new Set(rows.map((w) => w.setCode))]
+
+  if (loading) return <div>Loading...</div>
 
   return (
     <>
@@ -216,7 +251,7 @@ function WeightsTab({ store, toast }: { store: ReturnType<typeof useCollection<E
                         max={100}
                         value={w.weightPct}
                         aria-label={`${w.criterion} weight`}
-                        onChange={(e) => update(w.uid, { weightPct: Number(e.target.value) || 0 })}
+                        onChange={(e) => updateWeight(w.uid, Number(e.target.value) || 0)}
                         className="h-7 w-16 rounded border border-border bg-surface px-2 text-right text-xs tabular text-fg focus:border-brand-500 focus:outline-none"
                       />
                     </div>
@@ -233,7 +268,7 @@ function WeightsTab({ store, toast }: { store: ReturnType<typeof useCollection<E
                     size="sm"
                     variant="outline"
                     disabled={!ok}
-                    onClick={() => toast.success('Weight set saved', `${set[0]?.setName} saved as a new version. Comparisons already approved keep the weights they were scored with.`)}
+                    onClick={() => saveSet(code)}
                   >
                     Save version
                   </Button>
@@ -249,10 +284,57 @@ function WeightsTab({ store, toast }: { store: ReturnType<typeof useCollection<E
 
 /* ═══════════════════════ Reason codes ═══════════════════════ */
 
-function ReasonsTab({ store, toast }: { store: ReturnType<typeof useCollection<ProcReasonCode>>; toast: Toast }) {
-  const { rows, update, create } = store
+function ReasonsTab({ toast }: { toast: Toast }) {
+  const [rows, setRows] = useState<ProcReasonCode[]>([])
+  const [loading, setLoading] = useState(true)
   const [formOpen, setFormOpen] = useState(false)
   const [form, setForm] = useState({ code: '', label: '', documentType: 'Purchase return', requiresComment: 'yes' })
+
+  useEffect(() => {
+    fetchReasons()
+  }, [])
+
+  const fetchReasons = async () => {
+    try {
+      const data = await api.getProcReasons()
+      setRows(data)
+    } catch (err) {
+      toast.error('Error', 'Failed to load reason codes')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const toggleStatus = async (r: ProcReasonCode) => {
+    try {
+      await api.updateProcReasonStatus(r.uid, !r.active)
+      toast.success(r.active ? 'Retired' : 'Reactivated', `${r.code} status updated.`)
+      fetchReasons()
+    } catch (err) {
+      toast.error('Error', 'Failed to update status')
+    }
+  }
+
+  const handleCreate = async () => {
+    if (!form.code.trim() || !form.label.trim()) { toast.error('Incomplete', 'A code and its meaning are both required.'); return }
+    if (rows.some((r) => r.code.toUpperCase() === form.code.trim().toUpperCase())) { toast.error('Duplicate', 'That code already exists.'); return }
+    
+    try {
+      await api.createProcReason({
+        uid: `prc-${Date.now().toString(36)}`,
+        code: form.code.trim().toUpperCase(),
+        label: form.label.trim(),
+        documentType: form.documentType,
+        requiresComment: form.requiresComment === 'yes',
+        active: true,
+      })
+      toast.success('Created', `${form.code.trim().toUpperCase()} created.`)
+      setFormOpen(false)
+      fetchReasons()
+    } catch (err) {
+      toast.error('Error', 'Failed to create reason code')
+    }
+  }
 
   const columns: Column<ProcReasonCode>[] = [
     { key: 'code', header: 'Code', sortable: true, width: '12rem', render: (r) => <span className="font-mono text-xs font-medium text-brand-600">{r.code}</span> },
@@ -265,6 +347,8 @@ function ReasonsTab({ store, toast }: { store: ReturnType<typeof useCollection<P
       <Badge tone={r.active ? 'success' : 'neutral'} size="sm">{r.active ? 'Active' : 'Retired'}</Badge>
     ) },
   ]
+
+  if (loading) return <div>Loading...</div>
 
   return (
     <>
@@ -290,12 +374,10 @@ function ReasonsTab({ store, toast }: { store: ReturnType<typeof useCollection<P
         emptyTitle="No reason codes"
         rowActions={(r) => (
           <MenuItem
+            key="toggle"
             label={r.active ? 'Retire' : 'Reactivate'}
             danger={r.active}
-            onClick={() => {
-              update(r.uid, { active: !r.active })
-              toast.success(r.active ? 'Retired' : 'Reactivated', `${r.code} ${r.active ? 'retired — existing documents keep it' : 'is selectable again'}.`)
-            }}
+            onClick={() => toggleStatus(r)}
           />
         )}
       />
@@ -308,25 +390,7 @@ function ReasonsTab({ store, toast }: { store: ReturnType<typeof useCollection<P
         footer={
           <>
             <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
-            <Button
-              variant="primary"
-              onClick={() => {
-                if (!form.code.trim() || !form.label.trim()) { toast.error('Incomplete', 'A code and its meaning are both required.'); return }
-                if (rows.some((r) => r.code.toUpperCase() === form.code.trim().toUpperCase())) { toast.error('Duplicate', 'That code already exists.'); return }
-                create({
-                  uid: `prc-${Date.now().toString(36)}`,
-                  code: form.code.trim().toUpperCase(),
-                  label: form.label.trim(),
-                  documentType: form.documentType,
-                  requiresComment: form.requiresComment === 'yes',
-                  active: true,
-                })
-                toast.success('Created', `${form.code.trim().toUpperCase()} is now selectable on ${form.documentType}.`)
-                setFormOpen(false)
-              }}
-            >
-              Create
-            </Button>
+            <Button variant="primary" onClick={handleCreate}>Create</Button>
           </>
         }
       >

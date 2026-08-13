@@ -5,6 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote_plus
 
 from pydantic import Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -84,7 +85,7 @@ class Settings(BaseSettings):
     whatsapp_phone_id: str = ""
 
     # ─── CORS ───────────────────────────────────────────────────────────────
-    cors_origins: str = "http://localhost:5173"
+    cors_origins: str = "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://127.0.0.1:5173,http://127.0.0.1:5174"
 
     # ─── Pagination ─────────────────────────────────────────────────────────
     default_page_size: int = 50
@@ -95,8 +96,9 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def database_url(self) -> str:
+        safe_password = quote_plus(self.db_password)
         return (
-            f"mysql+aiomysql://{self.db_user}:{self.db_password}"
+            f"mysql+aiomysql://{self.db_user}:{safe_password}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}?charset=utf8mb4"
         )
 
@@ -104,8 +106,9 @@ class Settings(BaseSettings):
     @property
     def sync_database_url(self) -> str:
         """Used by Alembic, which does not run in an event loop."""
+        safe_password = quote_plus(self.db_password)
         return (
-            f"mysql+pymysql://{self.db_user}:{self.db_password}"
+            f"mysql+pymysql://{self.db_user}:{safe_password}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}?charset=utf8mb4"
         )
 

@@ -153,7 +153,8 @@ export interface Supplier extends MasterBase {
 
 /* ─────────────────────────── Customer ─────────────────────────────────── */
 
-export interface Customer extends MasterBase {
+export interface Customer extends Omit<MasterBase, 'uid'> {
+  id: number
   legalName: string
   customerType: 'DOMESTIC' | 'EXPORT' | 'OEM' | 'DISTRIBUTOR' | 'RETAIL' | 'ECOMMERCE'
   group: string
@@ -377,4 +378,247 @@ export interface DuplicateCandidate {
   recordA: { uid: ID; code: string; name: string; detail: string; createdAt: string; usageCount: number }
   recordB: { uid: ID; code: string; name: string; detail: string; createdAt: string; usageCount: number }
   status: 'OPEN' | 'MERGED' | 'DISMISSED'
+}
+
+export interface Transporter {
+  id: number
+  code: string
+  name: string
+  status: MasterStatus
+  effectiveFrom: string
+export interface Item extends MasterBase {
+  itemType: ItemType
+  category: string
+  family: string
+  series: string
+  baseUom: string
+  purchaseUom: string
+  salesUom: string
+  uomConversions: ItemUomConversion[]
+  hsnCode: string
+  gstRate: number
+  /** Bottle-specific attributes; null on items that are not bottles. */
+  capacityMl: number | null
+  bottleModel: string | null
+  colour: string | null
+  finishType: string | null
+  lidType: string | null
+  steelGrade: string | null
+  thicknessMm: number | null
+  isVacuumInsulated: boolean | null
+  netWeightG: number | null
+  /** Inventory control */
+  isBatchTracked: boolean
+  isSerialTracked: boolean
+  shelfLifeDays: number | null
+  valuationMethod: 'FIFO' | 'WEIGHTED_AVG' | 'STANDARD'
+  standardCost: number
+  lastPurchaseRate: number
+  sellingPrice: number
+  reorderLevel: number
+  reorderQty: number
+  minStock: number
+  maxStock: number
+  leadTimeDays: number
+  /** Quality */
+  requiresIncomingInspection: boolean
+  inspectionPlanCode: string | null
+  drawingNo: string | null
+  specification: string
+  isPurchased: boolean
+  isManufactured: boolean
+  isSold: boolean
+  preferredSupplier: string | null
+  revisions: RevisionEntry[]
+  whereUsed: WhereUsedEntry[]
+}
+
+/* ─────────────────────────── Employee ─────────────────────────────────── */
+
+export interface Employee extends MasterBase {
+  employeeCode: string
+  designation: string
+  department: string
+  grade: string
+  employmentType: 'PERMANENT' | 'CONTRACT' | 'TRAINEE' | 'APPRENTICE' | 'CASUAL'
+  dateOfJoining: string
+  dateOfBirth: string
+  gender: 'M' | 'F' | 'O'
+  bloodGroup: string
+  mobile: string
+  email: string
+  reportsTo: string
+  plantUid: ID | null
+  costCentre: string
+  shiftCode: string
+  skills: { skill: string; level: 'TRAINEE' | 'OPERATOR' | 'SKILLED' | 'EXPERT'; certifiedOn: string | null }[]
+  pfNumber: string | null
+  esiNumber: string | null
+  uanNumber: string | null
+  aadhaarMasked: string
+  panMasked: string
+  bankAccountMasked: string
+  isShopFloor: boolean
+  revisions: RevisionEntry[]
+  whereUsed: WhereUsedEntry[]
+}
+
+/* ─────────────────────────── Machine ──────────────────────────────────── */
+
+export interface Machine extends MasterBase {
+  machineGroup: string
+  plantUid: ID
+  lineCode: string
+  workCentreCode: string
+  manufacturer: string
+  modelNumber: string
+  serialNumber: string
+  yearOfManufacture: number
+  assetCode: string
+  capacityPerHour: number
+  capacityUom: string
+  powerKw: number
+  operatorsRequired: number
+  installedOn: string
+  warrantyUntil: string | null
+  /** Maintenance */
+  pmFrequencyDays: number
+  lastPmOn: string | null
+  nextPmOn: string | null
+  criticality: 'A' | 'B' | 'C'
+  currentState: 'RUNNING' | 'IDLE' | 'MAINTENANCE' | 'BREAKDOWN' | 'DECOMMISSIONED'
+  oeePct: number
+  /** Operations this machine can perform — drives routing validation. */
+  operations: string[]
+  revisions: RevisionEntry[]
+  whereUsed: WhereUsedEntry[]
+}
+
+/* ─────────────────────────── Config-driven simple masters ─────────────── */
+
+export type FieldType = 'text' | 'number' | 'select' | 'boolean' | 'date' | 'textarea' | 'colour'
+
+export interface MasterField {
+  key: string
+  label: string
+  type: FieldType
+  required?: boolean
+  options?: string[]
+  hint?: string
+  suffix?: string
+  /** Shown in the list grid. Non-listed fields appear only on the form. */
+  inList?: boolean
+  align?: 'left' | 'right' | 'center'
+  width?: string
+}
+
+/**
+ * A master whose behaviour is entirely described by configuration. This is what
+ * the framework promises: adding "Surface Coating" as a master should be a
+ * config entry, not a new screen.
+ */
+export interface SimpleMasterDef {
+  code: string
+  route: string
+  title: string
+  singular: string
+  category: string
+  description: string
+  /** V2 Ch 6 — the rules a reviewer should be able to read off the screen. */
+  rules: string[]
+  fields: MasterField[]
+  requiresApproval: boolean
+  autoCode: boolean
+  codePrefix: string
+  rows: SimpleMasterRow[]
+}
+
+export interface SimpleMasterRow {
+  uid: ID
+  code: string
+  name: string
+  status: MasterStatus
+  effectiveFrom: string
+  effectiveTo: string | null
+  revision: number
+  usageCount: number
+  modifiedBy: string
+  modifiedAt: string
+  values: Record<string, string | number | boolean | null>
+}
+
+/* ─────────────────────────── Import / duplicate review ────────────────── */
+
+export interface ImportRun {
+  uid: ID
+  masterCode: string
+  masterName: string
+  fileName: string
+  rowsTotal: number
+  rowsValid: number
+  rowsWarning: number
+  rowsError: number
+  status: 'VALIDATING' | 'DRY_RUN_COMPLETE' | 'COMMITTED' | 'FAILED' | 'CANCELLED'
+  startedBy: string
+  startedAt: string
+  errors: { row: number; column: string; value: string; message: string; severity: 'ERROR' | 'WARNING' }[]
+}
+
+export interface DuplicateCandidate {
+  uid: ID
+  masterCode: string
+  masterName: string
+  matchScore: number
+  matchedOn: string[]
+  recordA: { uid: ID; code: string; name: string; detail: string; createdAt: string; usageCount: number }
+  recordB: { uid: ID; code: string; name: string; detail: string; createdAt: string; usageCount: number }
+  status: 'OPEN' | 'MERGED' | 'DISMISSED'
+}
+
+export interface Transporter {
+  id: number
+  code: string
+  name: string
+  status: MasterStatus
+  effectiveFrom: string
+  effectiveTo: string | null
+  transporterId: string
+  mode: string
+  isGta: boolean
+  fleetSize: number
+  serviceZones: string | null
+  contactMobile: string | null
+}
+
+export interface Bank {
+  id: number
+  code: string
+  name: string
+  status: 'ACTIVE' | 'INACTIVE'
+  ifscPrefix: string | null
+  bankType: 'PUBLIC' | 'PRIVATE' | 'FOREIGN' | 'COOPERATIVE' | 'PAYMENTS'
+  swift: string | null
+  supportsNeft: boolean
+  createdBy: string | null
+  createdDate: string
+  modifiedBy: string | null
+  modifiedDate: string
+}
+
+export interface ContactPerson {
+  id: number
+  code: string
+  name: string
+  status: 'ACTIVE' | 'INACTIVE'
+  partner: string
+  partnerType: 'CUSTOMER' | 'SUPPLIER' | 'TRANSPORTER'
+  designation: string | null
+  purpose: 'COMMERCIAL' | 'TECHNICAL' | 'QUALITY' | 'ACCOUNTS' | 'LOGISTICS'
+  email: string
+  mobile: string
+  hasPortalAccess: boolean
+  createdBy: string | null
+  createdDate: string
+  modifiedBy: string | null
+  modifiedDate: string
 }

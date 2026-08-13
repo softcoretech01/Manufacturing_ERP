@@ -21,16 +21,10 @@ import {
   latestRevisionOf,
   nextDocNo,
 } from '@/lib/engFlow'
-import { newUid, useCollection } from '@/store/data'
-import {
-  boms as seedBoms,
-  engChanges as seedChanges,
-  products as seedProducts,
-  routings as seedRoutings,
-  tools as seedTools,
-  workCentres as seedWorkCentres,
-} from '@/mock/engineering'
-import { items as masterItems } from '@/mock/masters'
+import { newUid } from '@/store/data'
+import { api } from '@/lib/api'
+import { useEffect } from 'react'
+import type { Item } from '@/types/master'
 import type { Bom, ChangeAction, ChangeLine, EngChange, EngProduct, EngWorkCentre, Routing, Tool } from '@/types/engineering'
 
 /**
@@ -70,6 +64,7 @@ interface LineEntry {
 }
 
 interface FormState {
+  docNo: string
   changeType: EngChange['changeType']
   title: string
   reason: string
@@ -82,6 +77,7 @@ interface FormState {
 }
 
 const emptyForm: FormState = {
+  docNo: '',
   changeType: 'ECR',
   title: '',
   reason: '',
@@ -97,12 +93,44 @@ const OPEN_STATES: EngChange['status'][] = ['DRAFT', 'UNDER_REVIEW', 'PENDING_AP
 
 export function ChangesPage() {
   const toast = useToast()
-  const { rows, create, update, remove } = useCollection<EngChange>('eng:changes', useMemo(() => seedChanges, []))
-  const { rows: boms, create: createBom, update: updateBom } = useCollection<Bom>('eng:boms', useMemo(() => seedBoms, []))
-  const { rows: products } = useCollection<EngProduct>('eng:products', useMemo(() => seedProducts, []))
-  const { rows: routings } = useCollection<Routing>('eng:routings', useMemo(() => seedRoutings, []))
-  const { rows: workCentres } = useCollection<EngWorkCentre>('eng:workcentres', useMemo(() => seedWorkCentres, []))
-  const { rows: tools } = useCollection<Tool>('eng:tools', useMemo(() => seedTools, []))
+  
+  const [rows, setRows] = useState<EngChange[]>([])
+  const [boms, setBoms] = useState<Bom[]>([])
+  const [products, setProducts] = useState<EngProduct[]>([])
+  const [routings, setRoutings] = useState<Routing[]>([])
+  const [workCentres, setWorkCentres] = useState<EngWorkCentre[]>([])
+  const [tools, setTools] = useState<Tool[]>([])
+  const [masterItems, setMasterItems] = useState<Item[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  async function loadData() {
+    try {
+      const [chgs, bs, ps, rs, wcs, ts, is] = await Promise.all([
+        api.getEngChanges().catch(() => []),
+        api.getBoms().catch(() => []),
+        api.getEngProducts().catch(() => []),
+        api.getRoutings().catch(() => []),
+        api.getEngWorkCentres().catch(() => []),
+        api.getEngTools().catch(() => []),
+        api.getItems().catch(() => [])
+      ])
+      setRows(chgs)
+      setBoms(bs)
+      setProducts(ps)
+      setRoutings(rs)
+      setWorkCentres(wcs)
+      setTools(ts)
+      setMasterItems(is)
+    } catch (err) {
+      toast.error('Error', 'Failed to load live engineering data')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadData()
+  }, [])
 
   const ctx = { boms, routings, workCentres, tools, items: masterItems, products }
 
@@ -179,11 +207,26 @@ export function ChangesPage() {
     return bom?.lines ?? []
   }
 
-  function openCreate() {
+  async function openCreate() {
     setEditing(null)
-    setForm({ ...emptyForm, productCode: products[0]?.code ?? '', effectiveFrom: new Date().toISOString().slice(0, 10) })
+    try {
+      const docNo = await api.getNextEngChangeCode('ECR')
+      setForm({ ...emptyForm, docNo, productCode: products[0]?.code ?? '', effectiveFrom: new Date().toISOString().slice(0, 10) })
+    } catch (e) {
+      setForm({ ...emptyForm, productCode: products[0]?.code ?? '', effectiveFrom: new Date().toISOString().slice(0, 10) })
+    }
     setErrors({})
     setFormOpen(true)
+  }
+  
+  async function handleChangeType(val: string) {
+    const type = val as EngChange['changeType']
+    try {
+      const docNo = await api.getNextEngChangeCode(type)
+      setForm({ ...form, changeType: type, docNo })
+    } catch (e) {
+      setForm({ ...form, changeType: type })
+    }
   }
 
   function openEdit(c: EngChange) {
@@ -193,6 +236,7 @@ export function ChangesPage() {
     }
     setEditing(c)
     setForm({
+      docNo: c.docNo,
       changeType: c.changeType,
       title: c.title,
       reason: c.reason,
@@ -262,7 +306,7 @@ export function ChangesPage() {
     })
   }
 
-  function save(submit: boolean) {
+  async function save(submit: boolean) {
     if (!validate()) return
     const product = products.find((p) => p.code === form.productCode)
     const common = {
@@ -280,61 +324,71 @@ export function ChangesPage() {
       approvals: submit && form.changeType === 'ECN' ? APPROVAL_CHAIN.map((a) => ({ ...a, status: 'PENDING' as const })) : [],
     }
 
-    if (editing) {
-      update(editing.uid, { ...common, version: editing.version + 1 })
-      toast.success('Change saved', `${editing.docNo} updated.`)
-    } else {
-      const docNo = nextDocNo(form.changeType, rows)
-      create({
-        ...common,
-        uid: newUid('ecn'),
-        docNo,
-        requestedBy: 'Rahul Iyer',
-        requestedOn: new Date().toISOString().slice(0, 10),
-        sourceEcr: null,
-        resultingBom: null,
-        createdAt: new Date().toISOString(),
-        version: 1,
-      } as EngChange)
-      toast.success(`${form.changeType} raised`, `${docNo} created${submit ? ' and sent for review' : ' as a draft'}.`)
+    try {
+      if (editing) {
+        await api.updateEngChange(editing.uid, { ...editing, ...common, version: editing.version + 1 })
+        toast.success('Change saved', `${editing.docNo} updated.`)
+      } else {
+        const payload: Omit<EngChange, 'uid'> = {
+          ...common,
+          docNo: form.docNo,
+          requestedBy: 'Rahul Iyer',
+          requestedOn: new Date().toISOString().slice(0, 10),
+          sourceEcr: null,
+          resultingBom: null,
+          createdAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
+          version: 1,
+        }
+        await api.createEngChange(payload)
+        toast.success(`${form.changeType} raised`, `${form.docNo} created${submit ? ' and sent for review' : ' as a draft'}.`)
+      }
+      setFormOpen(false)
+      loadData()
+    } catch (err) {
+      toast.error('Error', 'Failed to save engineering change')
     }
-    setFormOpen(false)
   }
 
   /* ── Promote, approve, implement ───────────────────────────────────── */
 
   /** An ECR becomes an ECN once the technical review is done. */
-  function promote(c: EngChange) {
-    const docNo = nextDocNo('ECN', rows)
-    create({
-      ...c,
-      uid: newUid('ecn'),
-      docNo,
-      changeType: 'ECN',
-      status: 'PENDING_APPROVAL',
-      sourceEcr: c.docNo,
-      approvals: APPROVAL_CHAIN.map((a) => ({ ...a, status: 'PENDING' as const })),
-      createdAt: new Date().toISOString(),
-      version: 1,
-    } as EngChange)
-    update(c.uid, { status: 'CANCELLED' })
-    toast.success('Promoted to a change notice', `${docNo} raised from ${c.docNo} and sent for approval.`)
-    setDetail(null)
+  async function promote(c: EngChange) {
+    try {
+      const docNo = await api.getNextEngChangeCode('ECN')
+      await api.createEngChange({
+        ...c,
+        docNo,
+        changeType: 'ECN',
+        status: 'PENDING_APPROVAL',
+        sourceEcr: c.docNo,
+        approvals: APPROVAL_CHAIN.map((a) => ({ ...a, status: 'PENDING' as const })),
+        createdAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
+        version: 1,
+      } as any)
+      await api.updateEngChange(c.uid, { ...c, status: 'CANCELLED' })
+      toast.success('Promoted to a change notice', `${docNo} raised from ${c.docNo} and sent for approval.`)
+      setDetail(null)
+      loadData()
+    } catch (e) {
+      toast.error('Error', 'Failed to promote to ECN')
+    }
   }
 
   function approveLevel(c: EngChange) {
     const next = c.approvals.find((a) => a.status === 'PENDING')
     if (!next) return
     const approvals = c.approvals.map((a) =>
-      a.level === next.level ? { ...a, status: 'APPROVED' as const, actedAt: new Date().toISOString() } : a,
+      a.level === next.level ? { ...a, status: 'APPROVED' as const, actedAt: new Date().toISOString().slice(0, 19).replace('T', ' ') } : a,
     )
     const allDone = approvals.every((a) => a.status === 'APPROVED')
-    update(c.uid, { approvals, status: allDone ? 'APPROVED' : 'PENDING_APPROVAL' })
-    toast.success(
-      allDone ? 'Fully approved' : `Level ${next.level} approved`,
-      allDone ? `${c.docNo} can now be implemented against the BOM.` : `${c.docNo} moves to level ${next.level + 1}.`,
-    )
-    setDetail(allDone ? null : { ...c, approvals, status: allDone ? 'APPROVED' : 'PENDING_APPROVAL' })
+    api.updateEngChange(c.uid, { ...c, approvals, status: allDone ? 'APPROVED' : 'PENDING_APPROVAL' }).then(() => {
+      toast.success(
+        allDone ? 'Fully approved' : `Level ${next.level} approved`,
+        allDone ? `${c.docNo} can now be implemented against the BOM.` : `${c.docNo} moves to level ${next.level + 1}.`,
+      )
+      setDetail(allDone ? null : { ...c, approvals, status: allDone ? 'APPROVED' : 'PENDING_APPROVAL' })
+      loadData()
+    }).catch(() => toast.error('Error', 'Failed to approve'))
   }
 
   function reject(c: EngChange) {
@@ -344,13 +398,15 @@ export function ChangesPage() {
     }
     const next = c.approvals.find((a) => a.status === 'PENDING')
     const approvals = next
-      ? c.approvals.map((a) => (a.level === next.level ? { ...a, status: 'REJECTED' as const, actedAt: new Date().toISOString(), remarks: rejectNote.trim() } : a))
+      ? c.approvals.map((a) => (a.level === next.level ? { ...a, status: 'REJECTED' as const, actedAt: new Date().toISOString().slice(0, 19).replace('T', ' '), remarks: rejectNote.trim() } : a))
       : c.approvals
-    update(c.uid, { approvals, status: 'REJECTED' })
-    toast.success('Rejected', `${c.docNo} sent back to ${c.requestedBy}.`)
-    setRejecting(null)
-    setRejectNote('')
-    setDetail(null)
+    api.updateEngChange(c.uid, { ...c, approvals, status: 'REJECTED' }).then(() => {
+      toast.success('Rejected', `${c.docNo} sent back to ${c.requestedBy}.`)
+      setRejecting(null)
+      setRejectNote('')
+      setDetail(null)
+      loadData()
+    }).catch(() => toast.error('Error', 'Failed to reject'))
   }
 
   /**
@@ -358,7 +414,7 @@ export function ChangesPage() {
    * change lines; the revision it came from is superseded and closed on the
    * effective date, so nothing that was already built loses its structure.
    */
-  function implement(c: EngChange) {
+  async function implement(c: EngChange) {
     const byDoc = new Map<string, ChangeLine[]>()
     for (const l of c.changeLines) byDoc.set(l.bomDocNo, [...(byDoc.get(l.bomDocNo) ?? []), l])
 
@@ -372,24 +428,23 @@ export function ChangesPage() {
         continue
       }
       const revised = applyChangeLines(baseBom, lines, warnings)
-      createBom({
+      await api.createBom({
         ...revised,
-        uid: newUid('bom'),
         status: 'ACTIVE',
         effectiveFrom: c.effectiveFrom,
         effectiveTo: null,
         createdBy: c.requestedBy,
-        createdAt: new Date().toISOString(),
+        createdAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
         approvedBy: 'Meera Rajan',
-        approvedAt: new Date().toISOString(),
+        approvedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
         sourceEcn: c.docNo,
         changeReason: c.title,
-      })
-      updateBom(baseBom.uid, { status: 'SUPERSEDED', effectiveTo: c.effectiveFrom })
+      } as any)
+      await api.updateBom(baseBom.uid, { status: 'SUPERSEDED', effectiveTo: c.effectiveFrom })
       produced.push(`${docNo} R${revised.revision}`)
     }
 
-    update(c.uid, { status: 'IMPLEMENTED', resultingBom: produced.join(', ') || null })
+    await api.updateEngChange(c.uid, { ...c, status: 'IMPLEMENTED', resultingBom: produced.join(', ') || null })
     if (warnings.length) {
       toast.error('Implemented with warnings', warnings[0])
     } else {
@@ -397,6 +452,7 @@ export function ChangesPage() {
     }
     setImplementing(null)
     setDetail(null)
+    loadData()
   }
 
   /* ── Impact analysis for the open change ───────────────────────────── */
@@ -467,11 +523,14 @@ export function ChangesPage() {
               separatorBefore
               disabled={c.status !== 'DRAFT'}
               onClick={() => {
-                update(c.uid, {
+                api.updateEngChange(c.uid, {
+                  ...c,
                   status: c.changeType === 'ECN' ? 'PENDING_APPROVAL' : 'UNDER_REVIEW',
                   approvals: c.changeType === 'ECN' ? APPROVAL_CHAIN.map((a) => ({ ...a, status: 'PENDING' as const })) : [],
+                }).then(() => {
+                  toast.success('Submitted', `${c.docNo} sent for review.`)
+                  loadData()
                 })
-                toast.success('Submitted', `${c.docNo} sent for review.`)
               }}
             />
             <MenuItem label="Promote to change notice" icon={<ArrowUpRight />} disabled={c.changeType !== 'ECR' || c.status !== 'UNDER_REVIEW'} onClick={() => promote(c)} />
@@ -484,7 +543,13 @@ export function ChangesPage() {
               danger
               separatorBefore
               disabled={c.status === 'IMPLEMENTED'}
-              onClick={() => setConfirmDelete(c)}
+              onClick={async () => {
+                if(confirm('Are you sure you want to delete this change?')) {
+                  await api.deleteEngChange(c.uid)
+                  toast.success('Deleted', `${c.docNo} has been deleted.`)
+                  loadData()
+                }
+              }}
             />
           </>
         )}
@@ -676,17 +741,23 @@ export function ChangesPage() {
         }
       >
         <div className="grid gap-3.5 sm:grid-cols-4">
+          <Input maxLength={255} 
+            label="Change Code" 
+            value={form.docNo} 
+            disabled 
+            hint="Auto-generated" 
+          />
           <Select
             label="Raise as"
             value={form.changeType}
             disabled={!!editing}
-            onChange={(e) => setForm({ ...form, changeType: e.target.value as EngChange['changeType'] })}
+            onChange={(e) => handleChangeType(e.target.value)}
             options={[
               { value: 'ECR', label: 'ECR — request, to be reviewed' },
               { value: 'ECN', label: 'ECN — notice, straight to approval' },
             ]}
           />
-          <Input label="Title" required containerClassName="sm:col-span-3" value={form.title} error={errors.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          <Input maxLength={255} label="Title" required containerClassName="sm:col-span-3" value={form.title} error={errors.title} maxLength={200} onChange={(e) => setForm({ ...form, title: e.target.value })} />
           <Select
             label="Product"
             required
@@ -698,22 +769,24 @@ export function ChangesPage() {
           />
           <Select label="Category" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value as EngChange['category'] })} options={CATEGORIES.map((c) => ({ value: c, label: CHANGE_CATEGORY_LABEL[c] }))} />
           <Select label="Priority" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value as EngChange['priority'] })} options={PRIORITIES.map((p) => ({ value: p, label: p.charAt(0) + p.slice(1).toLowerCase() }))} />
-          <Textarea
+          <Textarea maxLength={1000}
             label="Reason for the change"
             required
             containerClassName="sm:col-span-3"
             rows={3}
             value={form.reason}
             error={errors.reason}
+            maxLength={2000}
             hint="Why the current structure is wrong. Every approver reads this."
             onChange={(e) => setForm({ ...form, reason: e.target.value })}
           />
-          <Input label="Effective from" type="date" required value={form.effectiveFrom} error={errors.effectiveFrom} onChange={(e) => setForm({ ...form, effectiveFrom: e.target.value })} />
-          <Textarea
+          <Input maxLength={255} label="Effective from" type="date" required value={form.effectiveFrom} error={errors.effectiveFrom} onChange={(e) => setForm({ ...form, effectiveFrom: e.target.value })} />
+          <Textarea maxLength={1000}
             label="Engineering assessment"
             containerClassName="sm:col-span-4"
             rows={2}
             value={form.impactNote}
+            maxLength={2000}
             hint="Tooling, drawing, quality and stock consequences that the cost figure does not capture."
             onChange={(e) => setForm({ ...form, impactNote: e.target.value })}
           />
@@ -807,7 +880,7 @@ export function ChangesPage() {
                         >
                           <option value="">{l.action === 'REPLACE' ? 'Select…' : 'n/a'}</option>
                           {masterItems.map((it) => (
-                            <option key={it.uid} value={it.code}>
+                            <option key={it.code} value={it.code}>
                               {it.code} — {it.name}
                             </option>
                           ))}
@@ -932,7 +1005,7 @@ export function ChangesPage() {
               <span className="font-medium text-fg">{rejecting.docNo}</span> goes back to {rejecting.requestedBy} with your
               reason.
             </p>
-            <Textarea
+            <Textarea maxLength={1000}
               label="Reason"
               required
               rows={3}

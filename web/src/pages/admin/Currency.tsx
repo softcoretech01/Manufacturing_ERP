@@ -12,11 +12,35 @@ import { Input, Select } from '@/components/ui/Input'
 import { useToast } from '@/components/ui/Toast'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDate } from '@/lib/format'
-import { currencies, exchangeRates } from '@/mock/data'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { api } from '@/lib/api'
 import type { Currency, ExchangeRate } from '@/types'
 
 export function CurrencyPage() {
   const toast = useToast()
+  const queryClient = useQueryClient()
+
+  const { data: currencies = [] } = useQuery({
+    queryKey: ['currencies'],
+    queryFn: api.getCurrencies,
+  })
+
+  const { data: exchangeRates = [] } = useQuery({
+    queryKey: ['exchangeRates'],
+    queryFn: api.getExchangeRates,
+  })
+
+  const createRateMutation = useMutation({
+    mutationFn: api.createExchangeRate,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['exchangeRates'] })
+      toast.success('Rate added')
+      setOpen(false)
+    },
+    onError: (err: any) => {
+      toast.error('Failed to add rate', err.message)
+    },
+  })
 
   function doExport(format: ExportFormat) {
     try {
@@ -29,6 +53,14 @@ export function CurrencyPage() {
   const [tab, setTab] = useState('rates')
   const [open, setOpen] = useState(false)
 
+  // Form State
+  const [fromCurrency, setFromCurrency] = useState('USD')
+  const [toCurrency, setToCurrency] = useState('INR')
+  const [rateType, setRateType] = useState('AVERAGE')
+  const [rate, setRate] = useState('')
+  const [effectiveDate, setEffectiveDate] = useState('')
+  const [source, setSource] = useState('')
+
   const currencyColumns: Column<Currency>[] = [
     { key: 'code', header: 'Code', sortable: true, width: '90px', render: (c) => <span className="font-mono text-xs font-medium">{c.code}</span> },
     { key: 'name', header: 'Currency', sortable: true },
@@ -38,7 +70,7 @@ export function CurrencyPage() {
   ]
 
   const rateColumns: Column<ExchangeRate>[] = [
-    { key: 'pair', header: 'Pair', accessor: (r) => `${r.from}/${r.to}`, width: '110px', render: (r) => <span className="font-mono text-xs font-medium">{r.from} → {r.to}</span> },
+    { key: 'pair', header: 'Pair', accessor: (r) => `${r.fromCurrency}/${r.toCurrency}`, width: '110px', render: (r) => <span className="font-mono text-xs font-medium">{r.fromCurrency} → {r.toCurrency}</span> },
     {
       key: 'rateType',
       header: 'Rate type',
@@ -60,6 +92,21 @@ export function CurrencyPage() {
     usd: 87.4 + Math.sin(i / 3) * 0.9 + i * 0.03,
     eur: 94.2 + Math.cos(i / 4) * 1.1 + i * 0.04,
   }))
+
+  const handleAddRate = () => {
+    if (!fromCurrency || !toCurrency || !rateType || !rate || !effectiveDate) {
+      toast.error('Validation error', 'Please fill all required fields')
+      return
+    }
+    createRateMutation.mutate({
+      fromCurrency,
+      toCurrency,
+      rateType,
+      rate: parseFloat(rate),
+      effectiveDate,
+      source,
+    })
+  }
 
   return (
     <div>
@@ -120,17 +167,17 @@ export function CurrencyPage() {
       )}
 
       <Modal open={open} onClose={() => setOpen(false)} title="Add exchange rate"
-        footer={<><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button variant="primary" onClick={() => { toast.success('Rate added'); setOpen(false) }}>Add rate</Button></>}>
+        footer={<><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button variant="primary" onClick={handleAddRate} loading={createRateMutation.isPending}>Add rate</Button></>}>
         <div className="space-y-3.5">
           <div className="grid grid-cols-2 gap-3">
-            <Select label="From currency" required defaultValue="USD" options={currencies.map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` }))} />
-            <Select label="To currency" required defaultValue="INR" options={currencies.map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` }))} />
+            <Select label="From currency" required value={fromCurrency} onChange={e => setFromCurrency(e.target.value)} options={currencies.map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` }))} />
+            <Select label="To currency" required value={toCurrency} onChange={e => setToCurrency(e.target.value)} options={currencies.map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` }))} />
           </div>
-          <Select label="Rate type" required defaultValue="AVERAGE"
+          <Select label="Rate type" required value={rateType} onChange={e => setRateType(e.target.value)}
             options={[{ value: 'AVERAGE', label: 'Average — general transactions' }, { value: 'BUYING', label: 'Buying — bank buying rate' }, { value: 'SELLING', label: 'Selling — bank selling rate' }, { value: 'CUSTOMS', label: 'Customs — CBIC notified rate for import duty' }]} />
-          <Input label="Rate" type="number" step="0.00000001" required placeholder="88.42000000" hint="Stored to 8 decimal places." />
-          <Input label="Effective date" type="date" required />
-          <Input label="Source" placeholder="RBI reference / HDFC Bank / CBIC notification" />
+          <Input label="Rate" type="number" step="0.00000001" required placeholder="88.42000000" hint="Stored to 8 decimal places." value={rate} onChange={e => setRate(e.target.value)} />
+          <Input label="Effective date" type="date" required value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)} />
+          <Input label="Source" placeholder="RBI reference / HDFC Bank / CBIC notification" value={source} onChange={e => setSource(e.target.value)} />
           <Alert tone="info">
             Rate lookup resolves to the latest rate on or before the document date. If none exists, the
             transaction is blocked with a clear message.

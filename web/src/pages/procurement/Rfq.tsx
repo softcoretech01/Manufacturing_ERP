@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { Award, Handshake, Mail, Plus, Scale, Send, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader, DataGrid } from '@/components/ui/Card'
@@ -13,8 +13,9 @@ import { useToast } from '@/components/ui/Toast'
 import { ApprovalTrail, DetailBlock, ProcStatusBadge } from '@/components/procurement/ProcShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/format'
-import { newUid, useCollection } from '@/store/data'
-import { negotiations, quotations as seedQuotations, requisitions as seedPrs, rfqs as seedRfqs } from '@/mock/procurement'
+import { api } from '@/lib/api'
+import { useCollection } from '@/store/data'
+import { negotiations, quotations as seedQuotations } from '@/mock/procurement'
 import type { PurchaseRequisition, Rfq, SupplierQuotation } from '@/types/procurement'
 import { nextDocNo, rfqLinesFromPr, sourceableRequisitions, VENDORS } from '@/lib/procFlow'
 import { cn } from '@/lib/cn'
@@ -32,12 +33,56 @@ const CATEGORIES = [
 
 export function RfqPage() {
   const toast = useToast()
-  const seed = useMemo(() => seedRfqs, [])
-  const prSeed = useMemo(() => seedPrs, [])
   const qSeed = useMemo(() => seedQuotations, [])
-  const { rows, create, update, remove } = useCollection<Rfq>('proc:rfq', seed)
-  const { rows: prs, update: updatePr } = useCollection<PurchaseRequisition>('proc:pr', prSeed)
   const { rows: quotations } = useCollection<SupplierQuotation>('proc:sq', qSeed)
+
+  const [rows, setRows] = useState<Rfq[]>([])
+  const [prs, setPrs] = useState<PurchaseRequisition[]>([])
+  
+  useEffect(() => {
+    api.getRfqs().then(setRows).catch((e: Error) => toast.error('Failed to load RFQs', e.message))
+    api.getPurchaseRequisitions().then(setPrs).catch((e: Error) => toast.error('Failed to load PRs', e.message))
+  }, [toast])
+
+  const create = async (row: Rfq) => {
+    try {
+      const created = await api.createRfq(row)
+      setRows((prev) => [created, ...prev])
+    } catch (err: any) {
+      toast.error('Error', err.message)
+    }
+  }
+
+  const update = async (uid: string, patch: Partial<Rfq>) => {
+    try {
+      const existing = rows.find(r => r.uid === uid)
+      if (!existing) return
+      const updated = await api.updateRfq(uid, { ...existing, ...patch })
+      setRows((prev) => prev.map((r) => (r.uid === uid ? updated : r)))
+    } catch (err: any) {
+      toast.error('Error', err.message)
+    }
+  }
+
+  const remove = async (uid: string) => {
+    try {
+      await api.deleteRfq(uid)
+      setRows((prev) => prev.filter(r => r.uid !== uid))
+    } catch (err: any) {
+      toast.error('Error', err.message)
+    }
+  }
+  
+  const updatePr = async (uid: string, patch: Partial<PurchaseRequisition>) => {
+    try {
+      const existing = prs.find(r => r.uid === uid)
+      if (!existing) return
+      const updated = await api.updatePurchaseRequisition(uid, { ...existing, ...patch })
+      setPrs((prev) => prev.map((r) => (r.uid === uid ? updated : r)))
+    } catch (err: any) {
+      toast.error('Error', err.message)
+    }
+  }
 
   /** Approved requisitions that have not been sourced yet. */
   const sourceable = sourceableRequisitions(prs, rows)
@@ -189,12 +234,9 @@ export function RfqPage() {
       if (!pr) return
       const docNo = nextDocNo('RFQ', rows, 5)
       const now = new Date().toISOString()
-      create({
-        uid: newUid('rfq'),
+      const reqData = {
         docNo,
         docDate: now.slice(0, 10),
-        // Issued straight away — the requisition already carries the approval,
-        // so a second gate before merely asking for prices adds delay, not control.
         status: 'IN_PROGRESS',
         prRefs: [pr.docNo],
         currency: 'INR',
@@ -212,7 +254,8 @@ export function RfqPage() {
           responseStatus: 'INVITED' as const,
         })),
         ...patch,
-      } as Rfq)
+      } as Rfq
+      create(reqData)
       updatePr(pr.uid, { convertedTo: docNo })
       toast.success(
         'RFQ issued',

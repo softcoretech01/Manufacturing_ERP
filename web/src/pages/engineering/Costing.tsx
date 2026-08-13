@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { Calculator, RotateCcw } from 'lucide-react'
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Button } from '@/components/ui/Button'
@@ -11,16 +11,9 @@ import { ChartTip } from '@/components/engineering/EngShell'
 import { exportRows, type ExportColumn, type ExportFormat } from '@/lib/export'
 import { formatAmount, formatDate } from '@/lib/format'
 import { NO_SIMULATION, rollUpCost, type CostContext, type MaterialCostLine, type Simulation } from '@/lib/engFlow'
-import { useCollection } from '@/store/data'
-import {
-  boms as seedBoms,
-  products as seedProducts,
-  routings as seedRoutings,
-  tools as seedTools,
-  workCentres as seedWorkCentres,
-} from '@/mock/engineering'
-import { items as masterItems } from '@/mock/masters'
+import { api } from '@/lib/api'
 import type { Bom, EngProduct, EngWorkCentre, Routing, Tool } from '@/types/engineering'
+import type { Item } from '@/types/master'
 
 /**
  * Cost roll-up and simulation (Ch 16).
@@ -53,22 +46,56 @@ const SOURCE_LABEL: Record<MaterialCostLine['source'], string> = {
 
 export function CostingPage() {
   const toast = useToast()
-  const { rows: products, update: updateProduct } = useCollection<EngProduct>('eng:products', useMemo(() => seedProducts, []))
-  const { rows: boms } = useCollection<Bom>('eng:boms', useMemo(() => seedBoms, []))
-  const { rows: routings } = useCollection<Routing>('eng:routings', useMemo(() => seedRoutings, []))
-  const { rows: workCentres } = useCollection<EngWorkCentre>('eng:workcentres', useMemo(() => seedWorkCentres, []))
-  const { rows: tools } = useCollection<Tool>('eng:tools', useMemo(() => seedTools, []))
+  
+  const [products, setProducts] = useState<EngProduct[]>([])
+  const [boms, setBoms] = useState<Bom[]>([])
+  const [routings, setRoutings] = useState<Routing[]>([])
+  const [workCentres, setWorkCentres] = useState<EngWorkCentre[]>([])
+  const [tools, setTools] = useState<Tool[]>([])
+  const [items, setItems] = useState<Item[]>([])
 
-  const [productCode, setProductCode] = useState(() => seedProducts[0]?.code ?? '')
+  const [isLoading, setIsLoading] = useState(true)
+
+  const [productCode, setProductCode] = useState('')
   const [sim, setSim] = useState<Simulation>(NO_SIMULATION)
   const [lotText, setLotText] = useState('')
 
-  const ctx: CostContext = { boms, routings, workCentres, tools, items: masterItems, products }
+  async function loadData() {
+    try {
+      const [ps, bs, rs, ws, ts, is] = await Promise.all([
+        api.getEngProducts().catch(() => []),
+        api.getBoms().catch(() => []),
+        api.getRoutings().catch(() => []),
+        api.getEngWorkCentres().catch(() => []),
+        api.getEngTools().catch(() => []),
+        api.getItems().catch(() => []),
+      ])
+      setProducts(ps)
+      setBoms(bs)
+      setRoutings(rs)
+      setWorkCentres(ws)
+      setTools(ts)
+      setItems(is)
+      if (ps.length > 0 && !productCode) {
+        setProductCode(ps[0].code)
+      }
+    } catch (err) {
+      toast.error('Error', 'Failed to load costing dependencies')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadData()
+  }, [])
+
+  const ctx: CostContext = { boms, routings, workCentres, tools, items, products }
 
   const base = useMemo(
     () => (productCode ? rollUpCost(productCode, ctx, NO_SIMULATION) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [productCode, boms, routings, workCentres, tools, products],
+    [productCode, boms, routings, workCentres, tools, products, items],
   )
 
   const activeSim: Simulation = { ...sim, lotSize: lotText.trim() ? Number(lotText) || null : null }
@@ -77,7 +104,7 @@ export function CostingPage() {
   const simulated = useMemo(
     () => (productCode && simulating ? rollUpCost(productCode, ctx, activeSim) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [productCode, boms, routings, workCentres, tools, products, activeSim.materialPct, activeSim.conversionPct, activeSim.lotSize],
+    [productCode, boms, routings, workCentres, tools, products, items, activeSim.materialPct, activeSim.conversionPct, activeSim.lotSize],
   )
 
   const shown = simulated ?? base
@@ -92,17 +119,28 @@ export function CostingPage() {
     setLotText('')
   }
 
-  function publish() {
+  async function publish() {
     if (!base || !product) return
     if (base.total <= 0) {
       toast.error('Nothing to publish', 'The roll-up came back at zero — check the BOM and routing first.')
       return
     }
-    updateProduct(product.uid, { standardCost: base.total, costRolledAt: new Date().toISOString() })
-    toast.success(
-      'Standard cost published',
-      `${product.code} is now ₹${formatAmount(base.total)}. The unsimulated roll-up is published, not the simulation.`,
-    )
+    try {
+      const updatedProduct = { 
+        ...product, 
+        standardCost: base.total, 
+        costRolledAt: new Date().toISOString() 
+      }
+      await api.updateEngProduct(product.uid, updatedProduct)
+      
+      toast.success(
+        'Standard cost published',
+        `${product.code} is now ₹${formatAmount(base.total)}. The unsimulated roll-up is published, not the simulation.`,
+      )
+      loadData()
+    } catch (err) {
+      toast.error('Error', 'Failed to publish standard cost')
+    }
   }
 
   function exportMaterial(format: ExportFormat) {
@@ -123,6 +161,15 @@ export function CostingPage() {
   }
 
   const variance = product && product.standardCost > 0 && base ? base.total - product.standardCost : 0
+
+  if (isLoading) {
+    return (
+      <div>
+        <PageHeader title="Cost roll-up" breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Engineering', to: '/engineering' }, { label: 'Costing' }]} />
+        <Card className="p-8 text-center text-sm text-fg-muted">Loading costing data from live database...</Card>
+      </div>
+    )
+  }
 
   return (
     <div>
@@ -145,7 +192,7 @@ export function CostingPage() {
             onChange={(e) => setProductCode(e.target.value)}
             options={[{ value: '', label: 'Select a product…' }, ...products.map((p) => ({ value: p.code, label: `${p.code} — ${p.name}` }))]}
           />
-          <Input
+          <Input maxLength={255}
             label="Material price move (%)"
             type="number"
             step="0.5"
@@ -154,7 +201,7 @@ export function CostingPage() {
             hint="Applies to every bought-out component."
             onChange={(e) => setSim({ ...sim, materialPct: Number(e.target.value) || 0 })}
           />
-          <Input
+          <Input maxLength={255}
             label="Labour & machine move (%)"
             type="number"
             step="0.5"
@@ -163,7 +210,7 @@ export function CostingPage() {
             hint="Applies to every work centre rate."
             onChange={(e) => setSim({ ...sim, conversionPct: Number(e.target.value) || 0 })}
           />
-          <Input
+          <Input maxLength={255}
             label="Lot size override"
             type="number"
             value={lotText}
@@ -265,7 +312,6 @@ export function CostingPage() {
                 </div>
               </CardBody>
             </Card>
-
             <Card>
               <CardHeader title="Where the cost sits" description="Per finished unit" />
               <CardBody className="h-64">

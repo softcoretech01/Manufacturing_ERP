@@ -12,7 +12,8 @@ import { Alert, Avatar, PageHeader, ProgressBar } from '@/components/ui/Misc'
 import { Input, Select, Switch, Textarea } from '@/components/ui/Input'
 import { useToast } from '@/components/ui/Toast'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
-import { useCollection } from '@/store/data'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { api } from '@/lib/api'
 import {
   GovernanceCard,
   LifecycleTrail,
@@ -24,10 +25,9 @@ import {
 } from '@/components/masters/MasterShell'
 import { validateGstin } from './Supplier'
 import { formatCompact, formatCurrency, formatDate } from '@/lib/format'
-import { customers } from '@/mock/masters'
 import type { Customer } from '@/types/masters'
 
-function CustomerDetail({ c, onClose }: { c: Customer; onClose: () => void }) {
+function CustomerDetail({ c, onClose, onEdit }: { c: Customer; onClose: () => void; onEdit: (c: Customer) => void }) {
   const toast = useToast()
   const [tab, setTab] = useState('general')
   const utilisation = c.creditLimit ? (c.creditUsed / c.creditLimit) * 100 : 0
@@ -49,7 +49,7 @@ function CustomerDetail({ c, onClose }: { c: Customer; onClose: () => void }) {
           <MasterActions
             status={c.status}
             usageCount={c.whereUsed.filter((w) => w.isOpen).length}
-            onEdit={() => toast.info('Edit', 'Editing an approved customer creates a new revision.')}
+            onEdit={() => onEdit(c)}
             onSubmit={() => toast.success('Submitted for approval')}
           />
         </div>
@@ -260,145 +260,363 @@ function CustomerDetail({ c, onClose }: { c: Customer; onClose: () => void }) {
   )
 }
 
-function CustomerForm({ open, onClose }: { open: boolean; onClose: () => void }) {
+function CustomerForm({ c, open, onClose }: { c?: Customer; open: boolean; onClose: () => void }) {
   const toast = useToast()
-  const [gstin, setGstin] = useState('')
-  const [pan, setPan] = useState('')
-  const [type, setType] = useState('DOMESTIC')
-  const [limit, setLimit] = useState(0)
+  const queryClient = useQueryClient()
+  const [tab, setTab] = useState('general')
+  const [isSaved, setIsSaved] = useState(!!c)
+  
+  // Form State
+  const [name, setName] = useState(c?.name || '')
+  const [legalName, setLegalName] = useState(c?.legalName || '')
+  const [type, setType] = useState(c?.customerType || 'DOMESTIC')
+  const [pan, setPan] = useState(c?.pan || '')
+  const [gstin, setGstin] = useState(c?.gstin || '')
+  const [territory, setTerritory] = useState(c?.territory || '')
+  const [currency, setCurrency] = useState(c?.currency || 'INR')
+  const [priceListCode, setPriceListCode] = useState(c?.priceListCode || 'PL-DIST-2026')
+  const [paymentTermsCode, setPaymentTermsCode] = useState(c?.paymentTermsCode || 'PT-30D')
+  const [limit, setLimit] = useState(c?.creditLimit || 0)
   const [requiresLc, setRequiresLc] = useState(false)
+  const [notes, setNotes] = useState(c?.description || '')
+
+  const [addresses, setAddresses] = useState<any[]>(c?.addresses || [])
+  const [contacts, setContacts] = useState<any[]>(c?.contacts || [])
+  const [addingAddress, setAddingAddress] = useState(false)
+  const [addingContact, setAddingContact] = useState(false)
+  
+  // Temporary form states
+  const [addrForm, setAddrForm] = useState({ label: 'HQ', line1: '', city: '', state: '', pincode: '' })
+  const [contactForm, setContactForm] = useState({ name: '', designation: '', email: '', mobile: '' })
 
   const overseas = type === 'EXPORT'
   const gstErrors = overseas ? [] : validateGstin(gstin, pan)
+  
+  const createMutation = useMutation({
+    mutationFn: api.createCustomer,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      toast.success('Submitted for approval')
+      onClose()
+    },
+    onError: (err) => toast.error('Creation failed', err.message),
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<Customer> }) => api.updateCustomer(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      toast.success('Updated successfully')
+      onClose()
+    },
+    onError: (err) => toast.error('Update failed', err.message),
+  })
+
+  function handleSubmit() {
+    const payload = {
+      ...(c || {}),
+      name,
+      shortName: name.substring(0, 50),
+      legalName,
+      customerType: type as any,
+      group: c?.group || 'General Trade', // default required field
+      salesPerson: c?.salesPerson || 'System Administrator', // default required field
+      pan,
+      gstin,
+      territory,
+      currency,
+      priceListCode,
+      paymentTermsCode,
+      creditLimit: limit,
+      description: notes,
+      addresses: addresses.map(a => ({ ...a, uid: a.uid || `adr-${Date.now()}-${Math.random().toString().slice(2, 6)}` })),
+      contacts: contacts.map(c2 => ({ ...c2, uid: c2.uid || `cnt-${Date.now()}-${Math.random().toString().slice(2, 6)}`, department: c2.department || 'General', purpose: c2.purpose || 'COMMERCIAL' })),
+    }
+
+    if (c) {
+      updateMutation.mutate({ id: c.id, data: payload })
+    } else {
+      createMutation.mutate(payload)
+    }
+  }
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      size="lg"
-      title="New customer"
+      size="xl"
+      title={c ? `Edit customer` : `New customer`}
       description="Credit limit and payment terms require finance approval before the customer can be sold to."
       footer={
-        <>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button variant="outline" onClick={() => { toast.success('Saved as draft'); onClose() }}>Save draft</Button>
-          <Button
-            variant="primary"
-            disabled={!overseas && gstErrors.length > 0}
-            onClick={() => { toast.success('Submitted for approval'); onClose() }}
-          >
-            Submit for approval
-          </Button>
-        </>
-      }
-    >
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-3.5">
-          <Input label="Trade name" required placeholder="Hydro Retail" />
-          <Input label="Legal name" required placeholder="Hydro Retail Private Limited" />
-          <Select
-            label="Customer type"
-            required
-            value={type}
-            onChange={(e) => setType(e.target.value)}
-            options={[
-              { value: 'DOMESTIC', label: 'Domestic' },
-              { value: 'EXPORT', label: 'Export' },
-              { value: 'OEM', label: 'OEM' },
-              { value: 'DISTRIBUTOR', label: 'Distributor' },
-              { value: 'RETAIL', label: 'Retail' },
-              { value: 'ECOMMERCE', label: 'E-commerce' },
-            ]}
-          />
-          <Input
-            label="PAN"
-            required={!overseas}
-            value={pan}
-            onChange={(e) => setPan(e.target.value.toUpperCase())}
-            maxLength={10}
-            placeholder="AAFCH9911L"
-            className="font-mono uppercase"
-          />
-          <div>
-            <Input
-              label="GSTIN"
-              required={!overseas}
-              disabled={overseas}
-              value={gstin}
-              onChange={(e) => setGstin(e.target.value.toUpperCase())}
-              maxLength={15}
-              placeholder="29AAFCH9911L1ZM"
-              className="font-mono uppercase"
-              hint={overseas ? 'Not applicable to an export customer.' : undefined}
-            />
-            {!overseas && gstin && gstErrors.length > 0 && (
-              <ul className="mt-1.5 space-y-1">
-                {gstErrors.map((e, i) => (
-                  <li key={i} className="flex items-start gap-1.5 text-2xs text-danger">
-                    <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-                    {e}
-                  </li>
-                ))}
-              </ul>
+        <div className="flex w-full items-center justify-between">
+          <div className="text-xs text-fg-muted">
+            {!isSaved && "Save general information to add addresses and contacts."}
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            {!isSaved ? (
+              <Button
+                variant="primary"
+                disabled={!overseas && gstErrors.length > 0}
+                onClick={() => {
+                  toast.success('General information saved');
+                  setIsSaved(true);
+                }}
+              >
+                Save general info
+              </Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => { toast.success('Saved as draft'); onClose() }}>Save draft</Button>
+                <Button 
+                  variant="primary" 
+                  disabled={createMutation.isPending || updateMutation.isPending}
+                  onClick={handleSubmit}
+                >
+                  {createMutation.isPending || updateMutation.isPending ? 'Submitting...' : 'Finish & Submit'}
+                </Button>
+              </>
             )}
           </div>
-          <Input label="Territory" placeholder="South India" />
         </div>
-
-        <div className="space-y-3.5">
-          <Select
-            label="Currency"
-            required
-            defaultValue={overseas ? 'USD' : 'INR'}
-            options={[
-              { value: 'INR', label: 'INR — Indian Rupee' },
-              { value: 'USD', label: 'USD — US Dollar' },
-              { value: 'EUR', label: 'EUR — Euro' },
-              { value: 'GBP', label: 'GBP — Pound Sterling' },
-            ]}
-          />
-          <Select
-            label="Price list"
-            required
-            options={[
-              { value: 'PL-DIST-2026', label: 'Distributor 2026' },
-              { value: 'PL-OEM-2026', label: 'OEM 2026' },
-              { value: 'PL-RETAIL-2026', label: 'Retail 2026' },
-              { value: 'PL-ECOM-2026', label: 'E-commerce 2026' },
-              { value: 'PL-EXP-EUR-2026', label: 'Export EUR 2026' },
-            ]}
-          />
-          <Select
-            label="Payment terms"
-            required
-            options={[
-              { value: 'PT-COD', label: 'Cash on delivery' },
-              { value: 'PT-15D', label: 'Net 15 days' },
-              { value: 'PT-30D', label: 'Net 30 days' },
-              { value: 'PT-45D', label: 'Net 45 days' },
-              { value: 'PT-LC60', label: 'LC at 60 days sight' },
-            ]}
-          />
-          <Input
-            label="Credit limit (₹)"
-            type="number"
-            value={limit}
-            onChange={(e) => setLimit(Number(e.target.value))}
-            hint={limit > 5000000 ? 'Above ₹50 lakh this needs the finance head, not the sales manager.' : undefined}
-          />
-          {overseas && (
-            <div className="space-y-2.5 rounded border border-border p-3">
-              <Switch checked={requiresLc} onChange={setRequiresLc} label="Requires letter of credit" />
-              {requiresLc && (
-                <p className="text-2xs text-fg-subtle">
-                  Dispatch will be blocked until an LC is recorded against the sales order and
-                  confirmed by the bank.
-                </p>
-              )}
+      }
+    >
+      <div className="space-y-4">
+        <Tabs
+          active={tab}
+          onChange={setTab}
+          tabs={[
+            { id: 'general', label: 'General' },
+            { id: 'addresses', label: 'Addresses', disabled: !isSaved, count: addresses.length },
+            { id: 'contacts', label: 'Contacts', disabled: !isSaved, count: contacts.length },
+            ...(c ? [
+              { id: 'credit', label: 'Credit & terms' },
+              { id: 'whereused', label: 'Where used', count: c.whereUsed?.length || 0 },
+              { id: 'revisions', label: 'Revisions', count: c.revisions?.length || 0 },
+            ] : []),
+          ]}
+        />
+        
+        {tab === 'general' && (
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="space-y-3.5">
+              <Input label="Trade name" value={name} onChange={(e) => setName(e.target.value)} required placeholder="Hydro Retail" />
+              <Input label="Legal name" value={legalName} onChange={(e) => setLegalName(e.target.value)} required placeholder="Hydro Retail Private Limited" />
+              <Select
+                label="Customer type"
+                required
+                value={type}
+                onChange={(e) => {
+                  setType(e.target.value as Customer['customerType'])
+                  if (e.target.value === 'EXPORT') setCurrency('USD')
+                  else setCurrency('INR')
+                }}
+                options={[
+                  { value: 'DOMESTIC', label: 'Domestic' },
+                  { value: 'EXPORT', label: 'Export' },
+                  { value: 'OEM', label: 'OEM' },
+                  { value: 'DISTRIBUTOR', label: 'Distributor' },
+                  { value: 'RETAIL', label: 'Retail' },
+                  { value: 'ECOMMERCE', label: 'E-commerce' },
+                ]}
+              />
+              <Input label="Territory" value={territory} onChange={(e) => setTerritory(e.target.value)} placeholder="South India" />
             </div>
-          )}
-          <Textarea label="Notes" rows={2} placeholder="Anything an approver should know." />
-        </div>
+            
+            <div className="space-y-3.5">
+              <Input
+                label="PAN"
+                required={!overseas}
+                value={pan}
+                onChange={(e) => setPan(e.target.value.toUpperCase())}
+                maxLength={10}
+                placeholder="AAFCH9911L"
+                className="font-mono uppercase"
+              />
+              <div>
+                <Input
+                  label="GSTIN"
+                  required={!overseas}
+                  disabled={overseas}
+                  value={gstin}
+                  onChange={(e) => setGstin(e.target.value.toUpperCase())}
+                  maxLength={15}
+                  placeholder="29AAFCH9911L1ZM"
+                  className="font-mono uppercase"
+                  hint={overseas ? 'Not applicable to an export customer.' : undefined}
+                />
+                {!overseas && gstin && gstErrors.length > 0 && (
+                  <ul className="mt-1.5 space-y-1">
+                    {gstErrors.map((e, i) => (
+                      <li key={i} className="flex items-start gap-1.5 text-2xs text-danger">
+                        <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                        {e}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <Select
+                label="Currency"
+                required
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                options={[
+                  { value: 'INR', label: 'INR — Indian Rupee' },
+                  { value: 'USD', label: 'USD — US Dollar' },
+                  { value: 'EUR', label: 'EUR — Euro' },
+                  { value: 'GBP', label: 'GBP — Pound Sterling' },
+                ]}
+              />
+              <Select
+                label="Price list"
+                required
+                value={priceListCode}
+                onChange={(e) => setPriceListCode(e.target.value)}
+                options={[
+                  { value: 'PL-DIST-2026', label: 'Distributor 2026' },
+                  { value: 'PL-OEM-2026', label: 'OEM 2026' },
+                  { value: 'PL-RETAIL-2026', label: 'Retail 2026' },
+                  { value: 'PL-ECOM-2026', label: 'E-commerce 2026' },
+                  { value: 'PL-EXP-EUR-2026', label: 'Export EUR 2026' },
+                ]}
+              />
+            </div>
+
+            <div className="space-y-3.5">
+              <Select
+                label="Payment terms"
+                required
+                value={paymentTermsCode}
+                onChange={(e) => setPaymentTermsCode(e.target.value)}
+                options={[
+                  { value: 'PT-COD', label: 'Cash on delivery' },
+                  { value: 'PT-15D', label: 'Net 15 days' },
+                  { value: 'PT-30D', label: 'Net 30 days' },
+                  { value: 'PT-45D', label: 'Net 45 days' },
+                  { value: 'PT-LC60', label: 'LC at 60 days sight' },
+                ]}
+              />
+              <Input
+                label="Credit limit (₹)"
+                type="number"
+                value={limit}
+                onChange={(e) => setLimit(Number(e.target.value))}
+                hint={limit > 5000000 ? 'Above ₹50 lakh this needs the finance head, not the sales manager.' : undefined}
+              />
+              {overseas && (
+                <div className="space-y-2.5 rounded border border-border p-3">
+                  <Switch checked={requiresLc} onChange={setRequiresLc} label="Requires letter of credit" />
+                  {requiresLc && (
+                    <p className="text-2xs text-fg-subtle">
+                      Dispatch will be blocked until an LC is recorded against the sales order and
+                      confirmed by the bank.
+                    </p>
+                  )}
+                </div>
+              )}
+              <Textarea label="Notes" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Anything an approver should know." />
+            </div>
+          </div>
+        )}
+
+        {tab === 'credit' && (
+          <div className="flex min-h-[300px] flex-col items-center justify-center rounded border border-dashed border-border p-6 text-center">
+            <h3 className="text-sm font-medium text-fg">Credit settings</h3>
+            <p className="mt-1 text-xs text-fg-muted">Financial terms are set on the General tab.</p>
+          </div>
+        )}
+
+
+        {tab === 'addresses' && (
+          <div className="space-y-4">
+            {addresses.map((a, i) => (
+              <div key={i} className="flex justify-between rounded border border-border p-4">
+                <div>
+                  <h4 className="font-medium text-fg">{a.label}</h4>
+                  <p className="text-xs text-fg-muted">{a.line1}, {a.city}, {a.state} - {a.pincode}</p>
+                </div>
+              </div>
+            ))}
+            
+            {addingAddress ? (
+              <div className="rounded border border-border p-4 space-y-4 bg-surface-2">
+                <h4 className="font-medium text-fg">New Address</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <Input label="Label (e.g. HQ, Warehouse)" value={addrForm.label} onChange={(e) => setAddrForm({...addrForm, label: e.target.value})} />
+                  <Input label="Line 1" value={addrForm.line1} onChange={(e) => setAddrForm({...addrForm, line1: e.target.value})} />
+                  <Input label="City" value={addrForm.city} onChange={(e) => setAddrForm({...addrForm, city: e.target.value})} />
+                  <Input label="State" value={addrForm.state} onChange={(e) => setAddrForm({...addrForm, state: e.target.value})} />
+                  <Input label="Pincode" value={addrForm.pincode} onChange={(e) => setAddrForm({...addrForm, pincode: e.target.value})} />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setAddingAddress(false)}>Cancel</Button>
+                  <Button variant="primary" size="sm" onClick={() => {
+                    setAddresses([...addresses, { ...addrForm, type: 'BILLING', country: 'India' }])
+                    setAddingAddress(false)
+                    setAddrForm({ label: 'HQ', line1: '', city: '', state: '', pincode: '' })
+                  }}>Save address</Button>
+                </div>
+              </div>
+            ) : (
+              <Button variant="outline" size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setAddingAddress(true)}>
+                Add address
+              </Button>
+            )}
+          </div>
+        )}
+
+        {tab === 'contacts' && (
+          <div className="space-y-4">
+            {contacts.map((c, i) => (
+              <div key={i} className="flex justify-between rounded border border-border p-4">
+                <div>
+                  <h4 className="font-medium text-fg">{c.name}</h4>
+                  <p className="mt-1 text-2xs text-fg-muted">{c.email} · {c.mobile}</p>
+                </div>
+              </div>
+            ))}
+
+            {addingContact ? (
+              <div className="rounded border border-border p-4 space-y-4 bg-surface-2">
+                <h4 className="font-medium text-fg">New Contact</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <Input label="Name" value={contactForm.name} onChange={(e) => setContactForm({...contactForm, name: e.target.value})} />
+                  <Input label="Designation" value={contactForm.designation} onChange={(e) => setContactForm({...contactForm, designation: e.target.value})} />
+                  <Input label="Email" value={contactForm.email} onChange={(e) => setContactForm({...contactForm, email: e.target.value})} />
+                  <Input label="Mobile" maxLength={10} value={contactForm.mobile} onChange={(e) => setContactForm({...contactForm, mobile: e.target.value})} />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setAddingContact(false)}>Cancel</Button>
+                  <Button variant="primary" size="sm" onClick={() => {
+                    setContacts([...contacts, { ...contactForm, isPrimary: contacts.length === 0 }])
+                    setAddingContact(false)
+                    setContactForm({ name: '', designation: '', email: '', mobile: '' })
+                  }}>Save contact</Button>
+                </div>
+              </div>
+            ) : (
+              <Button variant="outline" size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setAddingContact(true)}>
+                Add contact
+              </Button>
+            )}
+          </div>
+        )}
+
+        {tab === 'whereused' && (
+          <div className="flex min-h-[300px] flex-col items-center justify-center rounded border border-dashed border-border p-6 text-center">
+            <h3 className="text-sm font-medium text-fg">Where Used</h3>
+            <p className="mt-1 text-xs text-fg-muted">{c?.whereUsed?.length ? `Used in ${c.whereUsed.length} documents.` : 'Not used anywhere yet.'}</p>
+          </div>
+        )}
+
+        {tab === 'revisions' && (
+          <div className="flex min-h-[300px] flex-col items-center justify-center rounded border border-dashed border-border p-6 text-center">
+            <h3 className="text-sm font-medium text-fg">Revisions</h3>
+            <p className="mt-1 text-xs text-fg-muted">{c?.revisions?.length ? `${c.revisions.length} revisions found.` : 'No revisions yet.'}</p>
+          </div>
+        )}
+
       </div>
     </Modal>
   )
@@ -407,7 +625,33 @@ function CustomerForm({ open, onClose }: { open: boolean; onClose: () => void })
 export function CustomerMasterPage() {
   const toast = useToast()
   const navigate = useNavigate()
-  const { rows: list, update, remove } = useCollection('master:CUSTOMER', customers)
+  const queryClient = useQueryClient()
+  
+  const [editingCustomer, setEditingCustomer] = useState<Customer | undefined>()
+
+  const { data: list = [], isLoading, isError } = useQuery({
+    queryKey: ['customers'],
+    queryFn: api.getCustomers,
+  })
+  
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<Customer> }) => api.updateCustomer(id, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['customers'] }),
+    onError: (err) => toast.error('Update failed', err.message),
+  })
+
+  const removeMutation = useMutation({
+    mutationFn: (id: number) => api.deleteCustomer(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['customers'] }),
+    onError: (err) => toast.error('Delete failed', err.message),
+  })
+
+  function update(id: number, data: Partial<Customer>) {
+    updateMutation.mutate({ id, data })
+  }
+  function remove(id: number) {
+    removeMutation.mutate(id)
+  }
 
   function doExport(format: ExportFormat) {
     try {
@@ -423,16 +667,16 @@ export function CustomerMasterPage() {
   const [filter, setFilter] = useState('')
 
   const rows = useMemo(() => {
-    if (filter === 'hold') return customers.filter((c) => c.creditHold)
-    if (filter === 'over') return customers.filter((c) => c.creditUsed > c.creditLimit)
-    if (filter === 'overdue') return customers.filter((c) => c.overdueAmount > 0)
-    if (filter === 'pending') return customers.filter((c) => c.status !== 'ACTIVE' && c.status !== 'INACTIVE')
-    return customers
-  }, [filter])
+    if (filter === 'hold') return list.filter((c) => c.creditHold)
+    if (filter === 'over') return list.filter((c) => c.creditUsed > c.creditLimit)
+    if (filter === 'overdue') return list.filter((c) => c.overdueAmount > 0)
+    if (filter === 'pending') return list.filter((c) => c.status !== 'ACTIVE' && c.status !== 'INACTIVE')
+    return list
+  }, [filter, list])
 
-  const onHold = customers.filter((c) => c.creditHold)
-  const overdue = customers.filter((c) => c.overdueAmount > 0)
-  const totalOutstanding = customers.reduce((s, c) => s + c.outstandingAmount, 0)
+  const onHold = list.filter((c) => c.creditHold)
+  const overdue = list.filter((c) => c.overdueAmount > 0)
+  const totalOutstanding = list.reduce((s, c) => s + c.outstandingAmount, 0)
 
   const columns: Column<Customer>[] = [
     {
@@ -502,7 +746,7 @@ export function CustomerMasterPage() {
             <Button variant="outline" size="sm" icon={<Upload className="h-4 w-4" />} onClick={() => toast.info('Import customers')}>
               Import
             </Button>
-            <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setFormOpen(true)}>
+            <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => { setEditingCustomer(undefined); setFormOpen(true) }}>
               New customer
             </Button>
           </>
@@ -521,7 +765,7 @@ export function CustomerMasterPage() {
         <DataTable
           rows={rows}
           columns={columns}
-          rowKey={(c) => c.uid}
+          rowKey={(c) => String(c.id)}
           searchPlaceholder="Name, code, GSTIN or territory…"
           pageSize={20}
           onRowClick={setDetail}
@@ -546,7 +790,7 @@ export function CustomerMasterPage() {
           rowActions={(c) => (
             <>
               <MenuItem label="Open" onClick={() => setDetail(c)} />
-              <MenuItem label="Edit" onClick={() => setDetail(c)} />
+              <MenuItem label="Edit" onClick={() => { setEditingCustomer(c); setFormOpen(true) }} />
               <MenuItem label="Ledger & ageing" onClick={() => navigate('/inventory/ledger')} />
               <MenuItem label={`Where used (${c.whereUsed.length})`} onClick={() => setDetail(c)} />
               <MenuItem
@@ -554,7 +798,7 @@ export function CustomerMasterPage() {
                 danger={!c.creditHold}
                 separatorBefore
                 onClick={() => {
-                  update(c.uid, { creditHold: !c.creditHold })
+                  update(c.id, { creditHold: !c.creditHold })
                   toast.success(c.creditHold ? 'Credit hold released' : 'Placed on credit hold', c.name)
                 }}
               />
@@ -563,7 +807,7 @@ export function CustomerMasterPage() {
                 danger={c.status === 'ACTIVE'}
                 disabled={c.whereUsed.some((w) => w.isOpen)}
                 onClick={() => {
-                  update(c.uid, { status: c.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' })
+                  update(c.id, { status: c.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' })
                   toast.success(c.status === 'ACTIVE' ? 'Deactivated' : 'Activated', c.name)
                 }}
               />
@@ -571,7 +815,7 @@ export function CustomerMasterPage() {
                 label={c.whereUsed.length ? `Delete — blocked (${c.whereUsed.length} refs)` : 'Delete'}
                 danger
                 disabled={c.whereUsed.length > 0}
-                onClick={() => { remove(c.uid); toast.success('Deleted', `${c.code} — ${c.name}`) }}
+                onClick={() => { remove(c.id); toast.success('Deleted', `${c.code} — ${c.name}`) }}
               />
             </>
           )}
@@ -580,8 +824,12 @@ export function CustomerMasterPage() {
 
       
 
-      {detail && <CustomerDetail c={detail} onClose={() => setDetail(null)} />}
-      <CustomerForm open={formOpen} onClose={() => setFormOpen(false)} />
+      {detail && <CustomerDetail c={detail} onClose={() => setDetail(null)} onEdit={(c) => {
+        setEditingCustomer(c)
+        setFormOpen(true)
+        setDetail(null)
+      }} />}
+      <CustomerForm key={editingCustomer?.id || 'new'} c={editingCustomer} open={formOpen} onClose={() => setFormOpen(false)} />
     </div>
   )
 }

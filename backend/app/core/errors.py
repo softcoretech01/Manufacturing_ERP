@@ -179,6 +179,7 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
 async def validation_error_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
+    print("VALIDATION ERROR:", exc.errors(), "BODY:", exc.body)
     errors = [
         {
             "field": ".".join(str(p) for p in err["loc"][1:]) or str(err["loc"][0]),

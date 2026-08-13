@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Factory, Gauge, Plus, Wrench } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader, DataRow } from '@/components/ui/Card'
@@ -11,7 +11,7 @@ import { Input, Select } from '@/components/ui/Input'
 import { useToast } from '@/components/ui/Toast'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatCurrency, formatDate } from '@/lib/format'
-import { branches, plants, productionLines, warehouses, workCentres } from '@/mock/data'
+import { api } from '@/lib/api'
 import type { ProductionLine, WorkCentre } from '@/types'
 
 export function PlantsPage() {
@@ -25,15 +25,54 @@ export function PlantsPage() {
       toast.error('Export failed', e instanceof Error ? e.message : 'Unknown error.')
     }
   }
-  const [activeUid, setActiveUid] = useState(plants[0].uid)
+  const [plants, setPlants] = useState<any[]>([])
+  const [branches, setBranches] = useState<any[]>([])
+  const [productionLines, setProductionLines] = useState<any[]>([])
+  const [workCentres, setWorkCentres] = useState<any[]>([])
+  const [warehouses, setWarehouses] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const [activeUid, setActiveUid] = useState('')
   const [tab, setTab] = useState('lines')
   const [open, setOpen] = useState(false)
+  
+  const [form, setForm] = useState<any>({ branchUid: '' })
 
-  const plant = plants.find((p) => p.uid === activeUid)!
-  const branch = branches.find((b) => b.uid === plant.branchUid)
-  const lines = productionLines.filter((l) => l.plantUid === plant.uid)
-  const wcs = workCentres.filter((w) => w.plantUid === plant.uid)
-  const stores = warehouses.filter((w) => w.plantUid === plant.uid)
+  const loadData = async () => {
+    try {
+      setLoading(true)
+      const [p, b, l, wc, wh] = await Promise.all([
+        api.getPlants(),
+        api.getBranches(),
+        api.getProductionLines(),
+        api.getWorkCentres(),
+        api.getWarehouses()
+      ])
+      setPlants(p)
+      setBranches(b)
+      setProductionLines(l)
+      setWorkCentres(wc)
+      setWarehouses(wh)
+      
+      if (p.length > 0 && !activeUid) {
+        setActiveUid(p[0].uid)
+      }
+    } catch (e: any) {
+      toast.error('Failed to load data', e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadData()
+  }, [])
+
+  const plant = plants.find((p) => p.uid === activeUid)
+  const branch = plant ? branches.find((b) => b.uid === plant.branchUid) : null
+  const lines = plant ? productionLines.filter((l) => l.plantUid === plant.uid) : []
+  const wcs = plant ? workCentres.filter((w) => w.plantUid === plant.uid) : []
+  const stores = plant ? warehouses.filter((w) => w.plantUid === plant.uid) : []
 
   const lineColumns: Column<ProductionLine>[] = [
     { key: 'code', header: 'Code', width: '70px', render: (l) => <span className="font-mono text-xs">{l.code}</span> },
@@ -73,7 +112,30 @@ export function PlantsPage() {
     { key: 'isBottleneck', header: '', width: '100px', accessor: (w) => (w.isBottleneck ? 1 : 0), render: (w) => (w.isBottleneck ? <Badge tone="danger" size="sm">Bottleneck</Badge> : null) },
   ]
 
-  const licenceDays = Math.ceil((new Date(plant.factoryLicenceValidTo).getTime() - Date.now()) / 86_400_000)
+  const licenceDays = plant && plant.factoryLicenceValidTo ? Math.ceil((new Date(plant.factoryLicenceValidTo).getTime() - Date.now()) / 86_400_000) : 0
+  
+  const handleCreate = async () => {
+    try {
+      await api.createPlant(form)
+      toast.success('Plant created')
+      setOpen(false)
+      loadData()
+    } catch (e) {
+      toast.error('Failed to create plant')
+    }
+  }
+
+  const handleOpenNewPlant = async () => {
+    setOpen(true)
+    try {
+      const code = await api.getNextPlantCode()
+      setForm({ branchUid: '', code })
+    } catch (e) {
+      toast.error('Failed to fetch next plant code')
+    }
+  }
+
+  if (loading) return <div className="p-8 text-center text-fg-subtle">Loading...</div>
 
   return (
     <div>
@@ -81,7 +143,7 @@ export function PlantsPage() {
         title="Plants, lines & work centres"
         description="Manufacturing sites and the resources that routing and capacity planning schedule against."
         breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Organisation' }, { label: 'Plants & lines' }]}
-        actions={<Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setOpen(true)}>New plant</Button>}
+        actions={<Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={handleOpenNewPlant}>New plant</Button>}
       />
 
       <div className="mb-4 flex flex-wrap gap-2">
@@ -106,7 +168,9 @@ export function PlantsPage() {
         ))}
       </div>
 
-      <Card className="mb-4">
+      {plant && (
+        <>
+          <Card className="mb-4">
         <CardHeader title={plant.name} description={`${branch?.name} · Plant head ${plant.plantHead}`}
           actions={<Button size="sm" variant="outline" onClick={() => toast.info('Edit plant', `${plant.name} (${plant.code}) — edit the plant master.`)}>Edit plant</Button>} />
         <CardBody className="grid gap-x-8 sm:grid-cols-2 lg:grid-cols-3">
@@ -194,20 +258,30 @@ export function PlantsPage() {
           ))}
         </div>
       )}
+    </>
+  )}
+
+      {!plant && (
+        <div className="flex h-48 flex-col items-center justify-center rounded-card border border-dashed border-border bg-surface-2 p-8 text-center">
+          <Factory className="mb-4 h-8 w-8 text-fg-muted" />
+          <h3 className="text-sm font-medium text-fg">No plants created yet</h3>
+          <p className="mt-1 text-xs text-fg-subtle">Create a plant to get started.</p>
+        </div>
+      )}
 
       <Modal open={open} onClose={() => setOpen(false)} title="New plant" size="lg"
-        footer={<><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button variant="primary" onClick={() => { toast.success('Plant created'); setOpen(false) }}>Create plant</Button></>}>
+        footer={<><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button variant="primary" onClick={handleCreate}>Create plant</Button></>}>
         <div className="grid gap-3.5 sm:grid-cols-2">
-          <Input label="Plant code" required placeholder="P3" />
-          <Input label="Plant name" required placeholder="Plant 3 — Pune" />
-          <Select label="Branch" required options={branches.map((b) => ({ value: b.uid, label: b.name }))} />
-          <Input label="Plant head" placeholder="🔍 Search users" />
-          <Input label="Factory licence number" />
-          <Input label="Licence valid to" type="date" />
-          <Input label="City" required />
-          <Input label="State" required />
-          <Input label="Installed capacity / day" type="number" />
-          <Select label="Shift pattern" options={[{ value: '3', label: '3-shift (A/B/C)' }, { value: '2', label: '2-shift (A/B)' }, { value: '1', label: 'General shift' }]} />
+          <Input label="Plant code" required disabled value={form.code || ''} />
+          <Input label="Plant name" required placeholder="Plant 3 — Pune" value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <Select label="Branch" required options={branches.map((b) => ({ value: b.uid, label: b.name }))} value={form.branchUid || ''} onChange={(e) => setForm({ ...form, branchUid: e.target.value })} />
+          <Input label="Plant head" placeholder="🔍 Search users" value={form.plantHead || ''} onChange={(e) => setForm({ ...form, plantHead: e.target.value })} />
+          <Input label="Factory licence number" value={form.factoryLicence || ''} onChange={(e) => setForm({ ...form, factoryLicence: e.target.value })} />
+          <Input label="Licence valid to" type="date" value={form.factoryLicenceValidTo || ''} onChange={(e) => setForm({ ...form, factoryLicenceValidTo: e.target.value })} />
+          <Input label="City" required value={form.city || ''} onChange={(e) => setForm({ ...form, city: e.target.value })} />
+          <Input label="State" required value={form.state || ''} onChange={(e) => setForm({ ...form, state: e.target.value })} />
+          <Input label="Installed capacity / day" type="number" value={form.installedCapacityPerDay || ''} onChange={(e) => setForm({ ...form, installedCapacityPerDay: parseInt(e.target.value) })} />
+          <Select label="Shift pattern" value={form.shiftPattern || ''} onChange={(e) => setForm({ ...form, shiftPattern: e.target.value })} options={[{ value: '3', label: '3-shift (A/B/C)' }, { value: '2', label: '2-shift (A/B)' }, { value: '1', label: 'General shift' }]} />
         </div>
         <Alert tone="info" className="mt-4">
           Default warehouses (RM issue-from, WIP, FG receive-to, scrap) can be assigned after the

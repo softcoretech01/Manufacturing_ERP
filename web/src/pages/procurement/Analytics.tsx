@@ -21,13 +21,8 @@ import { Tabs } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatCompact, formatCurrency } from '@/lib/format'
-import {
-  cycleTimes,
-  priceTrend,
-  spendByCategory,
-  spendTrend,
-  supplierSpend,
-} from '@/mock/procurement'
+import { api } from '@/lib/api'
+import { useEffect } from 'react'
 import type { SpendByCategory } from '@/types/procurement'
 import { cn } from '@/lib/cn'
 
@@ -57,10 +52,32 @@ export function AnalyticsPage() {
   const toast = useToast()
   const [view, setView] = useState('spend')
 
-  const totalSpend = spendByCategory.reduce((s, c) => s + c.value, 0)
-  const totalPo = spendByCategory.reduce((s, c) => s + c.poCount, 0)
-  const weightedSavings = spendByCategory.reduce((s, c) => s + (c.value * c.savingsPct) / 100, 0)
-  const avgCycle = cycleTimes.reduce((s, c) => s + c.avgDays, 0)
+  const [data, setData] = useState<any>({
+    spendByCategory: [],
+    spendTrend: [],
+    supplierSpend: [],
+    priceTrend: [],
+    cycleTimes: []
+  })
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await api.getAnalytics()
+        setData(res)
+      } catch (e) {
+        toast.error('Error', 'Failed to load analytics data')
+      }
+    }
+    load()
+  }, [])
+
+  const { spendByCategory, spendTrend, supplierSpend, priceTrend, cycleTimes } = data
+
+  const totalSpend = spendByCategory.reduce((s: any, c: any) => s + c.value, 0)
+  const totalPo = spendByCategory.reduce((s: any, c: any) => s + c.poCount, 0)
+  const weightedSavings = spendByCategory.reduce((s: any, c: any) => s + (c.value * c.savingsPct) / 100, 0)
+  const avgCycle = cycleTimes.reduce((s: any, c: any) => s + c.avgDays, 0)
 
   const categoryColumns: Column<SpendByCategory>[] = [
     { key: 'category', header: 'Category', sortable: true },
@@ -126,7 +143,7 @@ export function AnalyticsPage() {
               <CardHeader title="Monthly spend against budget" description="₹ lakh" />
               <CardBody className="h-72">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={spendTrend.map((s) => ({ month: s.month, Spend: Math.round(s.spend / 100_000), Budget: Math.round(s.budget / 100_000), Orders: s.poCount }))}>
+                  <BarChart data={spendTrend.map((s) => ({ month: s.month, Spend: Number((s.spend / 100_000).toFixed(2)), Budget: Number((s.budget / 100_000).toFixed(2)), Orders: s.poCount }))}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" vertical={false} />
                     <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fontSize: 11, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} width={38} />
@@ -143,7 +160,7 @@ export function AnalyticsPage() {
               <CardHeader title="Category concentration" description="Spend share, ₹ lakh" />
               <CardBody className="h-72">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={spendByCategory.map((c) => ({ name: c.category.split(' — ')[0], value: Math.round(c.value / 100_000) }))} layout="vertical" margin={{ left: 8, right: 12 }}>
+                  <BarChart data={spendByCategory.map((c) => ({ name: c.category.split(' — ')[0], value: Number((c.value / 100_000).toFixed(2)) }))} layout="vertical" margin={{ left: 8, right: 12 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" horizontal={false} />
                     <XAxis type="number" tick={{ fontSize: 10, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} />
                     <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 10, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} />
@@ -192,7 +209,7 @@ export function AnalyticsPage() {
           </Card>
 
           <div className="grid gap-4 sm:grid-cols-3">
-            {[
+            {priceTrend.length > 0 && [
               { label: 'SS 304 coil', first: priceTrend[0].ss304, last: priceTrend[priceTrend.length - 1].ss304, unit: '₹/kg' },
               { label: 'SS 316 coil', first: priceTrend[0].ss316, last: priceTrend[priceTrend.length - 1].ss316, unit: '₹/kg' },
               { label: 'Sports lid', first: priceTrend[0].lid, last: priceTrend[priceTrend.length - 1].lid, unit: '₹/nos' },
@@ -317,9 +334,9 @@ export function AnalyticsPage() {
                 <thead>
                   <tr>
                     <th>Stage</th>
-                    <th className="text-right">Actual</th>
-                    <th className="text-right">Target</th>
-                    <th className="text-right">Variance</th>
+                    <th className="!text-center">Actual</th>
+                    <th className="!text-center">Target</th>
+                    <th className="!text-center">Variance</th>
                     <th>Verdict</th>
                   </tr>
                 </thead>
@@ -329,9 +346,9 @@ export function AnalyticsPage() {
                     return (
                       <tr key={c.stage}>
                         <td className="text-xs font-medium text-fg">{c.stage}</td>
-                        <td className="text-right tabular">{c.avgDays.toFixed(1)}d</td>
-                        <td className="text-right tabular text-fg-muted">{c.targetDays.toFixed(1)}d</td>
-                        <td className={cn('text-right tabular', v > 0 ? 'text-danger' : 'text-success')}>
+                        <td className="!text-center tabular">{c.avgDays.toFixed(1)}d</td>
+                        <td className="!text-center tabular text-fg-muted">{c.targetDays.toFixed(1)}d</td>
+                        <td className={cn('!text-center tabular', v > 0 ? 'text-danger' : 'text-success')}>
                           {v > 0 ? '+' : ''}
                           {v.toFixed(1)}d
                         </td>
@@ -345,9 +362,9 @@ export function AnalyticsPage() {
                   })}
                   <tr>
                     <td className="text-xs font-semibold text-fg">Total, requisition to first receipt</td>
-                    <td className="text-right tabular font-semibold">{avgCycle.toFixed(1)}d</td>
-                    <td className="text-right tabular font-semibold text-fg-muted">{cycleTimes.reduce((s, c) => s + c.targetDays, 0).toFixed(1)}d</td>
-                    <td className={cn('text-right tabular font-semibold', avgCycle > cycleTimes.reduce((s, c) => s + c.targetDays, 0) ? 'text-danger' : 'text-success')}>
+                    <td className="!text-center tabular font-semibold">{avgCycle.toFixed(1)}d</td>
+                    <td className="!text-center tabular font-semibold text-fg-muted">{cycleTimes.reduce((s, c) => s + c.targetDays, 0).toFixed(1)}d</td>
+                    <td className={cn('!text-center tabular font-semibold', avgCycle > cycleTimes.reduce((s, c) => s + c.targetDays, 0) ? 'text-danger' : 'text-success')}>
                       {(avgCycle - cycleTimes.reduce((s, c) => s + c.targetDays, 0)).toFixed(1)}d
                     </td>
                     <td />

@@ -11,7 +11,8 @@ import { useToast } from '@/components/ui/Toast'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { cn } from '@/lib/cn'
 import { formatDateTime, formatTimeAgo } from '@/lib/format'
-import { auditEntries } from '@/mock/data2'
+import { api } from '@/lib/api'
+import { useQuery } from '@tanstack/react-query'
 import type { AuditEntry } from '@/types'
 
 const ACTION_TONE: Record<string, 'success' | 'progress' | 'pending' | 'danger' | 'warning' | 'neutral' | 'brand'> = {
@@ -51,17 +52,24 @@ export function AuditPage() {
   const [fromDate, setFromDate] = useState('')
   const [detail, setDetail] = useState<AuditEntry | null>(null)
 
-  const entities = useMemo(() => [...new Set(auditEntries.map((a) => a.entityType))].sort(), [])
-  const actions = useMemo(() => [...new Set(auditEntries.map((a) => a.action))].sort(), [])
-  const usersList = useMemo(() => [...new Set(auditEntries.map((a) => a.userName))].sort(), [])
-
-  const rows = auditEntries.filter((a) => {
-    if (entity && a.entityType !== entity) return false
-    if (action && a.action !== action) return false
-    if (user && a.userName !== user) return false
-    if (fromDate && a.at < fromDate) return false
-    return true
+  const { data: auditEntries = [], isLoading, isError } = useQuery({
+    queryKey: ['admin', 'audit'],
+    queryFn: api.getAuditEntries,
   })
+
+  const entities = useMemo(() => [...new Set(auditEntries.map((a) => a.entityType))].sort(), [auditEntries])
+  const actions = useMemo(() => [...new Set(auditEntries.map((a) => a.action))].sort(), [auditEntries])
+  const usersList = useMemo(() => [...new Set(auditEntries.map((a) => a.userName))].sort(), [auditEntries])
+
+  const rows = useMemo(() => {
+    return auditEntries.filter((a) => {
+      if (entity && a.entityType !== entity) return false
+      if (action && a.action !== action) return false
+      if (user && a.userName !== user) return false
+      if (fromDate && a.at < fromDate) return false
+      return true
+    })
+  }, [auditEntries, entity, action, user, fromDate])
 
   const chips: FilterChip[] = [
     ...(entity ? [{ key: 'e', label: 'Entity', value: entity, onRemove: () => setEntity('') }] : []),
@@ -115,16 +123,21 @@ export function AuditPage() {
     {
       key: 'changes',
       header: 'Changed',
-      accessor: (a) => a.changes.length,
-      render: (a) =>
-        a.changes.length === 0 ? (
+      accessor: (a) => Array.isArray(a.changes) ? a.changes.length : (a.changes ? Object.keys(a.changes).length : 0),
+      render: (a) => {
+        const changesArr = Array.isArray(a.changes) 
+          ? a.changes.map((c: any) => c.field || c) 
+          : (a.changes ? Object.keys(a.changes) : [])
+        
+        return changesArr.length === 0 ? (
           <span className="text-2xs text-fg-subtle">—</span>
         ) : (
           <span className="truncate text-2xs text-fg-muted">
-            {a.changes.slice(0, 3).map((c) => c.field).join(', ')}
-            {a.changes.length > 3 && ` +${a.changes.length - 3}`}
+            {changesArr.slice(0, 3).join(', ')}
+            {changesArr.length > 3 && ` +${changesArr.length - 3}`}
           </span>
-        ),
+        )
+      },
     },
     { key: 'reasonCode', header: 'Reason', width: '150px', render: (a) => (a.reasonCode ? <Badge tone="warning" size="sm" dot={false}>{a.reasonCode}</Badge> : <span className="text-2xs text-fg-subtle">—</span>) },
     { key: 'channel', header: 'Channel', width: '100px', defaultHidden: true, render: (a) => <span className="text-2xs text-fg-muted">{a.channel}</span> },
@@ -147,15 +160,24 @@ export function AuditPage() {
         distributed trace.
       </Alert>
 
-      <DataTable
-        rows={rows}
-        columns={columns}
-        rowKey={(a) => a.uid}
-        searchPlaceholder="Document no, entity, user or correlation id…"
-        pageSize={25}
-        onRowClick={setDetail}
-        onExport={doExport}
-        filterChips={chips}
+      {isLoading ? (
+        <div className="flex h-32 items-center justify-center text-sm text-fg-subtle">
+          Loading audit trail...
+        </div>
+      ) : isError ? (
+        <Alert tone="danger" title="Error" className="mb-4">
+          Failed to load audit trail data.
+        </Alert>
+      ) : (
+        <DataTable
+          rows={rows}
+          columns={columns}
+          rowKey={(a) => a.uid}
+          searchPlaceholder="Document no, entity, user or correlation id…"
+          pageSize={25}
+          onRowClick={setDetail}
+          onExport={doExport}
+          filterChips={chips}
         onClearFilters={() => { setEntity(''); setAction(''); setUser(''); setFromDate('') }}
         rowClassName={(a) => (SENSITIVE.has(a.action) ? 'bg-danger/[0.03]' : undefined)}
         toolbar={
@@ -167,6 +189,8 @@ export function AuditPage() {
           </div>
         }
       />
+      )}
+
 
       <Drawer
         open={!!detail}

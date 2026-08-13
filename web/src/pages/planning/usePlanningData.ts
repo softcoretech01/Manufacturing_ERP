@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { useEngineeringCollection } from '@/store/engData'
 import { useCollection } from '@/store/data'
 import { runMrp, type MrpResult, type PlanningContext } from '@/lib/planFlow'
 import {
@@ -48,11 +49,11 @@ export function usePlanningData() {
   const orders = useCollection<ProductionOrder>('plan:orders', useMemo(() => seedOrders, []))
   const calendar = useCollection<CalendarDay>('plan:calendar', useMemo(() => seedCalendar, []))
 
-  const boms = useCollection<Bom>('eng:boms', useMemo(() => seedBoms, []))
-  const routings = useCollection<Routing>('eng:routings', useMemo(() => seedRoutings, []))
-  const workCentres = useCollection<EngWorkCentre>('eng:workcentres', useMemo(() => seedWorkCentres, []))
-  const products = useCollection<EngProduct>('eng:products', useMemo(() => seedProducts, []))
-  const tools = useCollection<Tool>('eng:tools', useMemo(() => seedTools, []))
+  const boms = useEngineeringCollection<Bom>('eng:boms', useMemo(() => seedBoms, []))
+  const routings = useEngineeringCollection<Routing>('eng:routings', useMemo(() => seedRoutings, []))
+  const workCentres = useEngineeringCollection<EngWorkCentre>('eng:workcentres', useMemo(() => seedWorkCentres, []))
+  const products = useEngineeringCollection<EngProduct>('eng:products', useMemo(() => seedProducts, []))
+  const tools = useEngineeringCollection<Tool>('eng:tools', useMemo(() => seedTools, []))
   const purchaseOrders = useCollection<PurchaseOrder>('proc:po', useMemo(() => seedPurchaseOrders, []))
 
   const ctx: PlanningContext = useMemo(
