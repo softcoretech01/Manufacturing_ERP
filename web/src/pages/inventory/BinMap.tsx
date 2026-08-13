@@ -12,7 +12,7 @@ import { formatCompact, formatDate, formatQty } from '@/lib/format'
 import { cn } from '@/lib/cn'
 import { useWarehouses } from '@/hooks/useOrganisation'
 import { useZones, useBins, useBlockBin, useUnblockBin, useUpdateBin } from '@/hooks/useInventory'
-import type { BinSlot } from '@/types/inventory'
+import type { BinSlot, BinStatus } from '@/types/inventory'
 
 /** Colour by how full a bin is, with blocked and counting states overriding. */
 function heat(pct: number, status: string) {
@@ -62,7 +62,7 @@ export function BinMapPage() {
     zone: b.zone_uid ? (zoneMap.get(b.zone_uid) ?? 'Unknown') : 'No zone',
     code: b.code,
     binType: b.bin_type,
-    status: b.status,
+    status: b.status as BinStatus,
     contents: 'Empty', // Placeholder for operational metric
     quantity: 0, // Placeholder
     utilisationPct: 0, // Placeholder
@@ -72,7 +72,7 @@ export function BinMapPage() {
     pickSequence: b.pick_sequence,
     mixingAllowed: b.mixing_allowed,
     fixedItem: null,
-    blockReason: b.block_reason,
+    blockReason: b.block_reason ?? undefined,
     lastCountedOn: null,
     version: b.version, // Keep version for mutations
   }))
@@ -95,7 +95,7 @@ export function BinMapPage() {
         actions={
           <>
             <Button variant="outline" size="sm" onClick={() => navigate('/inventory/structure')}>Edit bins</Button>
-            <Button variant="outline" size="sm" onClick={() => toast.success('Labels queued', `${list.length} bin labels for ${warehouse} sent to the store printer.`)}>
+            <Button variant="outline" size="sm" onClick={() => toast.success('Labels queued', `${list.length} bin labels for ${selectedWh?.code || 'the warehouse'} sent to the store printer.`)}>
               Print all labels
             </Button>
           </>

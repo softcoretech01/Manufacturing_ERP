@@ -1,11 +1,3 @@
-"""Repositories for the Inventory storage-structure aggregates (zones, bins).
-
-Thin subclasses of the tenant-scoped :class:`BaseRepository`, plus the queries the
-uniqueness checks and deactivation guards need. Bin codes are unique *within a
-warehouse* (SRS V4-WHS validation #1), so the code checks scope by warehouse — not
-the base repository's per-company `exists_code`.
-"""
-
 from __future__ import annotations
 
 from sqlalchemy import func, select
@@ -43,14 +35,14 @@ class ZoneRepository(BaseRepository[InvZone]):
             .select_from(InvBin)
             .where(InvBin.zone_id == zone_id, InvBin.deleted_at.is_(None))
         )
-        return int((await self.session.execute(stmt)).scalar_one())
+        return int((await self.session.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one())
 
 
 class BinRepository(BaseRepository[InvBin]):
     model = InvBin
 
-    def base_query(self):
-        return super().base_query().options(selectinload(InvBin.zone))
+    def base_query(self, *, include_deleted: bool = False):
+        return super().base_query(include_deleted=include_deleted).options(selectinload(InvBin.zone))
 
     async def code_exists(
         self, code: str, *, warehouse_id: int, exclude_uid: str | None = None
@@ -73,4 +65,4 @@ class BinRepository(BaseRepository[InvBin]):
                 InvBin.deleted_at.is_(None),
             )
         )
-        return int((await self.session.execute(stmt)).scalar_one())
+        return int((await self.session.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one())
