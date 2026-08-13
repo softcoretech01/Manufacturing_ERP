@@ -58,7 +58,7 @@ services:
     container_name: ssb-industry-web
     restart: unless-stopped
     ports:
-      - "5177:5176"
+      - "5177:5173"
     depends_on:
       - backend
     environment:
