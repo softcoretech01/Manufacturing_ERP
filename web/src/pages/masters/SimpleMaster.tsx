@@ -15,7 +15,199 @@ import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDate, formatDateTime } from '@/lib/format'
 import { newUid, useCollection } from '@/store/data'
 import { SIMPLE_MASTER_BY_ROUTE } from '@/mock/masterRegistry'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { api } from '@/lib/api'
 import type { MasterField, MasterStatus, SimpleMasterDef, SimpleMasterRow } from '@/types/masters'
+
+/* ── Codes that use a live API instead of mock data ─────────── */
+const API_BACKED_MASTERS = new Set(['BOTTLE_MODEL', 'BOTTLE_CAPACITY', 'BOTTLE_COLOUR', 'LID_TYPE', 'PACKAGING', 'STEEL_GRADE', 'STEEL_THICKNESS', 'SHIFT', 'HOLIDAY_CALENDAR', 'QUALITY_PARAM', 'DEFECT', 'HSN', 'TAX', 'PAYMENT_TERMS', 'UOM', 'REASON_CODE', 'COUNTRY', 'STATE', 'CITY'])
+
+/* ── Map flat API row → SimpleMasterRow ─────────────────────── */
+function apiRowToSimpleRow(r: any, def: SimpleMasterDef): SimpleMasterRow {
+  const values: Record<string, string | number | boolean | null> = {}
+  for (const f of def.fields) {
+    values[f.key] = r[f.key] ?? null
+  }
+  return {
+    uid: String(r.id),
+    code: r.code,
+    name: r.name,
+    status: r.status ?? 'ACTIVE',
+    effectiveFrom: r.effectiveFrom ?? new Date().toISOString().slice(0, 10),
+    effectiveTo: r.effectiveTo ?? null,
+    revision: r.revision ?? 1,
+    usageCount: r.usageCount ?? 0,
+    modifiedBy: r.modifiedBy ?? r.createdBy ?? 'System',
+    modifiedAt: r.modifiedDate ?? r.modifiedAt ?? new Date().toISOString(),
+    values,
+  }
+}
+
+/* ── Map SimpleMasterRow back to flat API payload ───────────── */
+function simpleRowToApiPayload(form: FormState, def: SimpleMasterDef): any {
+  const payload: any = {
+    code: form.code,
+    name: form.name,
+    status: 'ACTIVE',
+    effectiveFrom: form.effectiveFrom || null,
+    effectiveTo: form.effectiveTo || null,
+    revision: 1,
+  }
+  for (const f of def.fields) {
+    const v = form.values[f.key]
+    if (f.type === 'boolean') {
+      payload[f.key] = !!v
+    } else if (f.type === 'number') {
+      payload[f.key] = v !== '' && v !== null && v !== undefined ? Number(v) : null
+    } else {
+      payload[f.key] = v !== '' ? v : null
+    }
+  }
+  return payload
+}
+
+/* ── API method map per master code ─────────────────────────── */
+const API_METHODS: Record<string, {
+  getAll: () => Promise<any[]>
+  create: (data: any) => Promise<any>
+  update: (id: any, data: any) => Promise<any>
+  delete: (id: any) => Promise<void>
+  getNextCode?: () => Promise<{nextCode: string}>
+}> = {
+  BOTTLE_MODEL: {
+    getAll: api.getBottleModels,
+    create: api.createBottleModel,
+    update: api.updateBottleModel,
+    delete: api.deleteBottleModel,
+    getNextCode: api.getNextBottleModelCode,
+  },
+  BOTTLE_CAPACITY: {
+    getAll: api.getBottleCapacities,
+    create: api.createBottleCapacity,
+    update: api.updateBottleCapacity,
+    delete: api.deleteBottleCapacity,
+    getNextCode: api.getNextBottleCapacityCode,
+  },
+  BOTTLE_COLOUR: {
+    getAll: api.getBottleColours,
+    create: api.createBottleColour,
+    update: api.updateBottleColour,
+    delete: api.deleteBottleColour,
+    getNextCode: api.getNextBottleColourCode,
+  },
+  LID_TYPE: {
+    getAll: api.getLidTypes,
+    create: api.createLidType,
+    update: api.updateLidType,
+    delete: api.deleteLidType,
+    getNextCode: api.getNextLidTypeCode,
+  },
+  PACKAGING: {
+    getAll: api.getPackagings,
+    create: api.createPackaging,
+    update: api.updatePackaging,
+    delete: api.deletePackaging,
+    getNextCode: api.getNextPackagingCode,
+  },
+  STEEL_GRADE: {
+    getAll: api.getSteelGrades,
+    create: api.createSteelGrade,
+    update: api.updateSteelGrade,
+    delete: api.deleteSteelGrade,
+    getNextCode: api.getNextSteelGradeCode,
+  },
+  STEEL_THICKNESS: {
+    getAll: api.getSteelThicknesses,
+    create: api.createSteelThickness,
+    update: api.updateSteelThickness,
+    delete: api.deleteSteelThickness,
+    getNextCode: api.getNextSteelThicknessCode,
+  },
+  SHIFT: {
+    getAll: api.getShifts,
+    create: api.createShift,
+    update: api.updateShift,
+    delete: api.deleteShift,
+    getNextCode: api.getNextShiftCode,
+  },
+  HOLIDAY_CALENDAR: {
+    getAll: api.getHolidayCalendars,
+    create: api.createHolidayCalendar,
+    update: api.updateHolidayCalendar,
+    delete: api.deleteHolidayCalendar,
+    getNextCode: api.getNextHolidayCalendarCode,
+  },
+  QUALITY_PARAM: {
+    getAll: api.getQualityParameters,
+    create: api.createQualityParameter,
+    update: api.updateQualityParameter,
+    delete: api.deleteQualityParameter,
+    getNextCode: api.getNextQualityParameterCode,
+  },
+  DEFECT: {
+    getAll: api.getDefects,
+    create: api.createDefect,
+    update: api.updateDefect,
+    delete: api.deleteDefect,
+    getNextCode: api.getNextDefectCode,
+  },
+  HSN: {
+    getAll: api.getHsns,
+    create: api.createHsn,
+    update: api.updateHsn,
+    delete: api.deleteHsn,
+    getNextCode: api.getNextHsnCode,
+  },
+  TAX: {
+    getAll: api.getTaxes,
+    create: api.createTax,
+    update: api.updateTax,
+    delete: api.deleteTax,
+    getNextCode: api.getNextTaxCode,
+  },
+  PAYMENT_TERMS: {
+    getAll: api.getPaymentTerms,
+    create: api.createPaymentTerm,
+    update: api.updatePaymentTerm,
+    delete: api.deletePaymentTerm,
+    getNextCode: api.getNextPaymentTermCode,
+  },
+  UOM: {
+    getAll: api.getUOMs,
+    create: api.createUOM,
+    update: api.updateUOM,
+    delete: api.deleteUOM,
+    getNextCode: api.getNextUOMCode,
+  },
+  REASON_CODE: {
+    getAll: api.getReasonCodes,
+    create: api.createReasonCode,
+    update: api.updateReasonCode,
+    delete: api.deleteReasonCode,
+    getNextCode: api.getNextReasonCodeCode,
+  },
+  COUNTRY: {
+    getAll: api.getCountries,
+    create: api.createCountry,
+    update: api.updateCountry,
+    delete: api.deleteCountry,
+    getNextCode: api.getNextCountryCode,
+  },
+  STATE: {
+    getAll: api.getStates,
+    create: api.createState,
+    update: api.updateState,
+    delete: api.deleteState,
+    getNextCode: api.getNextStateCode,
+  },
+  CITY: {
+    getAll: api.getCities,
+    create: api.createCity,
+    update: api.updateCity,
+    delete: api.deleteCity,
+    getNextCode: api.getNextCityCode,
+  },
+}
 
 /* ─────────────────────────── Cell rendering ─────────────────────────── */
 
@@ -94,18 +286,24 @@ function RecordForm({
   const setVal = (key: string, v: string | number | boolean | null) =>
     setForm({ ...form, values: { ...form.values, [key]: v } })
 
+  const is3Col = def.code === 'BOTTLE_MODEL'
+  const is2ColGrid = def.code === 'BOTTLE_CAPACITY' || def.code === 'LID_TYPE' || def.code === 'STEEL_GRADE' || def.code === 'COUNTRY' || def.code === 'STATE' || def.code === 'CITY'
+  const containerClass = is3Col ? "grid grid-cols-3 gap-4" : is2ColGrid ? "grid grid-cols-2 gap-4" : "space-y-3.5"
+  const rowClass = (is3Col || is2ColGrid) ? "contents" : "grid grid-cols-2 gap-3"
+
   return (
-    <div className="space-y-3.5">
-      <div className="grid grid-cols-2 gap-3">
+    <div className={containerClass}>
+      <div className={rowClass}>
         <Input
           label="Code"
-          required
+          required={!def.autoCode}
           value={form.code}
           onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
-          readOnly={isEdit}
+          disabled={def.autoCode}
+          readOnly={isEdit && !def.autoCode}
           error={errors.code}
           className="font-mono"
-          hint={isEdit ? 'Immutable once transactions reference it.' : def.autoCode ? `Leave blank to auto-number as ${def.codePrefix}-nnnn.` : undefined}
+          hint={isEdit ? 'Immutable once transactions reference it.' : def.autoCode ? `Auto-generated as ${def.codePrefix}-nnnn.` : undefined}
         />
         <Input
           label="Name"
@@ -185,7 +383,7 @@ function RecordForm({
         )
       })}
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className={rowClass}>
         <Input
           label="Effective from"
           type="date"
@@ -211,13 +409,47 @@ export function SimpleMasterPage() {
   const { pathname } = useLocation()
   const toast = useToast()
   const def = SIMPLE_MASTER_BY_ROUTE[pathname] as SimpleMasterDef | undefined
+  const isApiBacked = !!(def && API_BACKED_MASTERS.has(def.code))
+  const queryClient = useQueryClient()
 
+  // ── Mock path (all masters except API-backed ones) ───────────
   type Row = SimpleMasterRow & { deletedAt?: string | null }
   const seed = useMemo(() => (def?.rows ?? []) as Row[], [def])
-  const { rows: liveRows, deletedCount, create, update, remove, resetToSeed } = useCollection<Row>(
+  const { rows: mockRows, deletedCount, create: mockCreate, update: mockUpdate, remove: mockRemove, resetToSeed } = useCollection<Row>(
     `master:${def?.code ?? 'none'}`,
     seed,
   )
+
+  // ── API path (BOTTLE_MODEL etc.) ─────────────────────────────
+  const apiMethods = def ? API_METHODS[def.code] : undefined
+  const { data: apiRawRows = [] } = useQuery({
+    queryKey: ['simple-master', def?.code],
+    queryFn: () => apiMethods!.getAll(),
+    enabled: isApiBacked && !!apiMethods,
+  })
+  const apiRows: SimpleMasterRow[] = useMemo(
+    () => (isApiBacked && def ? apiRawRows.map((r: any) => apiRowToSimpleRow(r, def)) : []),
+    [apiRawRows, isApiBacked, def],
+  )
+
+  const apiCreateMutation = useMutation({
+    mutationFn: (data: any) => apiMethods!.create(data),
+    onSuccess: () => { queryClient?.invalidateQueries({ queryKey: ['simple-master', def?.code] }); toast.success('Created') },
+    onError: () => toast.error('Failed to create'),
+  })
+  const apiUpdateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: any; data: any }) => apiMethods!.update(id, data),
+    onSuccess: () => { queryClient?.invalidateQueries({ queryKey: ['simple-master', def?.code] }); toast.success('Updated') },
+    onError: () => toast.error('Failed to update'),
+  })
+  const apiDeleteMutation = useMutation({
+    mutationFn: (id: any) => apiMethods!.delete(id),
+    onSuccess: () => { queryClient?.invalidateQueries({ queryKey: ['simple-master', def?.code] }); toast.success('Deleted') },
+    onError: () => toast.error('Failed to delete'),
+  })
+
+  // ── Unified rows ─────────────────────────────────────────────
+  const liveRows = isApiBacked ? apiRows : mockRows
 
   const [detail, setDetail] = useState<SimpleMasterRow | null>(null)
   const [editing, setEditing] = useState<SimpleMasterRow | null>(null)
@@ -242,7 +474,7 @@ export function SimpleMasterPage() {
     if (!def) return []
     const listFields = def.fields.filter((f) => f.inList)
     return [
-      { key: 'code', header: 'Code', sortable: true, sticky: true, width: '150px', accessor: (r) => r.code, render: (r) => <span className="font-mono text-2xs font-medium text-fg">{r.code}</span> },
+      { key: 'code', header: 'Code', sortable: true, sticky: true, width: '150px', accessor: (r) => r.code, render: (r) => <span className="font-mono text-2xs font-medium text-fg whitespace-nowrap">{r.code}</span> },
       { key: 'name', header: def.singular, sortable: true, width: '230px', accessor: (r) => r.name, render: (r) => <span className="text-xs font-medium text-fg">{r.name}</span> },
       ...listFields.map<Column<SimpleMasterRow>>((f) => ({
         key: f.key,
@@ -289,9 +521,18 @@ export function SimpleMasterPage() {
     return e
   }
 
-  function openNew() {
+  async function openNew() {
     setEditing(null)
-    setForm(emptyForm(def!))
+    const newF = emptyForm(def!)
+    if (def!.autoCode && isApiBacked && apiMethods?.getNextCode) {
+      try {
+        const { nextCode } = await apiMethods.getNextCode()
+        newF.code = nextCode
+      } catch (err) {
+        toast.error('Failed to get next code')
+      }
+    }
+    setForm(newF)
     setErrors({})
     setFormOpen(true)
   }
@@ -315,17 +556,28 @@ export function SimpleMasterPage() {
     const nextStatus: MasterStatus = def!.requiresApproval ? 'PENDING_APPROVAL' : 'ACTIVE'
 
     if (editing) {
-      update(editing.uid, {
-        name: form.name.trim(),
-        values: form.values,
+      if (isApiBacked) {
+        apiUpdateMutation.mutate({ id: editing.uid, data: simpleRowToApiPayload(form, def!) })
+        setFormOpen(false)
+        return
+      }
+      mockUpdate(editing.uid, {
+        code: form.code,
+        name: form.name,
         effectiveFrom: new Date(form.effectiveFrom).toISOString(),
         effectiveTo: form.effectiveTo ? new Date(form.effectiveTo).toISOString() : null,
+        values: { ...form.values },
         revision: editing.revision + 1,
         modifiedBy: 'You',
         status: editing.status === 'ACTIVE' && def!.requiresApproval ? 'PENDING_APPROVAL' : editing.status,
       } as Partial<SimpleMasterRow>)
       toast.success('Saved', `${form.code} updated to revision ${editing.revision + 1}.`)
     } else {
+      if (isApiBacked) {
+        apiCreateMutation.mutate(simpleRowToApiPayload(form, def!))
+        setFormOpen(false)
+        return
+      }
       const code = form.code.trim() || `${def!.codePrefix}-${String(liveRows.length + 1).padStart(4, '0')}`
       create({
         uid: newUid('smr'),
@@ -353,8 +605,12 @@ export function SimpleMasterPage() {
       toast.error('Cannot delete', `${row.usageCount} transactions reference this record. Deactivate it instead.`)
       return
     }
-    remove(row.uid)
-    toast.success('Deleted', `${row.code} removed. Soft delete — the row is retained with a deletion stamp.`)
+    if (isApiBacked) {
+      apiDeleteMutation.mutate(row.uid)
+    } else {
+      remove(row.uid)
+      toast.success('Deleted', `${row.code} removed. Soft delete — the row is retained with a deletion stamp.`)
+    }
     setConfirmDelete(null)
     setDetail(null)
   }
@@ -444,8 +700,13 @@ export function SimpleMasterPage() {
             <MenuItem
               label={r.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
               onClick={() => {
-                update(r.uid, { status: r.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' } as Partial<SimpleMasterRow>)
-                toast.success(r.status === 'ACTIVE' ? 'Deactivated' : 'Activated', r.code)
+                const nextStatus = r.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'
+                if (isApiBacked) {
+                  apiUpdateMutation.mutate({ id: r.uid, data: { status: nextStatus } })
+                } else {
+                  mockUpdate(r.uid, { status: nextStatus } as Partial<SimpleMasterRow>)
+                  toast.success(r.status === 'ACTIVE' ? 'Deactivated' : 'Activated', r.code)
+                }
               }}
             />
             <MenuItem
@@ -544,7 +805,7 @@ export function SimpleMasterPage() {
         onConfirm={() => confirmDelete && doDelete(confirmDelete)}
         title={`Delete ${confirmDelete?.code ?? ''}`}
         confirmLabel="Delete"
-        message={`${confirmDelete?.name ?? ''} will be removed from selection lists. This is a soft delete — the row is retained with a deletion stamp.`}
+        message="Are you sure you want to delete this record?"
       />
     </div>
   )

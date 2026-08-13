@@ -168,6 +168,8 @@ export function SearchInput({ className, ...props }: InputProps) {
       leftIcon={<Search className="h-3.5 w-3.5" />}
       placeholder="Search…"
       className={className}
+      autoComplete="off"
+      name={`search-${Math.random().toString(36).substring(2, 7)}`}
       {...props}
     />
   )

@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { Download, Layers, Search } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Download, Layers, Search, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader, EmptyState } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -11,10 +11,9 @@ import { EngStatusBadge, LevelIndent } from '@/components/engineering/EngShell'
 import { exportRows, type ExportColumn, type ExportFormat } from '@/lib/export'
 import { formatAmount, formatQty } from '@/lib/format'
 import { defaultBomFor, explodeBom, netRequirements, whereUsed, type ExplodedLine, type WhereUsedRow } from '@/lib/engFlow'
-import { useCollection } from '@/store/data'
-import { boms as seedBoms, products as seedProducts } from '@/mock/engineering'
-import { items as masterItems } from '@/mock/masters'
+import { api } from '@/lib/api'
 import type { Bom, EngProduct } from '@/types/engineering'
+import type { Item } from '@/types/inventory'
 
 /**
  * BOM explosion and where-used (Ch 7 and Ch 20).
@@ -30,16 +29,47 @@ import type { Bom, EngProduct } from '@/types/engineering'
 
 export function BomExplorerPage() {
   const toast = useToast()
-  const { rows: boms } = useCollection<Bom>('eng:boms', useMemo(() => seedBoms, []))
-  const { rows: products } = useCollection<EngProduct>('eng:products', useMemo(() => seedProducts, []))
+  
+  const [boms, setBoms] = useState<Bom[]>([])
+  const [products, setProducts] = useState<EngProduct[]>([])
+  const [masterItems, setMasterItems] = useState<Item[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  const explodable = useMemo(() => products.filter((p) => defaultBomFor(p.code, boms)), [products, boms])
+  const [productCode, setProductCode] = useState('')
+  const [qtyText, setQtyText] = useState('1000')
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [bomData, productData, itemData] = await Promise.all([
+          api.getBoms(),
+          api.getEngProducts(),
+          api.getItems()
+        ])
+        setBoms(bomData)
+        setProducts(productData)
+        setMasterItems(itemData)
+        
+        // Initialize selections if empty
+        const explodableProducts = productData.filter((p: EngProduct) => defaultBomFor(p.code, bomData))
+        if (explodableProducts.length > 0) {
+          setProductCode(explodableProducts[0].code)
+        }
+      } catch (err) {
+        console.error('Failed to load data:', err)
+        toast.error('Failed to load', 'Could not load data from the server.')
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    load()
+  }, [])
 
   const [tab, setTab] = useState('explode')
 
   /* ── Explosion ─────────────────────────────────────────────────────── */
 
-  const explodable = products.filter((p) => defaultBomFor(p.code, boms))
-  const [productCode, setProductCode] = useState(() => explodable[0]?.code ?? '')
-  const [qtyText, setQtyText] = useState('1000')
   const qty = Math.max(0, Number(qtyText) || 0)
 
   const exploded = useMemo(
@@ -118,6 +148,14 @@ export function BomExplorerPage() {
     toast.success('Export ready', `${n} rows written.`)
   }
 
+  if (isLoading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-brand-500" />
+      </div>
+    )
+  }
+
   return (
     <div>
       <PageHeader
@@ -150,7 +188,7 @@ export function BomExplorerPage() {
                   ...explodable.map((p) => ({ value: p.code, label: `${p.code} — ${p.name}` })),
                 ]}
               />
-              <Input label="Order quantity" type="number" min={0} value={qtyText} onChange={(e) => setQtyText(e.target.value)} />
+              <Input maxLength={255} label="Order quantity" type="number" min={0} value={qtyText} onChange={(e) => setQtyText(e.target.value)} />
               <div className="flex items-end pb-1">
                 <Button variant="outline" size="sm" icon={<Download className="h-3.5 w-3.5" />} disabled={!exploded.length} onClick={() => exportExplosion('xlsx')}>
                   Export explosion

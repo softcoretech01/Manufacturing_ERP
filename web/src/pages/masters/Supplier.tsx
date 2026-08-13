@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   AlertTriangle,
   Ban,
@@ -22,9 +23,10 @@ import { Drawer, Modal } from '@/components/ui/Modal'
 import { Tabs } from '@/components/ui/Tabs'
 import { Alert, Avatar, PageHeader, ProgressBar } from '@/components/ui/Misc'
 import { Input, Select, Switch, Textarea } from '@/components/ui/Input'
+import { AddressFormModal, ContactFormModal, BankAccountFormModal, ComplianceDocFormModal } from './SupplierForms'
 import { useToast } from '@/components/ui/Toast'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
-import { useCollection } from '@/store/data'
+import { api } from '@/lib/api'
 import {
   GovernanceCard,
   LifecycleTrail,
@@ -36,7 +38,6 @@ import {
 } from '@/components/masters/MasterShell'
 import { cn } from '@/lib/cn'
 import { formatCurrency, formatDate, formatPercent } from '@/lib/format'
-import { suppliers } from '@/mock/masters'
 import type { Supplier } from '@/types/masters'
 
 /* ─────────────────────────── GSTIN validation ─────────────────────────── */
@@ -95,9 +96,14 @@ function RatingStars({ grade, score }: { grade: Supplier['ratingGrade']; score: 
 
 /* ─────────────────────────── Detail drawer ─────────────────────────── */
 
-function SupplierDetail({ s, onClose }: { s: Supplier; onClose: () => void }) {
+function SupplierDetail({ s, onClose, onEdit, onSubmit, onUpdate }: { s: Supplier; onClose: () => void; onEdit: () => void; onSubmit: () => void; onUpdate: (s: Supplier) => Promise<any> }) {
   const toast = useToast()
   const [tab, setTab] = useState('general')
+  const [addressOpen, setAddressOpen] = useState(false)
+  const [contactOpen, setContactOpen] = useState(false)
+  const [bankOpen, setBankOpen] = useState(false)
+  const [docOpen, setDocOpen] = useState(false)
+
   const expired = s.complianceDocs.filter((d) => d.status === 'EXPIRED')
   const expiring = s.complianceDocs.filter((d) => d.status === 'EXPIRING')
 
@@ -118,8 +124,8 @@ function SupplierDetail({ s, onClose }: { s: Supplier; onClose: () => void }) {
           <MasterActions
             status={s.status}
             usageCount={s.whereUsed.filter((w) => w.isOpen).length}
-            onEdit={() => toast.info('Edit', 'Editing an approved supplier creates a new revision.')}
-            onSubmit={() => toast.success('Submitted for approval')}
+            onEdit={onEdit}
+            onSubmit={onSubmit}
           />
         </div>
       }
@@ -221,11 +227,11 @@ function SupplierDetail({ s, onClose }: { s: Supplier; onClose: () => void }) {
             <CardHeader
               title="Addresses"
               description="A separate GSTIN per state is a separate registration, not a second address line"
-              actions={<Button variant="outline" size="sm" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => toast.info('Add address', 'Opens the address form.')}>Add address</Button>}
+              actions={<Button variant="outline" size="sm" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setAddressOpen(true)}>Add address</Button>}
             />
             <CardBody className="space-y-2">
-              {s.addresses.map((a) => (
-                <div key={a.uid} className="rounded border border-border p-3">
+              {s.addresses.map((a, i) => (
+                <div key={i} className="rounded border border-border p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="flex items-center gap-2">
                       <MapPin className="h-3.5 w-3.5 text-fg-subtle" />
@@ -248,13 +254,12 @@ function SupplierDetail({ s, onClose }: { s: Supplier; onClose: () => void }) {
         {tab === 'contacts' && (
           <Card>
             <CardHeader
-              title="Contacts"
-              description="Notification routing follows the purpose, not the job title"
-              actions={<Button variant="outline" size="sm" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => toast.info('Add contact', 'Opens the contact form.')}>Add contact</Button>}
+              title="Contact persons"
+              actions={<Button variant="outline" size="sm" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setContactOpen(true)}>Add contact</Button>}
             />
             <CardBody className="space-y-2">
-              {s.contacts.map((c) => (
-                <div key={c.uid} className="flex items-start gap-3 rounded border border-border p-3">
+              {s.contacts.map((c, i) => (
+                <div key={i} className="flex items-start gap-3 rounded border border-border p-3">
                   <Avatar name={c.name} size="sm" />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -306,8 +311,8 @@ function SupplierDetail({ s, onClose }: { s: Supplier; onClose: () => void }) {
                 {s.bankAccounts.length === 0 && (
                   <p className="text-xs text-fg-muted">No bank account on file — payment cannot be released.</p>
                 )}
-                {s.bankAccounts.map((b) => (
-                  <div key={b.uid} className="rounded border border-border p-3">
+                {s.bankAccounts.map((b, i) => (
+                  <div key={i} className="rounded border border-border p-3">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-xs font-medium text-fg">{b.bankName}</span>
                       {b.isVerified ? (
@@ -355,8 +360,8 @@ function SupplierDetail({ s, onClose }: { s: Supplier; onClose: () => void }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {s.complianceDocs.map((d) => (
-                    <tr key={d.uid}>
+                  {s.complianceDocs.map((d, i) => (
+                    <tr key={i}>
                       <td className="font-medium text-fg">{d.type}</td>
                       <td><span className="font-mono text-2xs">{d.documentNo}</span></td>
                       <td className="text-fg-muted">{d.issuedBy}</td>
@@ -422,39 +427,142 @@ function SupplierDetail({ s, onClose }: { s: Supplier; onClose: () => void }) {
         {tab === 'whereused' && <WhereUsedPanel entries={s.whereUsed} />}
         {tab === 'revisions' && <RevisionPanel revisions={s.revisions} />}
       </div>
+      
+      <AddressFormModal open={addressOpen} onClose={() => setAddressOpen(false)} onSave={async (a) => {
+        try {
+          await onUpdate({ ...s, addresses: [...s.addresses, a] })
+          setAddressOpen(false)
+        } catch(e) {
+          toast.error("Failed to add address")
+        }
+      }} />
+      <ContactFormModal open={contactOpen} onClose={() => setContactOpen(false)} onSave={async (c) => {
+        try {
+          await onUpdate({ ...s, contacts: [...s.contacts, c] })
+          setContactOpen(false)
+        } catch(e) {
+          toast.error("Failed to add contact")
+        }
+      }} />
+      <BankAccountFormModal open={bankOpen} onClose={() => setBankOpen(false)} onSave={async (b) => {
+        try {
+          await onUpdate({ ...s, bankAccounts: [...s.bankAccounts, b] })
+          setBankOpen(false)
+        } catch(e) {
+          toast.error("Failed to add bank account")
+        }
+      }} />
+      <ComplianceDocFormModal open={docOpen} onClose={() => setDocOpen(false)} onSave={async (d) => {
+        try {
+          await onUpdate({ ...s, complianceDocs: [...s.complianceDocs, d] })
+          setDocOpen(false)
+        } catch(e) {
+          toast.error("Failed to add document")
+        }
+      }} />
     </Drawer>
   )
 }
 
 /* ─────────────────────────── New supplier form ─────────────────────────── */
 
-function SupplierForm({ open, onClose }: { open: boolean; onClose: () => void }) {
+function SupplierForm({ s, open, onClose, onSave }: { s?: Supplier | null; open: boolean; onClose: () => void; onSave: (data: Partial<Supplier>) => Promise<any> }) {
   const toast = useToast()
-  const [gstin, setGstin] = useState('')
-  const [pan, setPan] = useState('')
-  const [regType, setRegType] = useState('REGULAR')
-  const [isMsme, setIsMsme] = useState(false)
-  const [creditDays, setCreditDays] = useState(30)
+  
+  const [name, setName] = useState(s?.name || '')
+  const [legalName, setLegalName] = useState(s?.legalName || '')
+  const [vendorType, setVendorType] = useState<any>(s?.vendorType || 'MANUFACTURER')
+  const [category, setCategory] = useState(s?.category || '')
+  const [currency, setCurrency] = useState(s?.currency || 'INR')
+  const [paymentTermsCode, setPaymentTermsCode] = useState(s?.paymentTermsCode || 'PT-30D')
+  const [creditLimit, setCreditLimit] = useState(s?.creditLimit || 0)
+  const [msmeNumber, setMsmeNumber] = useState(s?.msmeNumber || '')
+  const [notes, setNotes] = useState(s?.description || '')
+
+  const [gstin, setGstin] = useState(s?.gstin || '')
+  const [pan, setPan] = useState(s?.pan || '')
+  const [regType, setRegType] = useState<any>(s?.gstRegistrationType || 'REGULAR')
+  const [isMsme, setIsMsme] = useState(!!s?.msmeCategory)
+  const [creditDays, setCreditDays] = useState(s?.creditDays || 30)
+
+  useEffect(() => {
+    if (open) {
+      setName(s?.name || '')
+      setLegalName(s?.legalName || '')
+      setVendorType(s?.vendorType || 'MANUFACTURER')
+      setCategory(s?.category || '')
+      setCurrency(s?.currency || 'INR')
+      setPaymentTermsCode(s?.paymentTermsCode || 'PT-30D')
+      setCreditLimit(s?.creditLimit || 0)
+      setMsmeNumber(s?.msmeNumber || '')
+      setNotes(s?.description || '')
+      setGstin(s?.gstin || '')
+      setPan(s?.pan || '')
+      setRegType(s?.gstRegistrationType || 'REGULAR')
+      setIsMsme(!!s?.msmeCategory)
+      setCreditDays(s?.creditDays || 30)
+    }
+  }, [s, open])
 
   const gstErrors = regType === 'REGULAR' || regType === 'COMPOSITION' ? validateGstin(gstin, pan) : []
   const stateName = gstin.length >= 2 ? STATE_CODES[gstin.slice(0, 2)] : undefined
   const msmeBreach = isMsme && creditDays > 45
+
+  const handleSubmit = async (status: 'DRAFT' | 'PENDING_APPROVAL') => {
+    try {
+      const payload: Partial<Supplier> = {
+        name,
+        shortName: name.substring(0, 50),
+        legalName,
+        vendorType,
+        gstRegistrationType: regType,
+        pan: pan || undefined,
+        gstin: gstin || undefined,
+        category,
+        currency,
+        paymentTermsCode,
+        creditDays,
+        creditLimit,
+        msmeCategory: isMsme ? 'MICRO' : undefined,
+        msmeNumber: isMsme ? msmeNumber : undefined,
+        description: notes,
+        status: status,
+      }
+
+      if (s) {
+        payload.code = s.code
+        payload.revision = s.revision
+        payload.version = s.version
+        payload.effectiveFrom = s.effectiveFrom
+        payload.companyUid = s.companyUid
+      } else {
+        payload.effectiveFrom = new Date().toISOString()
+        payload.companyUid = 'C01' // Mock company UID
+      }
+
+      await onSave(payload)
+      toast.success(status === 'DRAFT' ? 'Saved as draft' : 'Submitted for approval')
+      onClose()
+    } catch (e) {
+      toast.error('Failed to save supplier', e instanceof Error ? e.message : String(e))
+    }
+  }
 
   return (
     <Modal
       open={open}
       onClose={onClose}
       size="lg"
-      title="New supplier"
+      title={s ? `Edit supplier` : `New supplier`}
       description="Saved as a draft and routed for approval. A supplier cannot receive a purchase order until approved."
       footer={
         <>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button variant="outline" onClick={() => { toast.success('Saved as draft'); onClose() }}>Save draft</Button>
+          <Button variant="outline" onClick={() => handleSubmit('DRAFT')}>Save draft</Button>
           <Button
             variant="primary"
             disabled={gstErrors.length > 0 || msmeBreach}
-            onClick={() => { toast.success('Submitted for approval'); onClose() }}
+            onClick={() => handleSubmit('PENDING_APPROVAL')}
           >
             Submit for approval
           </Button>
@@ -463,11 +571,13 @@ function SupplierForm({ open, onClose }: { open: boolean; onClose: () => void })
     >
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-3.5">
-          <Input label="Trade name" required placeholder="Jindal Stainless" />
-          <Input label="Legal name" required placeholder="Jindal Stainless Limited" hint="As printed on the GST certificate — used on the purchase order." />
+          <Input label="Trade name" required placeholder="Jindal Stainless" value={name} onChange={e => setName(e.target.value)} />
+          <Input label="Legal name" required placeholder="Jindal Stainless Limited" hint="As printed on the GST certificate — used on the purchase order." value={legalName} onChange={e => setLegalName(e.target.value)} />
           <Select
             label="Vendor type"
             required
+            value={vendorType}
+            onChange={e => setVendorType(e.target.value)}
             options={[
               { value: 'MANUFACTURER', label: 'Manufacturer' },
               { value: 'TRADER', label: 'Trader' },
@@ -529,10 +639,12 @@ function SupplierForm({ open, onClose }: { open: boolean; onClose: () => void })
         </div>
 
         <div className="space-y-3.5">
-          <Input label="Category" placeholder="Raw Material — Steel" />
+          <Input label="Category" placeholder="Raw Material — Steel" value={category} onChange={e => setCategory(e.target.value)} />
           <Select
             label="Currency"
             required
+            value={currency}
+            onChange={e => setCurrency(e.target.value)}
             options={[
               { value: 'INR', label: 'INR — Indian Rupee' },
               { value: 'USD', label: 'USD — US Dollar' },
@@ -542,6 +654,8 @@ function SupplierForm({ open, onClose }: { open: boolean; onClose: () => void })
           <Select
             label="Payment terms"
             required
+            value={paymentTermsCode}
+            onChange={e => setPaymentTermsCode(e.target.value)}
             options={[
               { value: 'PT-COD', label: 'Cash on delivery' },
               { value: 'PT-15D', label: 'Net 15 days' },
@@ -558,11 +672,11 @@ function SupplierForm({ open, onClose }: { open: boolean; onClose: () => void })
             onChange={(e) => setCreditDays(Number(e.target.value))}
             error={msmeBreach ? 'Exceeds the 45-day MSME statutory limit' : undefined}
           />
-          <Input label="Credit limit (₹)" type="number" />
+          <Input label="Credit limit (₹)" type="number" value={creditLimit} onChange={e => setCreditLimit(Number(e.target.value))} />
           <div className="space-y-2.5 rounded border border-border p-3">
             <Switch checked={isMsme} onChange={setIsMsme} label="Registered MSME supplier" />
             {isMsme && (
-              <Input label="Udyam registration number" placeholder="UDYAM-TN-02-0044118" className="font-mono" />
+              <Input label="Udyam registration number" placeholder="UDYAM-TN-02-0044118" className="font-mono" value={msmeNumber} onChange={e => setMsmeNumber(e.target.value)} />
             )}
             {msmeBreach && (
               <p className="text-2xs text-danger">
@@ -571,7 +685,7 @@ function SupplierForm({ open, onClose }: { open: boolean; onClose: () => void })
               </p>
             )}
           </div>
-          <Textarea label="Notes" rows={2} placeholder="Anything an approver should know." />
+          <Textarea label="Notes" rows={2} placeholder="Anything an approver should know." value={notes} onChange={e => setNotes(e.target.value)} />
         </div>
       </div>
     </Modal>
@@ -583,7 +697,38 @@ function SupplierForm({ open, onClose }: { open: boolean; onClose: () => void })
 export function SupplierMasterPage() {
   const toast = useToast()
   const navigate = useNavigate()
-  const { rows: list, update, remove } = useCollection('master:SUPPLIER', suppliers)
+  const queryClient = useQueryClient()
+
+  const { data: list = [], isLoading, error } = useQuery({
+    queryKey: ['suppliers'],
+    queryFn: api.getSuppliers,
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<Supplier> }) => api.updateSupplier(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['suppliers'] })
+    }
+  })
+
+  const createMutation = useMutation({
+    mutationFn: api.createSupplier,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['suppliers'] })
+    }
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: api.deleteSupplier,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['suppliers'] })
+    }
+  })
+
+  const create = (data: Partial<Supplier>) => createMutation.mutateAsync(data)
+
+  const update = (uid: string | number, data: Partial<Supplier>) => updateMutation.mutate({ id: uid as number, data })
+  const remove = (uid: string | number) => deleteMutation.mutate(uid as number)
 
   function doExport(format: ExportFormat) {
     try {
@@ -595,20 +740,21 @@ export function SupplierMasterPage() {
   }
   const [tab, setTab] = useState('list')
   const [detail, setDetail] = useState<Supplier | null>(null)
+  const [editTarget, setEditTarget] = useState<Supplier | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [filter, setFilter] = useState('')
 
   const rows = useMemo(() => {
-    if (filter === 'blacklisted') return suppliers.filter((s) => s.isBlacklisted)
-    if (filter === 'pending') return suppliers.filter((s) => s.status === 'PENDING_APPROVAL' || s.status === 'DRAFT')
-    if (filter === 'expired') return suppliers.filter((s) => s.complianceDocs.some((d) => d.status === 'EXPIRED'))
-    if (filter === 'msme') return suppliers.filter((s) => !!s.msmeCategory)
-    return suppliers
-  }, [filter])
+    if (filter === 'blacklisted') return list.filter((s) => s.isBlacklisted)
+    if (filter === 'pending') return list.filter((s) => s.status === 'PENDING_APPROVAL' || s.status === 'DRAFT')
+    if (filter === 'expired') return list.filter((s) => s.complianceDocs.some((d) => d.status === 'EXPIRED'))
+    if (filter === 'msme') return list.filter((s) => !!s.msmeCategory)
+    return list
+  }, [filter, list])
 
-  const expiredDocs = suppliers.filter((s) => s.complianceDocs.some((d) => d.status === 'EXPIRED'))
-  const blacklisted = suppliers.filter((s) => s.isBlacklisted)
-  const pending = suppliers.filter((s) => s.status === 'PENDING_APPROVAL' || s.status === 'DRAFT')
+  const expiredDocs = list.filter((s) => s.complianceDocs.some((d) => d.status === 'EXPIRED'))
+  const blacklisted = list.filter((s) => s.isBlacklisted)
+  const pending = list.filter((s) => s.status === 'PENDING_APPROVAL' || s.status === 'DRAFT')
 
   const columns: Column<Supplier>[] = [
     {
@@ -676,7 +822,7 @@ export function SupplierMasterPage() {
             <Button variant="outline" size="sm" icon={<Upload className="h-4 w-4" />} onClick={() => toast.info('Import suppliers', 'Download the template, fill it, dry-run, then commit.')}>
               Import
             </Button>
-            <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setFormOpen(true)}>
+            <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => { setEditTarget(null); setFormOpen(true) }}>
               New supplier
             </Button>
           </>
@@ -694,7 +840,7 @@ export function SupplierMasterPage() {
         <DataTable
           rows={rows}
           columns={columns}
-          rowKey={(s) => s.uid}
+          rowKey={(s) => s.id}
           searchPlaceholder="Name, code, GSTIN or category…"
           pageSize={20}
           onRowClick={setDetail}
@@ -722,22 +868,21 @@ export function SupplierMasterPage() {
               <MenuItem label="Edit" onClick={() => setDetail(s)} />
               <MenuItem label="Supplier evaluation" onClick={() => navigate('/procurement/evaluation')} />
               <MenuItem label={`Where used (${s.whereUsed.length})`} onClick={() => setDetail(s)} />
-              <MenuItem label="Upload compliance document" onClick={() => toast.info('Upload compliance document', 'Opens the document upload form.')} />
               <MenuItem
                 label={s.isBlacklisted ? 'Remove from blacklist' : 'Blacklist'}
                 danger={!s.isBlacklisted}
                 separatorBefore
                 onClick={() => {
-                  update(s.uid, { isBlacklisted: !s.isBlacklisted, isApprovedVendor: s.isBlacklisted })
+                  update(s.id, { ...s, isBlacklisted: !s.isBlacklisted, isApprovedVendor: s.isBlacklisted })
                   toast.success(s.isBlacklisted ? 'Removed from blacklist' : 'Blacklisted', s.name)
                 }}
               />
               <MenuItem
                 label={s.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
                 danger={s.status === 'ACTIVE'}
-                disabled={s.whereUsed.some((w) => w.isOpen)}
+                disabled={s.whereUsed.length > 0 && s.whereUsed.some((w) => w.isOpen)}
                 onClick={() => {
-                  update(s.uid, { status: s.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' })
+                  update(s.id, { ...s, status: s.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' })
                   toast.success(s.status === 'ACTIVE' ? 'Deactivated' : 'Activated', s.name)
                 }}
               />
@@ -746,7 +891,7 @@ export function SupplierMasterPage() {
                 danger
                 disabled={s.whereUsed.length > 0}
                 onClick={() => {
-                  remove(s.uid)
+                  remove(s.id)
                   toast.success('Deleted', `${s.code} — ${s.name}`)
                 }}
               />
@@ -757,8 +902,26 @@ export function SupplierMasterPage() {
 
       
 
-      {detail && <SupplierDetail s={detail} onClose={() => setDetail(null)} />}
-      <SupplierForm open={formOpen} onClose={() => setFormOpen(false)} />
+      {detail && <SupplierDetail 
+        s={detail} 
+        onClose={() => setDetail(null)} 
+        onEdit={() => { setEditTarget(detail); setFormOpen(true) }} 
+        onSubmit={() => {
+          update(detail.id, { ...detail, status: 'PENDING_APPROVAL' })
+          toast.success('Submitted for approval', `${detail.code} — ${detail.name}`)
+          setDetail(null)
+        }}
+        onUpdate={async (updatedS) => {
+          await update(updatedS.id, updatedS)
+          setDetail(updatedS)
+        }}
+      />}
+      <SupplierForm 
+        s={editTarget} 
+        open={formOpen} 
+        onClose={() => setFormOpen(false)} 
+        onSave={(data) => editTarget ? update(editTarget.id, data) : create(data)} 
+      />
     </div>
   )
 }

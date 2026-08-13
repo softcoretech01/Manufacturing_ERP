@@ -45,6 +45,9 @@ import { ReportsPage } from '@/pages/admin/Reports'
 import { MasterOverviewPage } from '@/pages/masters/Overview'
 import { SupplierMasterPage } from '@/pages/masters/Supplier'
 import { CustomerMasterPage } from '@/pages/masters/Customer'
+import { TransporterMasterPage } from '@/pages/masters/Transporter'
+import { BankMasterPage } from '@/pages/masters/Bank'
+import { ContactMasterPage } from '@/pages/masters/Contact'
 import { ItemMasterPage } from '@/pages/masters/Item'
 import { EmployeeMasterPage } from '@/pages/masters/Employee'
 import { MachineMasterPage } from '@/pages/masters/Machine'
@@ -317,6 +320,9 @@ export default function App() {
         <Route path="/masters" element={<MasterOverviewPage />} />
         <Route path="/masters/supplier" element={<SupplierMasterPage />} />
         <Route path="/masters/customer" element={<CustomerMasterPage />} />
+        <Route path="/masters/transporter" element={<TransporterMasterPage />} />
+        <Route path="/masters/bank" element={<BankMasterPage />} />
+        <Route path="/masters/contact" element={<ContactMasterPage />} />
         <Route path="/masters/item" element={<ItemMasterPage />} />
         <Route path="/masters/employee" element={<EmployeeMasterPage />} />
         <Route path="/masters/machine" element={<MachineMasterPage />} />

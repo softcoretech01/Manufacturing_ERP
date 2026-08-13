@@ -50,7 +50,7 @@ export function Modal({
   if (!open) return null
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:p-8">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4 sm:p-8">
       <div
         className="fixed inset-0 bg-black/40 backdrop-blur-[2px] animate-fade-in"
         onClick={closeOnBackdrop ? onClose : undefined}

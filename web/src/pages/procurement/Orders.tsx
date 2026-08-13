@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { Ban, Check, FileText, GitBranch, Plus, Printer, ShoppingCart, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader, DataGrid } from '@/components/ui/Card'
@@ -13,13 +13,8 @@ import { useToast } from '@/components/ui/Toast'
 import { ApprovalTrail, DelayChip, DetailBlock, FillBar, ProcStatusBadge } from '@/components/procurement/ProcShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/format'
-import { newUid, useCollection } from '@/store/data'
-import {
-  purchaseOrders as seedOrders,
-  quotations as seedQuotations,
-  requisitions as seedPrs,
-  rfqs as seedRfqs,
-} from '@/mock/procurement'
+import { api } from '@/lib/api'
+
 import type { PurchaseRequisition, PurchaseOrder, Rfq, SupplierQuotation } from '@/types/procurement'
 import { nextDocNo, orderableRequisitions, poLinesFromQuotation } from '@/lib/procFlow'
 import { cn } from '@/lib/cn'
@@ -45,14 +40,63 @@ const CANCEL_REASONS = [
 
 export function OrdersPage() {
   const toast = useToast()
-  const seed = useMemo(() => seedOrders, [])
-  const prSeed = useMemo(() => seedPrs, [])
-  const rfqSeed = useMemo(() => seedRfqs, [])
-  const qSeed = useMemo(() => seedQuotations, [])
-  const { rows, create, update, remove } = useCollection<PurchaseOrder>('proc:po', seed)
-  const { rows: prs } = useCollection<PurchaseRequisition>('proc:pr', prSeed)
-  const { rows: rfqs } = useCollection<Rfq>('proc:rfq', rfqSeed)
-  const { rows: quotations, update: updateQuotation } = useCollection<SupplierQuotation>('proc:sq', qSeed)
+  const [rows, setRows] = useState<PurchaseOrder[]>([])
+  const [prs, setPrs] = useState<PurchaseRequisition[]>([])
+  const [rfqs, setRfqs] = useState<Rfq[]>([])
+  const [quotations, setQuotations] = useState<SupplierQuotation[]>([])
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [poData, prData, rfqData, qData] = await Promise.all([
+          api.getPurchaseOrders(),
+          api.getRequisitions(),
+          api.getRfqs(),
+          api.getQuotations(),
+        ])
+        setRows(poData)
+        setPrs(prData)
+        setRfqs(rfqData)
+        setQuotations(qData)
+      } catch (e) {
+        toast.error('Error', 'Failed to load purchase orders')
+      }
+    }
+    load()
+  }, [])
+
+  async function update(uid: string, patch: Partial<PurchaseOrder>) {
+    try {
+      const existing = rows.find(r => r.uid.toString() === uid.toString())
+      if (!existing) return
+      await api.updatePurchaseOrder(uid, { ...existing, ...patch })
+      const latest = await api.getPurchaseOrders()
+      setRows(latest)
+    } catch (e) {
+      toast.error('Error', 'Failed to update purchase order')
+    }
+  }
+
+  async function remove(uid: string) {
+    try {
+      await api.deletePurchaseOrder(uid)
+      const latest = await api.getPurchaseOrders()
+      setRows(latest)
+    } catch (e) {
+      toast.error('Error', 'Failed to delete purchase order')
+    }
+  }
+
+  async function updateQuotation(uid: string, patch: Partial<SupplierQuotation>) {
+    try {
+      const existing = quotations.find(q => q.uid.toString() === uid.toString())
+      if (!existing) return
+      await api.updateQuotation(uid, { ...existing, ...patch })
+      setQuotations(await api.getQuotations())
+    } catch (e) {
+      toast.error('Error', 'Failed to update quotation')
+    }
+  }
 
   /** Requisitions whose RFQ has an awarded quotation and no order yet. */
   const orderable = orderableRequisitions(prs, rfqs, quotations, rows)
@@ -183,7 +227,7 @@ export function OrdersPage() {
     setFormOpen(true)
   }
 
-  function save(submit: boolean) {
+  async function save(submit: boolean) {
     const e: Record<string, string> = {}
     if (!editing && !form.prNo) e.prNo = 'Select the requisition whose quotation was awarded.'
     if (!form.buyer.trim()) e.buyer = 'Assign a buyer.'
@@ -210,48 +254,53 @@ export function OrdersPage() {
     }
 
     if (editing) {
-      update(editing.uid, { ...patch, version: editing.version + 1 })
+      await update(editing.uid, { ...patch, version: editing.version + 1 })
       toast.success('Purchase order updated', `${editing.docNo} saved as version ${editing.version + 1}.`)
     } else {
       const match = orderable.find((o) => o.pr.docNo === form.prNo)
       const award = match?.award
       const docNo = nextDocNo('PO', rows, 5)
-      create({
-        uid: newUid('po'),
-        docNo,
-        docDate: new Date().toISOString().slice(0, 10),
-        supplierUid: award?.supplierUid ?? 'sup-new',
-        exchangeRate: form.currency === 'INR' ? 1 : 96.4,
-        deliveryTerms: award?.deliveryTerms ?? 'Free delivery',
-        rfqNo: match?.rfq.docNo,
-        prRefs: match ? [match.pr.docNo] : [],
-        discountValue: 0,
-        freightValue: 0,
-        receivedPct: 0,
-        billedPct: 0,
-        acknowledged: false,
-        createdBy: form.buyer.trim(),
-        createdAt: new Date().toISOString(),
-        version: 1,
-        attachments: 0,
-        comments: 0,
-        approvals: submit ? [{ level: 1, role: 'Purchase Manager', approver: 'P. Suresh', status: 'PENDING' }] : [],
-        lines: award ? poLinesFromQuotation(award, form.promisedDate) : [],
-        amendments: [],
-        ...patch,
-      } as PurchaseOrder)
-      if (award) updateQuotation(award.uid, { status: 'AWARDED' })
-      toast.success(
-        submit ? 'Purchase order submitted' : 'Draft saved',
-        award
-          ? `${docNo} raised on ${award.supplierName} from ${award.docNo} with ${award.lines.length} line${award.lines.length > 1 ? 's' : ''} at the awarded rates.`
-          : `${docNo} created.`,
-      )
+      try {
+        await api.createPurchaseOrder({
+          docNo,
+          docDate: new Date().toISOString().slice(0, 10),
+          supplierUid: award?.supplierUid ?? 'sup-new',
+          exchangeRate: form.currency === 'INR' ? 1 : 96.4,
+          deliveryTerms: award?.deliveryTerms ?? 'Free delivery',
+          rfqNo: match?.rfq.docNo,
+          prRefs: match ? [match.pr.docNo] : [],
+          discountValue: 0,
+          freightValue: 0,
+          receivedPct: 0,
+          billedPct: 0,
+          acknowledged: false,
+          createdBy: form.buyer.trim(),
+          createdAt: new Date().toISOString(),
+          version: 1,
+          attachments: 0,
+          comments: 0,
+          approvals: submit ? [{ level: 1, role: 'Purchase Manager', approver: 'P. Suresh', status: 'PENDING' }] : [],
+          lines: award ? poLinesFromQuotation(award, form.promisedDate) : [],
+          amendments: [],
+          ...patch,
+        })
+        const latest = await api.getPurchaseOrders()
+        setRows(latest)
+        if (award) await updateQuotation(award.uid.toString(), { status: 'AWARDED' })
+        toast.success(
+          submit ? 'Purchase order submitted' : 'Draft saved',
+          award
+            ? `${docNo} raised on ${award.supplierName} from ${award.docNo} with ${award.lines.length} line${award.lines.length > 1 ? 's' : ''} at the awarded rates.`
+            : `${docNo} created.`,
+        )
+      } catch (e) {
+        toast.error('Error', 'Failed to save purchase order')
+      }
     }
     setFormOpen(false)
   }
 
-  function decide(r: PurchaseOrder, approve: boolean) {
+  async function decide(r: PurchaseOrder, approve: boolean) {
     update(r.uid, {
       status: approve ? 'APPROVED' : 'REJECTED',
       approvals: r.approvals.map((a) => (a.status === 'PENDING' ? { ...a, status: approve ? 'APPROVED' : 'REJECTED', actedAt: new Date().toISOString() } : a)),
@@ -260,7 +309,7 @@ export function OrdersPage() {
     setDetail(null)
   }
 
-  function doCancel() {
+  async function doCancel() {
     if (!cancelling) return
     if (!cancelNote.trim()) {
       toast.error('Reason required', 'A cancellation note is mandatory and is written to the audit log.')

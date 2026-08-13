@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Check, Copy, GitBranch, Plus, Send, Star, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type Column } from '@/components/ui/DataTable'
@@ -14,8 +14,7 @@ import { DetailBlock, EngStatusBadge } from '@/components/engineering/EngShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatAmount, formatDate } from '@/lib/format'
 import { bomProblems, isLiveBom, nextDocNo, wouldCreateCycle } from '@/lib/engFlow'
-import { newUid, useCollection } from '@/store/data'
-import { boms as seedBoms, products as seedProducts } from '@/mock/engineering'
+import { api } from '@/lib/api'
 import { items as masterItems } from '@/mock/masters'
 import type { Bom, BomLine, BomType, EngProduct } from '@/types/engineering'
 
@@ -49,6 +48,7 @@ interface LineEntry {
 }
 
 interface FormState {
+  code: string
   productCode: string
   bomType: BomType
   baseQty: string
@@ -60,6 +60,7 @@ interface FormState {
 }
 
 const emptyForm: FormState = {
+  code: '',
   productCode: '',
   bomType: 'MANUFACTURING',
   baseQty: '1',
@@ -72,8 +73,29 @@ const emptyForm: FormState = {
 
 export function BomPage() {
   const toast = useToast()
-  const { rows, create, update, remove } = useCollection<Bom>('eng:boms', useMemo(() => seedBoms, []))
-  const { rows: products } = useCollection<EngProduct>('eng:products', useMemo(() => seedProducts, []))
+  
+  const [rows, setRows] = useState<Bom[]>([])
+  const [products, setProducts] = useState<EngProduct[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [bomData, productData] = await Promise.all([
+          api.getBoms(),
+          api.getEngProducts()
+        ])
+        setRows(bomData)
+        setProducts(productData)
+      } catch (err) {
+        console.error('Failed to load data:', err)
+        toast.error('Failed to load', 'Could not load data from the server.')
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    load()
+  }, [])
 
   const [tab, setTab] = useState('live')
   const [detail, setDetail] = useState<Bom | null>(null)
@@ -164,12 +186,19 @@ export function BomPage() {
     }))
   }
 
-  function openCreate() {
+  async function openCreate() {
     setEditing(null)
     setRevisingFrom(null)
     setForm({ ...emptyForm, productCode: products[0]?.code ?? '', lines: [] })
     setErrors({})
     setFormOpen(true)
+    
+    try {
+      const { nextCode } = await api.getNextBomCode()
+      setForm(prev => ({ ...prev, code: nextCode }))
+    } catch (error) {
+      console.error('Failed to get next BOM code', error)
+    }
   }
 
   function openEdit(b: Bom) {
@@ -180,6 +209,7 @@ export function BomPage() {
     setEditing(b)
     setRevisingFrom(null)
     setForm({
+      code: b.docNo,
       productCode: b.productCode,
       bomType: b.bomType,
       baseQty: String(b.baseQty),
@@ -197,6 +227,7 @@ export function BomPage() {
     setEditing(null)
     setRevisingFrom(b)
     setForm({
+      code: b.docNo,
       productCode: b.productCode,
       bomType: b.bomType,
       baseQty: String(b.baseQty),
@@ -253,7 +284,7 @@ export function BomPage() {
     }))
   }
 
-  function save(submit: boolean) {
+  async function save(submit: boolean) {
     if (!validate()) return
     const product = products.find((p) => p.code === form.productCode)
     const common = {
@@ -270,82 +301,97 @@ export function BomPage() {
       status: (submit ? 'PENDING_APPROVAL' : 'DRAFT') as Bom['status'],
     }
 
-    if (editing) {
-      update(editing.uid, { ...common, version: editing.version + 1 })
-      toast.success('BOM saved', `${editing.docNo} updated${submit ? ' and sent for approval' : ''}.`)
-    } else if (revisingFrom) {
-      create({
-        ...common,
-        uid: newUid('bom'),
-        docNo: revisingFrom.docNo,
-        revision: revisingFrom.revision + 1,
-        effectiveTo: null,
-        createdBy: 'Rahul Iyer',
-        createdAt: new Date().toISOString(),
-        approvedBy: null,
-        approvedAt: null,
-        sourceEcn: null,
-        version: 1,
-      } as Bom)
-      toast.success(
-        `Revision ${revisingFrom.revision + 1} created`,
-        `${revisingFrom.docNo} R${revisingFrom.revision + 1} is a draft. Approving it supersedes R${revisingFrom.revision}.`,
-      )
-    } else {
-      const docNo = nextDocNo('BOM', rows)
-      create({
-        ...common,
-        uid: newUid('bom'),
-        docNo,
-        revision: 1,
-        effectiveTo: null,
-        createdBy: 'Rahul Iyer',
-        createdAt: new Date().toISOString(),
-        approvedBy: null,
-        approvedAt: null,
-        sourceEcn: null,
-        version: 1,
-      } as Bom)
-      toast.success('BOM created', `${docNo} R1 saved as ${submit ? 'pending approval' : 'a draft'}.`)
+    try {
+      if (editing) {
+        const updated = await api.updateBom(editing.uid, { ...common, docNo: form.code, revision: editing.revision })
+        setRows(prev => prev.map(r => r.uid === updated.uid ? updated : r))
+        toast.success('BOM saved', `${editing.docNo} updated${submit ? ' and sent for approval' : ''}.`)
+      } else if (revisingFrom) {
+        const created = await api.createBom({
+          ...common,
+          docNo: revisingFrom.docNo,
+          revision: revisingFrom.revision + 1,
+          effectiveTo: null,
+          sourceEcn: null,
+        })
+        setRows(prev => [created, ...prev])
+        toast.success(
+          `Revision ${revisingFrom.revision + 1} created`,
+          `${revisingFrom.docNo} R${revisingFrom.revision + 1} is a draft. Approving it supersedes R${revisingFrom.revision}.`,
+        )
+      } else {
+        const created = await api.createBom({
+          ...common,
+          docNo: form.code,
+          revision: 1,
+          effectiveTo: null,
+          sourceEcn: null,
+        })
+        setRows(prev => [created, ...prev])
+        toast.success('BOM created', `${created.docNo} R1 saved as ${submit ? 'pending approval' : 'a draft'}.`)
+      }
+      setFormOpen(false)
+    } catch (err) {
+      console.error(err)
+      toast.error('Save failed', 'Failed to save BOM to server')
     }
-    setFormOpen(false)
   }
 
   /* ── Approve, supersede, default ───────────────────────────────────── */
 
-  function approve(b: Bom) {
+  async function approve(b: Bom) {
     const problems = bomProblems(b, rows, masterItems)
     if (problems.length) {
       toast.error('Cannot approve', problems[0])
       return
     }
-    // The previous live revision of the same BOM number steps aside.
-    const previous = rows.find((x) => x.docNo === b.docNo && x.uid !== b.uid && isLiveBom(x))
-    if (previous) {
-      update(previous.uid, { status: 'SUPERSEDED', effectiveTo: b.effectiveFrom })
+    
+    try {
+      // The previous live revision of the same BOM number steps aside.
+      const previous = rows.find((x) => x.docNo === b.docNo && x.uid !== b.uid && isLiveBom(x))
+      if (previous) {
+        const updatedPrev = await api.updateBom(previous.uid, { ...previous, status: 'SUPERSEDED', effectiveTo: b.effectiveFrom })
+        setRows(prev => prev.map(r => r.uid === updatedPrev.uid ? updatedPrev : r))
+      }
+      // Only one default per product.
+      if (b.isDefault) {
+        const defaultPrev = rows.find((x) => x.productCode === b.productCode && x.uid !== b.uid && x.isDefault && isLiveBom(x))
+        if (defaultPrev) {
+          const defaultUpdated = await api.updateBom(defaultPrev.uid, { ...defaultPrev, isDefault: false })
+          setRows(prev => prev.map(r => r.uid === defaultUpdated.uid ? defaultUpdated : r))
+        }
+      }
+      
+      const approved = await api.updateBom(b.uid, { ...b, status: 'ACTIVE', approvedBy: 'Meera Rajan' })
+      setRows(prev => prev.map(r => r.uid === approved.uid ? approved : r))
+      
+      toast.success(
+        'BOM approved',
+        previous
+          ? `${b.docNo} R${b.revision} is live; R${previous.revision} is superseded.`
+          : `${b.docNo} R${b.revision} is live. Planning and costing pick it up immediately.`,
+      )
+      setDetail(null)
+    } catch (err) {
+      console.error(err)
+      toast.error('Approval failed', 'Failed to approve BOM on server')
     }
-    // Only one default per product.
-    if (b.isDefault) {
-      rows
-        .filter((x) => x.productCode === b.productCode && x.uid !== b.uid && x.isDefault && isLiveBom(x))
-        .forEach((x) => update(x.uid, { isDefault: false }))
-    }
-    update(b.uid, { status: 'ACTIVE', approvedBy: 'Meera Rajan', approvedAt: new Date().toISOString() })
-    toast.success(
-      'BOM approved',
-      previous
-        ? `${b.docNo} R${b.revision} is live; R${previous.revision} is superseded.`
-        : `${b.docNo} R${b.revision} is live. Planning and costing pick it up immediately.`,
-    )
-    setDetail(null)
   }
 
-  function makeDefault(b: Bom) {
-    rows
-      .filter((x) => x.productCode === b.productCode && x.uid !== b.uid && x.isDefault)
-      .forEach((x) => update(x.uid, { isDefault: false }))
-    update(b.uid, { isDefault: true })
-    toast.success('Set as default', `MRP will now explode ${b.docNo} for ${b.productCode}.`)
+  async function makeDefault(b: Bom) {
+    try {
+      const defaultPrev = rows.find((x) => x.productCode === b.productCode && x.uid !== b.uid && x.isDefault)
+      if (defaultPrev) {
+        const defaultUpdated = await api.updateBom(defaultPrev.uid, { ...defaultPrev, isDefault: false })
+        setRows(prev => prev.map(r => r.uid === defaultUpdated.uid ? defaultUpdated : r))
+      }
+      const updated = await api.updateBom(b.uid, { ...b, isDefault: true })
+      setRows(prev => prev.map(r => r.uid === updated.uid ? updated : r))
+      toast.success('Set as default', `MRP will now explode ${b.docNo} for ${b.productCode}.`)
+    } catch (err) {
+      console.error(err)
+      toast.error('Operation failed', 'Failed to set BOM as default')
+    }
   }
 
   /* ── Revision comparison for the detail pane ───────────────────────── */
@@ -420,9 +466,14 @@ export function BomPage() {
               icon={<Send />}
               separatorBefore
               disabled={b.status !== 'DRAFT'}
-              onClick={() => {
-                update(b.uid, { status: 'PENDING_APPROVAL' })
-                toast.success('Submitted', `${b.docNo} R${b.revision} is waiting for engineering approval.`)
+              onClick={async () => {
+                try {
+                  const updated = await api.updateBom(b.uid, { ...b, status: 'PENDING_APPROVAL' })
+                  setRows(prev => prev.map(r => r.uid === updated.uid ? updated : r))
+                  toast.success('Submitted', `${b.docNo} R${b.revision} is waiting for engineering approval.`)
+                } catch (err) {
+                  toast.error('Error', 'Failed to submit BOM')
+                }
               }}
             />
             <MenuItem label="Approve" icon={<Check />} disabled={b.status !== 'PENDING_APPROVAL' && b.status !== 'DRAFT'} onClick={() => approve(b)} />
@@ -431,9 +482,14 @@ export function BomPage() {
               icon={<X />}
               danger
               disabled={b.status !== 'PENDING_APPROVAL'}
-              onClick={() => {
-                update(b.uid, { status: 'REJECTED' })
-                toast.success('Rejected', `${b.docNo} R${b.revision} sent back to the author.`)
+              onClick={async () => {
+                try {
+                  const updated = await api.updateBom(b.uid, { ...b, status: 'REJECTED' })
+                  setRows(prev => prev.map(r => r.uid === updated.uid ? updated : r))
+                  toast.success('Rejected', `${b.docNo} R${b.revision} sent back to the author.`)
+                } catch (err) {
+                  toast.error('Error', 'Failed to reject BOM')
+                }
               }}
             />
             <MenuItem label="Set as default" icon={<Star />} separatorBefore disabled={b.isDefault || !isLiveBom(b)} onClick={() => makeDefault(b)} />
@@ -659,6 +715,13 @@ export function BomPage() {
         )}
 
         <div className="grid gap-3.5 sm:grid-cols-3">
+          <Input maxLength={255}
+            label="BOM number"
+            value={form.code}
+            disabled
+            placeholder="Auto-generated"
+            containerClassName="sm:col-span-1"
+          />
           <Select
             label="Product"
             required
@@ -670,8 +733,8 @@ export function BomPage() {
             options={[{ value: '', label: 'Select a product…' }, ...products.map((p) => ({ value: p.code, label: `${p.code} — ${p.name}` }))]}
           />
           <Select label="BOM type" value={form.bomType} onChange={(e) => setForm({ ...form, bomType: e.target.value as BomType })} options={BOM_TYPES.map((t) => ({ value: t, label: BOM_TYPE_LABEL[t] }))} />
-          <Input label="Quantities are per" type="number" required value={form.baseQty} error={errors.baseQty} hint="Set 100 to enter per-hundred quantities." onChange={(e) => setForm({ ...form, baseQty: e.target.value })} />
-          <Input label="Effective from" type="date" required value={form.effectiveFrom} error={errors.effectiveFrom} onChange={(e) => setForm({ ...form, effectiveFrom: e.target.value })} />
+          <Input maxLength={255} label="Quantities are per" type="number" required value={form.baseQty} error={errors.baseQty} hint="Set 100 to enter per-hundred quantities." onChange={(e) => setForm({ ...form, baseQty: e.target.value })} />
+          <Input maxLength={255} label="Effective from" type="date" required value={form.effectiveFrom} error={errors.effectiveFrom} onChange={(e) => setForm({ ...form, effectiveFrom: e.target.value })} />
           <Select
             label="Use for planning"
             value={form.isDefault ? 'yes' : 'no'}
@@ -682,21 +745,23 @@ export function BomPage() {
             ]}
           />
           {!form.isDefault && (
-            <Input
+            <Input maxLength={255}
               label="Alternate for"
               containerClassName="sm:col-span-3"
               value={form.alternateFor}
+              maxLength={150}
               placeholder="Export customer A — SS 316 build"
               hint="Which customer, market or configuration this structure serves."
               onChange={(e) => setForm({ ...form, alternateFor: e.target.value })}
             />
           )}
           {(revisingFrom || editing) && (
-            <Textarea
+            <Textarea maxLength={1000}
               label="Reason for this revision"
               required={!!revisingFrom}
               containerClassName="sm:col-span-3"
               rows={2}
+              maxLength={1000}
               value={form.changeReason}
               error={errors.changeReason}
               onChange={(e) => setForm({ ...form, changeReason: e.target.value })}
@@ -748,15 +813,6 @@ export function BomPage() {
                             </option>
                           ))}
                       </select>
-                      {l.entry.itemCode && (
-                        <input
-                          value={l.entry.notes}
-                          aria-label={`Note on row ${i + 1}`}
-                          placeholder="Note (optional)"
-                          onChange={(e) => setLine(i, { notes: e.target.value })}
-                          className="mt-1 h-6 w-full rounded border border-border bg-surface px-2 text-2xs text-fg-muted focus:border-brand-500 focus:outline-none"
-                        />
-                      )}
                     </td>
                     <td>
                       <input
@@ -850,10 +906,15 @@ export function BomPage() {
             </Button>
             <Button
               variant="danger"
-              onClick={() => {
+              onClick={async () => {
                 if (confirmDelete) {
-                  remove(confirmDelete.uid)
-                  toast.success('Deleted', `${confirmDelete.docNo} R${confirmDelete.revision} was soft-deleted.`)
+                  try {
+                    await api.deleteBom(confirmDelete.uid)
+                    setRows(prev => prev.filter(r => r.uid !== confirmDelete.uid))
+                    toast.success('Deleted', `${confirmDelete.docNo} R${confirmDelete.revision} was soft-deleted.`)
+                  } catch (err) {
+                    toast.error('Delete failed', 'Could not delete BOM from server.')
+                  }
                 }
                 setConfirmDelete(null)
               }}

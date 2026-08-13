@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, Check, Copy, Plus, Send, Star, Trash2, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ArrowDown, ArrowUp, Check, Copy, Plus, Send, Star, Trash2, X, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { Badge } from '@/components/ui/Badge'
@@ -13,16 +13,8 @@ import { useToast } from '@/components/ui/Toast'
 import { DetailBlock, EngStatusBadge } from '@/components/engineering/EngShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatAmount, formatDate } from '@/lib/format'
-import { nextDocNo, routingProblems, routingTime } from '@/lib/engFlow'
-import { newUid, useCollection } from '@/store/data'
-import {
-  operations as seedOperations,
-  products as seedProducts,
-  routings as seedRoutings,
-  tools as seedTools,
-  workCentres as seedWorkCentres,
-} from '@/mock/engineering'
-import { machines } from '@/mock/masters'
+import { routingProblems, routingTime } from '@/lib/engFlow'
+import { api } from '@/lib/api'
 import type { EngProduct, EngWorkCentre, Operation, Routing, RoutingOperation, Tool } from '@/types/engineering'
 
 /**
@@ -50,6 +42,7 @@ interface OpEntry {
 }
 
 interface FormState {
+  code: string
   productCode: string
   effectiveFrom: string
   costingLotSize: string
@@ -59,6 +52,7 @@ interface FormState {
 }
 
 const emptyForm: FormState = {
+  code: '',
   productCode: '',
   effectiveFrom: new Date().toISOString().slice(0, 10),
   costingLotSize: '500',
@@ -71,11 +65,41 @@ const isLive = (r: Routing) => r.status === 'ACTIVE' || r.status === 'APPROVED'
 
 export function RoutingPage() {
   const toast = useToast()
-  const { rows, create, update, remove } = useCollection<Routing>('eng:routings', useMemo(() => seedRoutings, []))
-  const { rows: products } = useCollection<EngProduct>('eng:products', useMemo(() => seedProducts, []))
-  const { rows: workCentres } = useCollection<EngWorkCentre>('eng:workcentres', useMemo(() => seedWorkCentres, []))
-  const { rows: operations } = useCollection<Operation>('eng:operations', useMemo(() => seedOperations, []))
-  const { rows: tools } = useCollection<Tool>('eng:tools', useMemo(() => seedTools, []))
+  
+  const [rows, setRows] = useState<Routing[]>([])
+  const [products, setProducts] = useState<EngProduct[]>([])
+  const [workCentres, setWorkCentres] = useState<EngWorkCentre[]>([])
+  const [operations, setOperations] = useState<Operation[]>([])
+  const [tools, setTools] = useState<Tool[]>([])
+  const [machines, setMachines] = useState<any[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  async function loadData() {
+    try {
+      const [rtgData, prodData, wcData, opData, toolData, machData] = await Promise.all([
+        api.getRoutings(),
+        api.getEngProducts(),
+        api.getWorkCentres(),
+        api.getOperations(),
+        api.getTools(),
+        api.getMachines()
+      ])
+      setRows(rtgData)
+      setProducts(prodData)
+      setWorkCentres(wcData)
+      setOperations(opData)
+      setTools(toolData)
+      setMachines(machData)
+    } catch (err) {
+      toast.error('Failed to load', 'Could not load data from the server.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadData()
+  }, [])
 
   const [tab, setTab] = useState('live')
   const [detail, setDetail] = useState<Routing | null>(null)
@@ -253,12 +277,17 @@ export function RoutingPage() {
       }))
   }
 
-  function openCreate() {
+  async function openCreate() {
     setEditing(null)
     setRevisingFrom(null)
-    setForm({ ...emptyForm, productCode: products[0]?.code ?? '', ops: [] })
-    setErrors({})
-    setFormOpen(true)
+    try {
+      const { nextCode } = await api.getRoutingsNextCode()
+      setForm({ ...emptyForm, code: nextCode, productCode: products[0]?.code ?? '', ops: [] })
+      setErrors({})
+      setFormOpen(true)
+    } catch (err) {
+      toast.error('Failed to get code', 'Could not generate next route code.')
+    }
   }
 
   function openEdit(r: Routing) {
@@ -269,6 +298,7 @@ export function RoutingPage() {
     setEditing(r)
     setRevisingFrom(null)
     setForm({
+      code: r.docNo,
       productCode: r.productCode,
       effectiveFrom: r.effectiveFrom,
       costingLotSize: String(r.costingLotSize),
@@ -284,6 +314,7 @@ export function RoutingPage() {
     setEditing(null)
     setRevisingFrom(r)
     setForm({
+      code: r.docNo,
       productCode: r.productCode,
       effectiveFrom: new Date().toISOString().slice(0, 10),
       costingLotSize: String(r.costingLotSize),
@@ -337,7 +368,7 @@ export function RoutingPage() {
     })
   }
 
-  function save(submit: boolean) {
+  async function save(submit: boolean) {
     if (!validate()) return
     const product = products.find((p) => p.code === form.productCode)
     const common = {
@@ -351,63 +382,60 @@ export function RoutingPage() {
       status: (submit ? 'PENDING_APPROVAL' : 'DRAFT') as Routing['status'],
     }
 
-    if (editing) {
-      update(editing.uid, { ...common, version: editing.version + 1 })
-      toast.success('Routing saved', `${editing.docNo} updated${submit ? ' and sent for approval' : ''}.`)
-    } else if (revisingFrom) {
-      create({
-        ...common,
-        uid: newUid('rtg'),
-        docNo: revisingFrom.docNo,
-        revision: revisingFrom.revision + 1,
-        effectiveTo: null,
-        createdBy: 'Rahul Iyer',
-        createdAt: new Date().toISOString(),
-        approvedBy: null,
-        approvedAt: null,
-        sourceEcn: null,
-        version: 1,
-      } as Routing)
-      toast.success(`Revision ${revisingFrom.revision + 1} created`, `Approving it supersedes R${revisingFrom.revision}.`)
-    } else {
-      const docNo = nextDocNo('RTG', rows)
-      create({
-        ...common,
-        uid: newUid('rtg'),
-        docNo,
-        revision: 1,
-        effectiveTo: null,
-        createdBy: 'Rahul Iyer',
-        createdAt: new Date().toISOString(),
-        approvedBy: null,
-        approvedAt: null,
-        sourceEcn: null,
-        version: 1,
-      } as Routing)
-      toast.success('Routing created', `${docNo} R1 saved as ${submit ? 'pending approval' : 'a draft'}.`)
+    try {
+      if (editing) {
+        await api.updateRouting(editing.uid, { ...editing, ...common, version: editing.version + 1 })
+        toast.success('Routing saved', `${editing.docNo} updated${submit ? ' and sent for approval' : ''}.`)
+      } else if (revisingFrom) {
+        await api.createRouting({
+          ...common,
+          uid: revisingFrom.docNo,
+          revision: revisingFrom.revision + 1,
+          sourceEcn: null,
+        })
+        toast.success(`Revision ${revisingFrom.revision + 1} created`, `Approving it supersedes R${revisingFrom.revision}.`)
+      } else {
+        await api.createRouting({
+          ...common,
+          revision: 1,
+          sourceEcn: null,
+        })
+        toast.success('Routing created', `Saved as ${submit ? 'pending approval' : 'a draft'}.`)
+      }
+      await loadData()
+      setFormOpen(false)
+    } catch (err) {
+      toast.error('Save failed', 'Could not save routing to server.')
     }
-    setFormOpen(false)
   }
 
-  function approve(r: Routing) {
+  async function approve(r: Routing) {
     const problems = routingProblems(r, workCentres)
     if (problems.length) {
       toast.error('Cannot approve', problems[0])
       return
     }
     const previous = rows.find((x) => x.docNo === r.docNo && x.uid !== r.uid && isLive(x))
-    if (previous) update(previous.uid, { status: 'SUPERSEDED', effectiveTo: r.effectiveFrom })
-    if (r.isDefault) {
-      rows
-        .filter((x) => x.productCode === r.productCode && x.uid !== r.uid && x.isDefault && isLive(x))
-        .forEach((x) => update(x.uid, { isDefault: false }))
+    try {
+      if (previous) {
+        await api.updateRouting(previous.uid, { ...previous, status: 'SUPERSEDED', effectiveTo: r.effectiveFrom })
+      }
+      if (r.isDefault) {
+        const others = rows.filter((x) => x.productCode === r.productCode && x.uid !== r.uid && x.isDefault && isLive(x))
+        for (const o of others) {
+          await api.updateRouting(o.uid, { ...o, isDefault: false })
+        }
+      }
+      await api.updateRouting(r.uid, { ...r, status: 'ACTIVE', approvedBy: 'Meera Rajan', approvedAt: new Date().toISOString() })
+      toast.success(
+        'Routing approved',
+        previous ? `${r.docNo} R${r.revision} is live; R${previous.revision} is superseded.` : `${r.docNo} R${r.revision} is live.`,
+      )
+      await loadData()
+      setDetail(null)
+    } catch (err) {
+      toast.error('Approve failed', 'Could not approve routing to server.')
     }
-    update(r.uid, { status: 'ACTIVE', approvedBy: 'Meera Rajan', approvedAt: new Date().toISOString() })
-    toast.success(
-      'Routing approved',
-      previous ? `${r.docNo} R${r.revision} is live; R${previous.revision} is superseded.` : `${r.docNo} R${r.revision} is live.`,
-    )
-    setDetail(null)
   }
 
   const detailTime = detail ? routingTime(detail) : null
@@ -475,9 +503,14 @@ export function RoutingPage() {
               icon={<Send />}
               separatorBefore
               disabled={r.status !== 'DRAFT'}
-              onClick={() => {
-                update(r.uid, { status: 'PENDING_APPROVAL' })
-                toast.success('Submitted', `${r.docNo} R${r.revision} is waiting for approval.`)
+              onClick={async () => {
+                try {
+                  await api.updateRouting(r.uid, { ...r, status: 'PENDING_APPROVAL' })
+                  await loadData()
+                  toast.success('Submitted', `${r.docNo} R${r.revision} is waiting for approval.`)
+                } catch (err) {
+                  toast.error('Failed', 'Could not update status.')
+                }
               }}
             />
             <MenuItem label="Approve" icon={<Check />} disabled={r.status !== 'PENDING_APPROVAL' && r.status !== 'DRAFT'} onClick={() => approve(r)} />
@@ -486,9 +519,14 @@ export function RoutingPage() {
               icon={<X />}
               danger
               disabled={r.status !== 'PENDING_APPROVAL'}
-              onClick={() => {
-                update(r.uid, { status: 'REJECTED' })
-                toast.success('Rejected', `${r.docNo} R${r.revision} sent back.`)
+              onClick={async () => {
+                try {
+                  await api.updateRouting(r.uid, { ...r, status: 'REJECTED' })
+                  await loadData()
+                  toast.success('Rejected', `${r.docNo} R${r.revision} sent back.`)
+                } catch (err) {
+                  toast.error('Failed', 'Could not update status.')
+                }
               }}
             />
             <MenuItem
@@ -496,10 +534,18 @@ export function RoutingPage() {
               icon={<Star />}
               separatorBefore
               disabled={r.isDefault || !isLive(r)}
-              onClick={() => {
-                rows.filter((x) => x.productCode === r.productCode && x.uid !== r.uid && x.isDefault).forEach((x) => update(x.uid, { isDefault: false }))
-                update(r.uid, { isDefault: true })
-                toast.success('Set as default', `${r.docNo} is now the routing used for ${r.productCode}.`)
+              onClick={async () => {
+                try {
+                  const others = rows.filter((x) => x.productCode === r.productCode && x.uid !== r.uid && x.isDefault)
+                  for (const x of others) {
+                    await api.updateRouting(x.uid, { ...x, isDefault: false })
+                  }
+                  await api.updateRouting(r.uid, { ...r, isDefault: true })
+                  await loadData()
+                  toast.success('Set as default', `${r.docNo} is now the routing used for ${r.productCode}.`)
+                } catch (err) {
+                  toast.error('Failed', 'Could not update default status.')
+                }
               }}
             />
             <MenuItem label={isLive(r) ? 'Delete — blocked (live)' : 'Delete'} icon={<Trash2 />} danger separatorBefore disabled={isLive(r)} onClick={() => setConfirmDelete(r)} />
@@ -663,6 +709,7 @@ export function RoutingPage() {
         }
       >
         <div className="grid gap-3.5 sm:grid-cols-4">
+          <Input maxLength={255} label="Routing Code" disabled value={form.code} hint="Auto-generated" />
           <Select
             label="Product"
             required
@@ -673,8 +720,8 @@ export function RoutingPage() {
             onChange={(e) => setForm({ ...form, productCode: e.target.value })}
             options={[{ value: '', label: 'Select a product…' }, ...products.map((p) => ({ value: p.code, label: `${p.code} — ${p.name}` }))]}
           />
-          <Input label="Effective from" type="date" required value={form.effectiveFrom} error={errors.effectiveFrom} onChange={(e) => setForm({ ...form, effectiveFrom: e.target.value })} />
-          <Input
+          <Input maxLength={255} label="Effective from" type="date" required value={form.effectiveFrom} error={errors.effectiveFrom} onChange={(e) => setForm({ ...form, effectiveFrom: e.target.value })} />
+          <Input maxLength={255}
             label="Costing lot size"
             type="number"
             required
@@ -684,12 +731,13 @@ export function RoutingPage() {
             onChange={(e) => setForm({ ...form, costingLotSize: e.target.value })}
           />
           {(revisingFrom || editing) && (
-            <Textarea
+            <Textarea maxLength={1000}
               label="Reason for this revision"
               required={!!revisingFrom}
               containerClassName="sm:col-span-4"
               rows={2}
               value={form.changeReason}
+              maxLength={1000}
               error={errors.changeReason}
               onChange={(e) => setForm({ ...form, changeReason: e.target.value })}
             />
@@ -743,8 +791,8 @@ export function RoutingPage() {
                         className="h-7 w-full rounded border border-border bg-surface px-2 text-xs text-fg focus:border-brand-500 focus:outline-none"
                       >
                         <option value="">Select…</option>
-                        {operations.filter((o) => o.isActive).map((o) => (
-                          <option key={o.uid} value={o.code}>
+                        {operations.map((o) => (
+                          <option key={o.code} value={o.code}>
                             {o.code} — {o.name}
                           </option>
                         ))}
@@ -758,8 +806,8 @@ export function RoutingPage() {
                         className="h-7 w-full rounded border border-border bg-surface px-2 text-xs text-fg focus:border-brand-500 focus:outline-none"
                       >
                         <option value="">Select…</option>
-                        {workCentres.filter((w) => w.isActive).map((w) => (
-                          <option key={w.uid} value={w.code}>
+                        {workCentres.map((w) => (
+                          <option key={w.code} value={w.code}>
                             {w.code} — {w.name}
                           </option>
                         ))}
@@ -774,7 +822,7 @@ export function RoutingPage() {
                       >
                         <option value="">Any / manual</option>
                         {machines.map((m) => (
-                          <option key={m.uid} value={m.code}>
+                          <option key={m.code} value={m.code}>
                             {m.code}
                           </option>
                         ))}
@@ -819,8 +867,8 @@ export function RoutingPage() {
                         className="h-7 w-full rounded border border-border bg-surface px-2 text-xs text-fg focus:border-brand-500 focus:outline-none"
                       >
                         <option value="">None</option>
-                        {tools.filter((t) => t.status !== 'RETIRED').map((t) => (
-                          <option key={t.uid} value={t.code}>
+                        {tools.map((t) => (
+                          <option key={t.code} value={t.code}>
                             {t.code}
                           </option>
                         ))}

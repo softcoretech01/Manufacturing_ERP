@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { FileSpreadsheet } from 'lucide-react'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { Card, CardBody } from '@/components/ui/Card'
@@ -19,18 +19,7 @@ import {
   toolLifePct,
   whereUsed,
 } from '@/lib/engFlow'
-import { useCollection } from '@/store/data'
-import {
-  boms as seedBoms,
-  engChanges as seedChanges,
-  engDocuments as seedDocs,
-  operations as seedOperations,
-  products as seedProducts,
-  routings as seedRoutings,
-  tools as seedTools,
-  workCentres as seedWorkCentres,
-} from '@/mock/engineering'
-import { items as masterItems } from '@/mock/masters'
+import { api } from '@/lib/api'
 import type { Bom, EngChange, EngDocument, EngProduct, EngWorkCentre, Operation, Routing, Tool } from '@/types/engineering'
 
 /**
@@ -54,14 +43,47 @@ interface ReportDef {
 
 export function EngReportsPage() {
   const toast = useToast()
-  const { rows: products } = useCollection<EngProduct>('eng:products', useMemo(() => seedProducts, []))
-  const { rows: boms } = useCollection<Bom>('eng:boms', useMemo(() => seedBoms, []))
-  const { rows: routings } = useCollection<Routing>('eng:routings', useMemo(() => seedRoutings, []))
-  const { rows: workCentres } = useCollection<EngWorkCentre>('eng:workcentres', useMemo(() => seedWorkCentres, []))
-  const { rows: operations } = useCollection<Operation>('eng:operations', useMemo(() => seedOperations, []))
-  const { rows: tools } = useCollection<Tool>('eng:tools', useMemo(() => seedTools, []))
-  const { rows: changes } = useCollection<EngChange>('eng:changes', useMemo(() => seedChanges, []))
-  const { rows: documents } = useCollection<EngDocument>('eng:documents', useMemo(() => seedDocs, []))
+  const [loading, setLoading] = useState(true)
+  const [products, setProducts] = useState<EngProduct[]>([])
+  const [boms, setBoms] = useState<Bom[]>([])
+  const [routings, setRoutings] = useState<Routing[]>([])
+  const [workCentres, setWorkCentres] = useState<EngWorkCentre[]>([])
+  const [operations, setOperations] = useState<Operation[]>([])
+  const [tools, setTools] = useState<Tool[]>([])
+  const [changes, setChanges] = useState<EngChange[]>([])
+  const [documents, setDocuments] = useState<EngDocument[]>([])
+  const [masterItems, setMasterItems] = useState<any[]>([])
+
+  useEffect(() => {
+    Promise.all([
+      api.getEngProducts(),
+      api.getBoms(),
+      api.getRoutings(),
+      api.getWorkCentres(),
+      api.getOperations(),
+      api.getTools(),
+      api.getEngChanges(),
+      api.getEngDocuments(),
+      api.getItems(),
+    ])
+      .then(([p, b, r, w, o, t, c, d, i]) => {
+        setProducts(p)
+        setBoms(b)
+        setRoutings(r)
+        setWorkCentres(w)
+        setOperations(o)
+        setTools(t)
+        setChanges(c)
+        setDocuments(d)
+        setMasterItems(i)
+        setLoading(false)
+      })
+      .catch((err) => {
+        console.error(err)
+        toast.error('Error', 'Failed to load report data')
+        setLoading(false)
+      })
+  }, [toast])
 
   const ctx = { boms, routings, workCentres, tools, items: masterItems, products }
 
@@ -87,10 +109,10 @@ export function EngReportsPage() {
             const b = defaultBomFor(p.code, boms)
             const r = defaultRoutingFor(p.code, routings)
             return {
-              _key: p.uid,
+              _key: p.uid || p.code,
               code: p.code,
               name: p.name,
-              type: p.productType.replace('_', ' ').toLowerCase(),
+              type: (p.productType || '').replace('_', ' ').toLowerCase(),
               capacity: p.capacityMl ? `${p.capacityMl} ml` : '—',
               grade: p.spec.materialGrade,
               bom: b ? `${b.docNo} R${b.revision}` : '—',
@@ -118,7 +140,7 @@ export function EngReportsPage() {
         ],
         build: () =>
           boms.map((b) => ({
-            _key: b.uid,
+            _key: b.uid || b.docNo,
             docNo: b.docNo,
             revision: `R${b.revision}`,
             product: b.productCode,
@@ -134,7 +156,7 @@ export function EngReportsPage() {
             from: formatDate(b.effectiveFrom),
             to: b.effectiveTo ? formatDate(b.effectiveTo) : 'open',
             role: b.isDefault ? 'default' : 'alternate',
-            status: b.status.replace('_', ' ').toLowerCase(),
+            status: (b.status || '').replace('_', ' ').toLowerCase(),
           })),
       },
       {
@@ -188,7 +210,7 @@ export function EngReportsPage() {
           routings.map((r) => {
             const t = routingTime(r)
             return {
-              _key: r.uid,
+              _key: r.uid || r.docNo,
               docNo: r.docNo,
               revision: `R${r.revision}`,
               product: r.productCode,
@@ -197,7 +219,7 @@ export function EngReportsPage() {
               lot: r.costingLotSize,
               setup: t.setupMinutes.toFixed(0),
               perUnit: t.minutesPerUnit.toFixed(2),
-              status: r.status.replace('_', ' ').toLowerCase(),
+              status: (r.status || '').replace('_', ' ').toLowerCase(),
             }
           }),
       },
@@ -223,7 +245,7 @@ export function EngReportsPage() {
             .flatMap((r) => {
               const roll = rollUpCost(r.productCode, ctx, NO_SIMULATION)
               return roll.operationLines.map((o) => ({
-                _key: `${r.uid}-${o.seq}`,
+                _key: `${r.uid || r.docNo}-${o.seq}`,
                 routing: r.docNo,
                 product: r.productCode,
                 seq: o.seq,
@@ -258,7 +280,7 @@ export function EngReportsPage() {
             const roll = rollUpCost(p.code, ctx, NO_SIMULATION)
             const variance = p.standardCost > 0 ? roll.total - p.standardCost : 0
             return {
-              _key: p.uid,
+              _key: p.uid || p.code,
               code: p.code,
               material: formatAmount(roll.materialTotal),
               labour: formatAmount(roll.buckets.labour),
@@ -291,7 +313,7 @@ export function EngReportsPage() {
         ],
         build: () =>
           changes.map((c) => ({
-            _key: c.uid,
+            _key: c.uid || c.docNo,
             docNo: c.docNo,
             type: c.changeType,
             title: c.title,
@@ -302,7 +324,7 @@ export function EngReportsPage() {
             raisedOn: formatDate(c.requestedOn),
             effective: formatDate(c.effectiveFrom),
             produced: c.resultingBom ?? '—',
-            status: c.status.replace('_', ' ').toLowerCase(),
+            status: (c.status || '').replace('_', ' ').toLowerCase(),
           })),
       },
       {
@@ -324,7 +346,7 @@ export function EngReportsPage() {
             const b = defaultBomFor(p.code, boms)
             const r = defaultRoutingFor(p.code, routings)
             return {
-              _key: p.uid,
+              _key: p.uid || p.code,
               code: p.code,
               name: p.name,
               productRev: `R${p.revision}`,
@@ -356,19 +378,19 @@ export function EngReportsPage() {
         ],
         build: () =>
           tools.map((t) => ({
-            _key: t.uid,
+            _key: t.uid || t.code,
             code: t.code,
             name: t.name,
             type: t.toolType.toLowerCase(),
             machine: t.machineCode || '—',
             life: t.lifeStrokes ? t.lifeStrokes.toLocaleString('en-IN') : '—',
-            used: t.usedStrokes.toLocaleString('en-IN'),
+            used: (t.usedStrokes ?? 0).toLocaleString('en-IN'),
             pct: t.lifeStrokes ? `${toolLifePct(t).toFixed(1)}%` : '—',
-            remaining: t.lifeStrokes ? Math.max(0, t.lifeStrokes - t.usedStrokes).toLocaleString('en-IN') : '—',
+            remaining: t.lifeStrokes ? Math.max(0, t.lifeStrokes - (t.usedStrokes ?? 0)).toLocaleString('en-IN') : '—',
             perPiece: t.lifeStrokes ? formatAmount(t.replacementCost / t.lifeStrokes, 3) : '—',
             ops: routings.reduce((n, r) => n + r.operations.filter((o) => o.toolCode === t.code).length, 0),
             calibration: t.nextCalibrationOn ? formatDate(t.nextCalibrationOn) : '—',
-            status: t.status.replace('_', ' ').toLowerCase(),
+            status: (t.status || '').replace('_', ' ').toLowerCase(),
           })),
       },
       {
@@ -397,7 +419,7 @@ export function EngReportsPage() {
             )
             const hours = minutes / 60
             return {
-              _key: w.uid,
+              _key: w.uid || w.code,
               code: w.code,
               name: w.name,
               ops: ops.length,
@@ -428,7 +450,7 @@ export function EngReportsPage() {
         ],
         build: () =>
           products.map((p) => ({
-            _key: p.uid,
+            _key: p.uid || p.code,
             code: p.code,
             grade: p.spec.materialGrade,
             thickness: p.spec.thicknessMm ? `${p.spec.thicknessMm} mm` : '—',
@@ -458,15 +480,15 @@ export function EngReportsPage() {
         ],
         build: () =>
           documents.map((d) => ({
-            _key: d.uid,
+            _key: d.uid || d.code,
             code: d.code,
             title: d.title,
-            type: d.docType.replace(/_/g, ' ').toLowerCase(),
+            type: (d.docType || '').replace(/_/g, ' ').toLowerCase(),
             product: d.productCode,
             revision: `R${d.revision}`,
             uploaded: formatDate(d.uploadedOn),
             approvedBy: d.approvedBy ?? '—',
-            status: d.status.replace('_', ' ').toLowerCase(),
+            status: (d.status || '').replace('_', ' ').toLowerCase(),
           })),
       },
       {
@@ -486,7 +508,7 @@ export function EngReportsPage() {
         ],
         build: () =>
           operations.map((o) => ({
-            _key: o.uid,
+            _key: o.uid || o.code,
             code: o.code,
             name: o.name,
             centre: o.defaultWorkCentre,
@@ -557,16 +579,20 @@ export function EngReportsPage() {
             <h2 className="text-sm font-semibold text-fg">{active.name}</h2>
             <p className="mt-0.5 text-xs text-fg-muted">{active.description}</p>
           </div>
-          <DataTable
-            rows={rows}
-            columns={tableColumns}
-            rowKey={(r) => String(r._key)}
-            searchPlaceholder="Search this report…"
-            onExport={doExport}
-            pageSize={50}
-            emptyTitle="Nothing to report"
-            emptyDescription="There are no records that match this report yet."
-          />
+          {loading ? (
+            <div className="flex h-32 items-center justify-center text-sm text-fg-muted">Loading data...</div>
+          ) : (
+            <DataTable
+              rows={rows}
+              columns={tableColumns}
+              rowKey={(r) => String(r._key)}
+              searchPlaceholder="Search this report…"
+              onExport={doExport}
+              pageSize={50}
+              emptyTitle="No records found"
+              emptyDescription="Need to implement or create records to view this report."
+            />
+          )}
         </div>
       </div>
     </div>

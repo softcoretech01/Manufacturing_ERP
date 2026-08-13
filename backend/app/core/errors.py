@@ -176,6 +176,10 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     )
 
 
+async def validation_error_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    print("VALIDATION ERROR:", exc.errors(), "BODY:", exc.body)
 async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     errors = [
         {

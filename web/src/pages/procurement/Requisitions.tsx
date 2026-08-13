@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { Check, ClipboardList, Plus, Send, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader, DataGrid } from '@/components/ui/Card'
@@ -12,8 +12,7 @@ import { useToast } from '@/components/ui/Toast'
 import { ApprovalTrail, DetailBlock, PriorityBadge, ProcStatusBadge } from '@/components/procurement/ProcShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatCurrency, formatDate } from '@/lib/format'
-import { newUid, useCollection } from '@/store/data'
-import { requisitions as seedRequisitions } from '@/mock/procurement'
+import { api } from '@/lib/api'
 import { items as masterItems } from '@/mock/masters'
 import type { PrLine, PurchaseRequisition } from '@/types/procurement'
 
@@ -52,8 +51,44 @@ const emptyForm: FormState = {
 
 export function RequisitionsPage() {
   const toast = useToast()
-  const seed = useMemo(() => seedRequisitions, [])
-  const { rows, create, update, remove } = useCollection<PurchaseRequisition>('proc:pr', seed)
+  const [rows, setRows] = useState<PurchaseRequisition[]>([])
+  
+  useEffect(() => {
+    api.getPurchaseRequisitions().then((data) => {
+      setRows(data)
+    }).catch((err) => {
+      toast.error('Failed to load requisitions', err.message)
+    })
+  }, [toast])
+
+  const create = async (row: PurchaseRequisition) => {
+    try {
+      const created = await api.createPurchaseRequisition(row)
+      setRows((prev) => [created, ...prev])
+    } catch (err: any) {
+      toast.error('Error', err.message)
+    }
+  }
+
+  const update = async (uid: string, patch: Partial<PurchaseRequisition>) => {
+    try {
+      const existing = rows.find(r => r.uid === uid)
+      if (!existing) return
+      const updated = await api.updatePurchaseRequisition(uid, { ...existing, ...patch })
+      setRows((prev) => prev.map((r) => (r.uid === uid ? updated : r)))
+    } catch (err: any) {
+      toast.error('Error', err.message)
+    }
+  }
+
+  const remove = async (uid: string) => {
+    try {
+      await api.deletePurchaseRequisition(uid)
+      setRows((prev) => prev.filter(r => r.uid !== uid))
+    } catch (err: any) {
+      toast.error('Error', err.message)
+    }
+  }
 
   const [tab, setTab] = useState('all')
   const [detail, setDetail] = useState<PurchaseRequisition | null>(null)
@@ -200,10 +235,12 @@ export function RequisitionsPage() {
       update(editing.uid, { ...patch, version: editing.version + 1 })
       toast.success('Requisition updated', `${editing.docNo} saved as version ${editing.version + 1}.`)
     } else {
-      const next = Math.max(...rows.map((r) => Number(r.docNo.slice(-5)) || 0)) + 1
+      // 4. Fallback DocNo generation if backend didn't do it or for optimistic UI
+      const maxVal = rows.length > 0 ? Math.max(...rows.map((r) => Number(r.docNo.slice(-5)) || 0)) : 0
+      const next = maxVal + 1
       const docNo = `PR/26-27/${String(next).padStart(5, '0')}`
       create({
-        uid: newUid('pr'),
+        uid: '', // API handles generating uid if missing
         docNo,
         docDate: new Date().toISOString().slice(0, 10),
         createdBy: form.requestedBy.trim(),
@@ -595,24 +632,6 @@ export function RequisitionsPage() {
           and can be restored.
         </p>
       </Modal>
-
-      <Card className="mt-4">
-        <CardHeader title="Where requisitions go next" />
-        <CardBody className="grid gap-2 text-xs text-fg-muted sm:grid-cols-3">
-          <p>
-            <span className="font-medium text-fg">Approved, single source</span> — converted straight to a purchase
-            order against an existing rate contract.
-          </p>
-          <p>
-            <span className="font-medium text-fg">Approved, competitive</span> — grouped by category into an RFQ, then
-            awarded on the comparison matrix.
-          </p>
-          <p>
-            <span className="font-medium text-fg">Rejected or cancelled</span> — closed with a reason code; the budget
-            commitment is released the same day.
-          </p>
-        </CardBody>
-      </Card>
     </div>
   )
 }
