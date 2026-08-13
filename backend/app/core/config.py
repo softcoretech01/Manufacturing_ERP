@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import quote_plus
 
-from pydantic import Field, computed_field
+from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -93,24 +93,26 @@ class Settings(BaseSettings):
     export_sync_row_limit: int = 5000
 
     # ─── Derived ────────────────────────────────────────────────────────────
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def database_url(self) -> str:
-        safe_password = quote_plus(self.db_password)
+    def _dsn(self, driver: str) -> str:
+        # User and password MUST be URL-encoded — real credentials contain
+        # characters like @ : / that otherwise corrupt the connection URL.
+        user = quote_plus(self.db_user)
+        password = quote_plus(self.db_password)
         return (
-            f"mysql+aiomysql://{self.db_user}:{safe_password}"
+            f"mysql+{driver}://{user}:{password}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}?charset=utf8mb4"
         )
 
     @computed_field  # type: ignore[prop-decorator]
     @property
+    def database_url(self) -> str:
+        return self._dsn("aiomysql")
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
     def sync_database_url(self) -> str:
         """Used by Alembic, which does not run in an event loop."""
-        safe_password = quote_plus(self.db_password)
-        return (
-            f"mysql+pymysql://{self.db_user}:{safe_password}"
-            f"@{self.db_host}:{self.db_port}/{self.db_name}?charset=utf8mb4"
-        )
+        return self._dsn("pymysql")
 
     @computed_field  # type: ignore[prop-decorator]
     @property

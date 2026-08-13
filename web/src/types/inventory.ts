@@ -171,6 +171,7 @@ export interface BinSlot {
   quantity: number
   blockReason?: string
   lastCountedOn: string | null
+  version?: number
 }
 
 /* Storage hierarchy: Warehouse → Zone → Rack → Shelf → Bin (Vol 5 Ch 3). */

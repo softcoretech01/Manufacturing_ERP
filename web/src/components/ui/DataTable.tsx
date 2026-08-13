@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  cloneElement,
   type ReactElement,
   type ReactNode,
 } from 'react'
@@ -37,6 +38,7 @@ interface ActionProps {
   onClick?: () => void
   disabled?: boolean
   danger?: boolean
+  icon?: ReactNode
 }
 
 /**
@@ -618,14 +620,40 @@ export function DataTable<T>({
 }
 
 function RowActionCell({ actions }: { actions: ReactNode }) {
+  const all = flattenActions(actions)
+  
+  if (all.length <= 3) {
+    return (
+      <div className="flex items-center justify-end gap-0.5">
+        {all.map((action, i) => {
+          const isEdit = /^edit\b/i.test(labelOf(action))
+          const isDelete = /^delete\b/i.test(labelOf(action))
+          const isDanger = action.props.danger
+          let icon = action.props.icon
+          if (icon) {
+            icon = cloneElement(icon as any, { className: 'h-3.5 w-3.5' })
+          } else {
+            icon = isEdit ? <Pencil className="h-3.5 w-3.5" /> : (isDelete ? <Trash2 className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />)
+          }
+          return <RowActionButton key={i} action={action} icon={icon} danger={isDanger} />
+        })}
+      </div>
+    )
+  }
+
   const { edit, destructive, isDelete, rest } = splitActions(actions)
   return (
     <div className="flex items-center justify-end gap-0.5">
-      {edit && <RowActionButton action={edit} icon={<Pencil className="h-3.5 w-3.5" />} />}
+      {edit && (
+        <RowActionButton 
+          action={edit} 
+          icon={edit.props.icon ? cloneElement(edit.props.icon as any, { className: 'h-3.5 w-3.5' }) : <Pencil className="h-3.5 w-3.5" />} 
+        />
+      )}
       {destructive && (
         <RowActionButton
           action={destructive}
-          icon={isDelete ? <Trash2 className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />}
+          icon={destructive.props.icon ? cloneElement(destructive.props.icon as any, { className: 'h-3.5 w-3.5' }) : (isDelete ? <Trash2 className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />)}
           danger
         />
       )}

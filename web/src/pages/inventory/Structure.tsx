@@ -1,408 +1,474 @@
-import { useMemo, useState } from 'react'
-import { Plus } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { Ban, Grid3x3, Pencil, Plus, Power, RotateCcw, Wand2 } from 'lucide-react'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
-import { Card, CardBody, CardHeader } from '@/components/ui/Card'
+import { Card } from '@/components/ui/Card'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { MenuItem } from '@/components/ui/Menu'
-import { PageHeader } from '@/components/ui/Misc'
+import { Alert, PageHeader } from '@/components/ui/Misc'
+import { Modal } from '@/components/ui/Modal'
 import { Tabs } from '@/components/ui/Tabs'
+import { Input, Select, Switch } from '@/components/ui/Input'
 import { useToast } from '@/components/ui/Toast'
-import { useCrud } from '@/components/crud/CrudKit'
-import { InvStatusBadge, QtyCell } from '@/components/inventory/InvShell'
-import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
-import { formatDate, formatQty } from '@/lib/format'
-import { cn } from '@/lib/cn'
-import { binSlots as seedBins, racks as seedRacks, shelves as seedShelves, warehouseSummaries, zones as seedZones } from '@/mock/inventory'
-import type { BinSlot, Rack, Shelf, Zone } from '@/types/inventory'
+import { ProblemError } from '@/api/client'
+import { useSession } from '@/api/session'
+import { useWarehouses } from '@/hooks/useOrganisation'
+import { BIN_TYPES, zones as zoneApi, type Bin, type Zone } from '@/api/inventory'
+import {
+  useZones,
+  useBins,
+  useCreateZone,
+  useUpdateZone,
+  useDeactivateZone,
+  useRestoreZone,
+  useCreateBin,
+  useUpdateBin,
+  useBlockBin,
+  useUnblockBin,
+  useDeactivateBin,
+  useRestoreBin,
+  useBulkGenerateBins,
+} from '@/hooks/useInventory'
 
-/**
- * The storage hierarchy from Vol 5 Ch 3:
- *   Warehouse → Zone → Rack → Shelf → Bin
- * Each level is a small master with the same add / edit / delete behaviour, and
- * a level cannot be deleted while the level below it still points at it.
- */
+/** Live-wired storage structure (SRS Vol 4 Ch 1): Warehouse → Zone → Bin.
+ * Bins carry the full scannable address (aisle-rack-level-position); a whole rack
+ * is created in one shot with bulk-generate (server-side stored procedure). */
+
+const binStatusTone = (s: string): 'success' | 'warning' | 'danger' | 'neutral' =>
+  s === 'AVAILABLE' ? 'success' : s === 'FULL' ? 'warning' : s === 'BLOCKED' || s === 'DAMAGED' ? 'danger' : 'neutral'
+
 export function WarehouseStructurePage() {
   const toast = useToast()
+  const companyUid = useSession((s) => s.companyUid)
+  const { data: whPage, isLoading: whLoading } = useWarehouses({ page_size: 200 })
+  const warehouses = whPage?.data ?? []
+
+  const [searchParams] = useSearchParams()
+  const [warehouseUid, setWarehouseUid] = useState<string>('')
   const [tab, setTab] = useState('zones')
 
-  const zoneSeed = useMemo(() => seedZones, [])
-  const rackSeed = useMemo(() => seedRacks, [])
-  const shelfSeed = useMemo(() => seedShelves, [])
-  const binSeed = useMemo(() => seedBins, [])
+  // Preselect the warehouse from ?warehouse=<uid> (deep-link from the Warehouses
+  // admin page), else fall back to the first warehouse.
+  useEffect(() => {
+    if (warehouseUid || !warehouses.length) return
+    const wanted = searchParams.get('warehouse')
+    const match = wanted && warehouses.some((w) => w.uid === wanted)
+    setWarehouseUid(match ? (wanted as string) : warehouses[0].uid)
+  }, [warehouseUid, warehouses, searchParams])
 
-  const warehouseOptions = warehouseSummaries.map((w) => ({ value: w.code, label: `${w.code} — ${w.name}` }))
+  const zonesQ = useZones(warehouseUid || undefined)
+  const binsQ = useBins(warehouseUid || undefined, { page_size: 200 })
+  const zones = zonesQ.data ?? []
+  const bins = binsQ.data?.data ?? []
 
-  const zoneCrud = useCrud<Zone>({
-    key: 'inv:zone',
-    seed: zoneSeed,
-    entity: 'Zone',
-    defaults: { zoneType: 'Small parts', temperatureControlled: 'false', isActive: 'true', rackCount: '0' },
-    fields: [
-      { name: 'code', label: 'Zone code', required: true, upper: true, maxLength: 10, hint: 'Short code used in the bin address' },
-      { name: 'name', label: 'Zone name', required: true },
-      { name: 'warehouseCode', label: 'Warehouse', type: 'select', required: true, options: warehouseOptions },
-      { name: 'zoneType', label: 'Zone type', type: 'select', options: ['Bulk / heavy', 'Bulk / light', 'Small parts', 'Chemicals', 'Pallet storage', 'Staging', 'Shop floor'].map((v) => ({ value: v, label: v })) },
-      { name: 'rackCount', label: 'Racks', type: 'number' },
-      { name: 'temperatureControlled', label: 'Temperature controlled', type: 'switch', hint: 'Chemicals and coating powder need this' },
-      { name: 'isActive', label: 'Active', type: 'switch' },
-    ],
-    fromForm: (v) => ({
-      code: v.code,
-      name: v.name,
-      warehouseCode: v.warehouseCode,
-      zoneType: v.zoneType,
-      rackCount: Number(v.rackCount || 0),
-      temperatureControlled: v.temperatureControlled === 'true',
-      isActive: v.isActive !== 'false',
-    }),
-    toForm: (r) => ({
-      code: r.code,
-      name: r.name,
-      warehouseCode: r.warehouseCode,
-      zoneType: r.zoneType,
-      rackCount: String(r.rackCount),
-      temperatureControlled: String(r.temperatureControlled),
-      isActive: String(r.isActive),
-    }),
-    titleOf: (r) => `${r.code} — ${r.name}`,
-    blockDelete: (r) => {
-      const used = rackCrud.rows.filter((x) => x.zoneCode === r.code).length
-      return used ? `${used} rack(s) still sit in this zone. Move or delete them first.` : undefined
-    },
-  })
+  const [zoneModal, setZoneModal] = useState<Zone | 'new' | null>(null)
+  const [binModal, setBinModal] = useState<Bin | 'new' | null>(null)
+  const [bulkModal, setBulkModal] = useState(false)
 
-  const rackCrud = useCrud<Rack>({
-    key: 'inv:rack',
-    seed: rackSeed,
-    entity: 'Rack',
-    defaults: { rackType: 'Shelving', levels: '3', maxWeightKg: '800', shelfCount: '0', isActive: 'true' },
-    fields: [
-      { name: 'code', label: 'Rack code', required: true, upper: true, maxLength: 12 },
-      { name: 'warehouseCode', label: 'Warehouse', type: 'select', required: true, options: warehouseOptions },
-      { name: 'zoneCode', label: 'Zone', type: 'select', required: true, options: zoneSeed.map((z) => ({ value: z.code, label: `${z.code} — ${z.name}` })) },
-      { name: 'rackType', label: 'Rack type', type: 'select', options: ['Selective pallet', 'Shelving', 'Cantilever', 'Pallet floor', 'Bulk floor'].map((v) => ({ value: v, label: v })) },
-      { name: 'levels', label: 'Levels', type: 'number', required: true },
-      { name: 'maxWeightKg', label: 'Max weight (kg)', type: 'number' },
-      { name: 'shelfCount', label: 'Shelves', type: 'number' },
-      { name: 'isActive', label: 'Active', type: 'switch' },
-    ],
-    fromForm: (v) => ({
-      code: v.code,
-      warehouseCode: v.warehouseCode,
-      zoneCode: v.zoneCode,
-      rackType: v.rackType,
-      levels: Number(v.levels || 1),
-      maxWeightKg: Number(v.maxWeightKg || 0),
-      shelfCount: Number(v.shelfCount || 0),
-      isActive: v.isActive !== 'false',
-    }),
-    toForm: (r) => ({
-      code: r.code,
-      warehouseCode: r.warehouseCode,
-      zoneCode: r.zoneCode,
-      rackType: r.rackType,
-      levels: String(r.levels),
-      maxWeightKg: String(r.maxWeightKg),
-      shelfCount: String(r.shelfCount),
-      isActive: String(r.isActive),
-    }),
-    titleOf: (r) => r.code,
-    blockDelete: (r) => {
-      const used = shelfCrud.rows.filter((x) => x.rackCode === r.code).length
-      return used ? `${used} shelf/shelves belong to this rack.` : undefined
-    },
-  })
+  const deactivateZone = useDeactivateZone()
+  const restoreZone = useRestoreZone()
+  const blockBin = useBlockBin()
+  const unblockBin = useUnblockBin()
+  const deactivateBin = useDeactivateBin()
+  const restoreBin = useRestoreBin()
 
-  const shelfCrud = useCrud<Shelf>({
-    key: 'inv:shelf',
-    seed: shelfSeed,
-    entity: 'Shelf',
-    defaults: { level: '1', maxWeightKg: '500', binCount: '0', isActive: 'true' },
-    fields: [
-      { name: 'code', label: 'Shelf code', required: true, upper: true, maxLength: 14, hint: 'Usually rack code + level, e.g. A-01-1' },
-      { name: 'warehouseCode', label: 'Warehouse', type: 'select', required: true, options: warehouseOptions },
-      { name: 'rackCode', label: 'Rack', type: 'select', required: true, options: rackSeed.map((r) => ({ value: r.code, label: r.code })) },
-      { name: 'level', label: 'Level', type: 'number', required: true },
-      { name: 'maxWeightKg', label: 'Max weight (kg)', type: 'number' },
-      { name: 'binCount', label: 'Bins', type: 'number' },
-      { name: 'isActive', label: 'Active', type: 'switch' },
-    ],
-    fromForm: (v) => ({
-      code: v.code,
-      warehouseCode: v.warehouseCode,
-      rackCode: v.rackCode,
-      level: Number(v.level || 1),
-      maxWeightKg: Number(v.maxWeightKg || 0),
-      binCount: Number(v.binCount || 0),
-      isActive: v.isActive !== 'false',
-    }),
-    toForm: (r) => ({
-      code: r.code,
-      warehouseCode: r.warehouseCode,
-      rackCode: r.rackCode,
-      level: String(r.level),
-      maxWeightKg: String(r.maxWeightKg),
-      binCount: String(r.binCount),
-      isActive: String(r.isActive),
-    }),
-    titleOf: (r) => r.code,
-  })
+  const err = (e: unknown, fallback: string) =>
+    toast.error(fallback, e instanceof ProblemError ? e.problem.detail : 'Unknown error.')
 
-  const binCrud = useCrud<BinSlot>({
-    key: 'inv:bin',
-    seed: binSeed,
-    entity: 'Bin',
-    defaults: { binType: 'RACK', status: 'AVAILABLE', utilisationPct: '0', pickSequence: '100', mixingAllowed: 'true', maxWeightKg: '500' },
-    fields: [
-      { name: 'code', label: 'Bin code', required: true, upper: true, maxLength: 16, hint: 'The printed, scannable address — e.g. A-01-1-1' },
-      { name: 'warehouseCode', label: 'Warehouse', type: 'select', required: true, options: warehouseOptions },
-      { name: 'zone', label: 'Zone', type: 'select', required: true, options: zoneSeed.map((z) => ({ value: z.name, label: `${z.code} — ${z.name}` })) },
-      { name: 'binType', label: 'Bin type', type: 'select', options: ['RACK', 'PALLET', 'BULK', 'COIL_STAND', 'FLOOR', 'SHELF', 'BIN_BOX', 'STAGING'].map((v) => ({ value: v, label: v.replace(/_/g, ' ').toLowerCase() })) },
-      { name: 'maxWeightKg', label: 'Max weight (kg)', type: 'number' },
-      { name: 'pickSequence', label: 'Pick sequence', type: 'number', hint: 'The order a picker walks the store' },
-      { name: 'fixedItem', label: 'Fixed to item', hint: 'Optional — a dedicated bin refuses anything else' },
-      { name: 'status', label: 'Status', type: 'select', options: ['AVAILABLE', 'FULL', 'BLOCKED', 'UNDER_COUNT', 'DAMAGED', 'INACTIVE'].map((v) => ({ value: v, label: v.replace(/_/g, ' ').toLowerCase() })) },
-      { name: 'mixingAllowed', label: 'Allow mixed items / batches', type: 'switch' },
-    ],
-    fromForm: (v, existing) => ({
-      code: v.code,
-      warehouseCode: v.warehouseCode,
-      zone: v.zone,
-      binType: v.binType,
-      maxWeightKg: Number(v.maxWeightKg || 0),
-      pickSequence: Number(v.pickSequence || 0),
-      fixedItem: v.fixedItem || null,
-      status: v.status,
-      mixingAllowed: v.mixingAllowed !== 'false',
-      utilisationPct: existing?.utilisationPct ?? 0,
-      contents: existing?.contents ?? '—',
-      itemCode: existing?.itemCode ?? null,
-      batchNo: existing?.batchNo ?? null,
-      quantity: existing?.quantity ?? 0,
-      lastCountedOn: existing?.lastCountedOn ?? null,
-    }),
-    toForm: (r) => ({
-      code: r.code,
-      warehouseCode: r.warehouseCode,
-      zone: r.zone,
-      binType: r.binType,
-      maxWeightKg: String(r.maxWeightKg ?? ''),
-      pickSequence: String(r.pickSequence),
-      fixedItem: r.fixedItem ?? '',
-      status: r.status,
-      mixingAllowed: String(r.mixingAllowed),
-    }),
-    titleOf: (r) => `${r.warehouseCode} · ${r.code}`,
-    blockDelete: (r) => (r.quantity > 0 ? `This bin holds ${formatQty(r.quantity)} of ${r.itemCode}. Move the stock out first — a bin cannot disappear with stock in it.` : undefined),
-  })
-
-  const zoneColumns: Column<Zone>[] = [
-    { key: 'code', header: 'Zone', sortable: true, width: '8rem', render: (z) => <span className="font-mono text-xs font-medium text-brand-600">{z.code}</span> },
-    { key: 'name', header: 'Name', sortable: true },
-    { key: 'warehouseCode', header: 'Warehouse', sortable: true, width: '9rem', render: (z) => <span className="font-mono text-2xs">{z.warehouseCode}</span> },
-    { key: 'zoneType', header: 'Type', sortable: true },
-    { key: 'rackCount', header: 'Racks', align: 'right', width: '6rem', render: (z) => rackCrud.rows.filter((r) => r.zoneCode === z.code).length },
-    { key: 'temperatureControlled', header: 'Temp. controlled', align: 'center', width: '9rem', accessor: (z) => (z.temperatureControlled ? 'Yes' : 'No'), render: (z) => (
-      <Badge tone={z.temperatureControlled ? 'brand' : 'neutral'} size="sm" dot={false}>{z.temperatureControlled ? 'Yes' : 'No'}</Badge>
-    ) },
-    { key: 'isActive', header: 'Status', width: '7rem', accessor: (z) => (z.isActive ? 'Active' : 'Inactive'), render: (z) => <InvStatusBadge status={z.isActive ? 'ACTIVE' : 'INACTIVE'} size="sm" /> },
-  ]
-
-  const rackColumns: Column<Rack>[] = [
-    { key: 'code', header: 'Rack', sortable: true, width: '8rem', render: (r) => <span className="font-mono text-xs font-medium text-brand-600">{r.code}</span> },
-    { key: 'warehouseCode', header: 'Warehouse', sortable: true, width: '9rem', render: (r) => <span className="font-mono text-2xs">{r.warehouseCode}</span> },
-    { key: 'zoneCode', header: 'Zone', sortable: true, width: '8rem', render: (r) => <span className="font-mono text-2xs">{r.zoneCode}</span> },
-    { key: 'rackType', header: 'Type', sortable: true },
-    { key: 'levels', header: 'Levels', align: 'right', width: '6rem' },
-    { key: 'shelfCount', header: 'Shelves', align: 'right', width: '6.5rem', render: (r) => shelfCrud.rows.filter((s) => s.rackCode === r.code).length },
-    { key: 'maxWeightKg', header: 'Max weight', align: 'right', width: '8rem', render: (r) => `${formatQty(r.maxWeightKg)} kg` },
-    { key: 'isActive', header: 'Status', width: '7rem', accessor: (r) => (r.isActive ? 'Active' : 'Inactive'), render: (r) => <InvStatusBadge status={r.isActive ? 'ACTIVE' : 'INACTIVE'} size="sm" /> },
-  ]
-
-  const shelfColumns: Column<Shelf>[] = [
-    { key: 'code', header: 'Shelf', sortable: true, width: '9rem', render: (s) => <span className="font-mono text-xs font-medium text-brand-600">{s.code}</span> },
-    { key: 'warehouseCode', header: 'Warehouse', sortable: true, width: '9rem', render: (s) => <span className="font-mono text-2xs">{s.warehouseCode}</span> },
-    { key: 'rackCode', header: 'Rack', sortable: true, width: '8rem', render: (s) => <span className="font-mono text-2xs">{s.rackCode}</span> },
-    { key: 'level', header: 'Level', align: 'right', width: '6rem' },
-    { key: 'binCount', header: 'Bins', align: 'right', width: '6rem' },
-    { key: 'maxWeightKg', header: 'Max weight', align: 'right', width: '8rem', render: (s) => `${formatQty(s.maxWeightKg)} kg` },
-    { key: 'isActive', header: 'Status', width: '7rem', accessor: (s) => (s.isActive ? 'Active' : 'Inactive'), render: (s) => <InvStatusBadge status={s.isActive ? 'ACTIVE' : 'INACTIVE'} size="sm" /> },
-  ]
-
-  const binColumns: Column<BinSlot>[] = [
-    { key: 'code', header: 'Bin', sortable: true, width: '10rem', render: (b) => (
-      <div>
-        <p className="font-mono text-xs font-medium text-brand-600">{b.code}</p>
-        <p className="text-2xs text-fg-subtle">{b.warehouseCode} · {b.zone}</p>
-      </div>
-    ) },
-    { key: 'binType', header: 'Type', sortable: true, width: '8rem', render: (b) => <span className="text-2xs text-fg-muted">{b.binType.replace(/_/g, ' ').toLowerCase()}</span> },
-    { key: 'contents', header: 'Contents', render: (b) => (
-      <div className="min-w-0">
-        <p className="truncate text-xs text-fg">{b.contents}</p>
-        {b.batchNo && <p className="truncate font-mono text-2xs text-fg-subtle">{b.batchNo}</p>}
-      </div>
-    ) },
-    { key: 'quantity', header: 'Quantity', align: 'right', sortable: true, render: (b) => (b.quantity ? <QtyCell qty={b.quantity} /> : <span className="text-2xs text-fg-subtle">empty</span>) },
-    { key: 'utilisationPct', header: 'Full', align: 'right', width: '6rem', sortable: true, render: (b) => <span className={cn('tabular text-2xs', b.utilisationPct >= 90 ? 'text-warning' : 'text-fg-muted')}>{b.utilisationPct}%</span> },
-    { key: 'pickSequence', header: 'Pick seq', align: 'right', width: '7rem', sortable: true },
-    { key: 'fixedItem', header: 'Fixed to', width: '9rem', render: (b) => (b.fixedItem ? <span className="font-mono text-2xs">{b.fixedItem}</span> : <span className="text-2xs text-fg-subtle">—</span>) },
-    { key: 'lastCountedOn', header: 'Last counted', width: '8rem', accessor: (b) => b.lastCountedOn ?? '', render: (b) => (b.lastCountedOn ? formatDate(b.lastCountedOn) : 'Never') },
-    { key: 'status', header: 'Status', sortable: true, width: '8rem', render: (b) => <InvStatusBadge status={b.status} size="sm" /> },
-  ]
-
-  function doExport(format: ExportFormat) {
-    try {
-      const n =
-        tab === 'zones' ? exportRows(format, 'zones', 'Zone master', columnsFromTable(zoneColumns), zoneCrud.rows)
-          : tab === 'racks' ? exportRows(format, 'racks', 'Rack master', columnsFromTable(rackColumns), rackCrud.rows)
-            : tab === 'shelves' ? exportRows(format, 'shelves', 'Shelf master', columnsFromTable(shelfColumns), shelfCrud.rows)
-              : exportRows(format, 'bins', 'Bin master', columnsFromTable(binColumns), binCrud.rows)
-      toast.success('Export ready', `${n} rows written as ${format === 'xlsx' ? 'Excel' : format.toUpperCase()}.`)
-    } catch (e) {
-      toast.error('Export failed', e instanceof Error ? e.message : 'Unknown error.')
+  function toggleZone(z: Zone) {
+    if (z.is_active) {
+      deactivateZone.mutate(
+        { uid: z.uid, version: z.version },
+        { onSuccess: () => toast.success('Zone deactivated', `${z.code} is now inactive.`), onError: (e) => err(e, 'Failed') },
+      )
+    } else {
+      restoreZone.mutate(z.uid, {
+        onSuccess: () => toast.success('Zone restored', `${z.code} is active again.`),
+        onError: (e) => err(e, 'Failed'),
+      })
     }
   }
 
-  const active = tab === 'zones' ? zoneCrud : tab === 'racks' ? rackCrud : tab === 'shelves' ? shelfCrud : binCrud
-  const addLabel = tab === 'zones' ? 'Add zone' : tab === 'racks' ? 'Add rack' : tab === 'shelves' ? 'Add shelf' : 'Add bin'
+  function blockOrUnblock(b: Bin) {
+    if (b.status === 'BLOCKED') {
+      unblockBin.mutate(
+        { uid: b.uid, version: b.version },
+        { onSuccess: () => toast.success('Bin unblocked', `${b.code} is available.`), onError: (e) => err(e, 'Failed') },
+      )
+    } else {
+      const reason = window.prompt(`Block bin ${b.code} — reason?`)
+      if (!reason) return
+      blockBin.mutate(
+        { uid: b.uid, version: b.version, reason },
+        { onSuccess: () => toast.success('Bin blocked', `${b.code} — ${reason}`), onError: (e) => err(e, 'Failed') },
+      )
+    }
+  }
+
+  function toggleBin(b: Bin) {
+    if (b.is_active) {
+      deactivateBin.mutate(
+        { uid: b.uid, version: b.version },
+        { onSuccess: () => toast.success('Bin deactivated', `${b.code} is now inactive.`), onError: (e) => err(e, 'Failed') },
+      )
+    } else {
+      restoreBin.mutate(b.uid, {
+        onSuccess: () => toast.success('Bin restored', `${b.code} is active again.`),
+        onError: (e) => err(e, 'Failed'),
+      })
+    }
+  }
+
+  const zoneColumns: Column<Zone>[] = [
+    { key: 'code', header: 'Zone', sortable: true, width: '8rem', render: (z) => <span className="font-mono text-xs font-medium text-brand-600">{z.code}</span> },
+    { key: 'name', header: 'Name', sortable: true, render: (z) => <span className="font-medium text-fg">{z.name}</span> },
+    { key: 'zone_type', header: 'Type', width: '10rem', render: (z) => z.zone_type ?? <span className="text-fg-subtle">—</span> },
+    { key: 'pick_sequence', header: 'Pick seq', align: 'right', width: '7rem' },
+    { key: 'is_active', header: 'Status', width: '7rem', accessor: (z) => (z.is_active ? 'Active' : 'Inactive'), render: (z) => <Badge tone={z.is_active ? 'success' : 'neutral'} size="sm">{z.is_active ? 'Active' : 'Inactive'}</Badge> },
+  ]
+
+  const binColumns: Column<Bin>[] = [
+    { key: 'code', header: 'Bin address', sortable: true, width: '11rem', render: (b) => <span className="font-mono text-xs font-medium text-brand-600">{b.code}</span> },
+    { key: 'bin_type', header: 'Type', width: '8rem', render: (b) => <span className="text-2xs text-fg-muted">{b.bin_type.replace(/_/g, ' ').toLowerCase()}</span> },
+    { key: 'pick_sequence', header: 'Pick seq', align: 'right', width: '7rem', sortable: true },
+    { key: 'max_weight_kg', header: 'Max wt (kg)', align: 'right', width: '8rem', render: (b) => (b.max_weight_kg ? Number(b.max_weight_kg).toLocaleString() : <span className="text-fg-subtle">—</span>) },
+    { key: 'mixing_allowed', header: 'Mixing', align: 'center', width: '6rem', render: (b) => (b.mixing_allowed ? 'Yes' : 'No') },
+    { key: 'block_reason', header: 'Note', render: (b) => (b.block_reason ? <span className="text-2xs text-danger">{b.block_reason}</span> : <span className="text-fg-subtle">—</span>) },
+    { key: 'status', header: 'Status', sortable: true, width: '8rem', accessor: (b) => b.status, render: (b) => <Badge tone={binStatusTone(b.status)} size="sm">{b.status.replace(/_/g, ' ').toLowerCase()}</Badge> },
+  ]
+
+  const hasWarehouse = !!warehouseUid
 
   return (
     <div>
       <PageHeader
         title="Warehouse structure"
+        description="Zones and bins under a warehouse. A bin is the scannable address that holds stock; generate a whole rack at once."
         breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Inventory', to: '/inventory' }, { label: 'Warehouse structure' }]}
         actions={
-          <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => active.openCreate()}>
-            {addLabel}
-          </Button>
+          tab === 'zones' ? (
+            <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} disabled={!hasWarehouse} onClick={() => setZoneModal('new')}>Add zone</Button>
+          ) : (
+            <>
+              <Button variant="outline" size="sm" icon={<Wand2 className="h-4 w-4" />} disabled={!hasWarehouse} onClick={() => setBulkModal(true)}>Bulk generate</Button>
+              <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} disabled={!hasWarehouse} onClick={() => setBinModal('new')}>Add bin</Button>
+            </>
+          )
         }
         tabs={
-          <Tabs
-            active={tab}
-            onChange={setTab}
-            tabs={[
-              { id: 'zones', label: 'Zones', count: zoneCrud.rows.length },
-              { id: 'racks', label: 'Racks', count: rackCrud.rows.length },
-              { id: 'shelves', label: 'Shelves', count: shelfCrud.rows.length },
-              { id: 'bins', label: 'Bins', count: binCrud.rows.length },
-            ]}
-          />
+          <Tabs active={tab} onChange={setTab} tabs={[{ id: 'zones', label: 'Zones', count: zones.length }, { id: 'bins', label: 'Bins', count: binsQ.data?.meta.total ?? bins.length }]} />
         }
       />
 
-      <Card className="mb-4">
-        <CardBody className="flex flex-wrap items-center gap-2 py-3 text-xs text-fg-muted">
-          <span className="font-medium text-fg">Company</span>
-          {['Branch', 'Plant', 'Warehouse', 'Zone', 'Rack', 'Shelf', 'Bin'].map((level) => (
-            <span key={level} className="flex items-center gap-2">
-              <span className="text-fg-subtle">→</span>
-              <span className={cn(['Zone', 'Rack', 'Shelf', 'Bin'].includes(level) && 'font-medium text-fg')}>{level}</span>
+      {!companyUid && (
+        <Alert tone="warning" title="Not signed in to the backend">Sign in first so the app has an API session.</Alert>
+      )}
+
+      {/* Warehouse selector — zones and bins are scoped to one warehouse. */}
+      <Card className="mb-4 p-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-xs font-medium text-fg">Warehouse</span>
+          <Select
+            sizeVariant="sm"
+            containerClassName="w-72"
+            value={warehouseUid}
+            onChange={(e) => setWarehouseUid(e.target.value)}
+            options={
+              whLoading
+                ? [{ value: '', label: 'Loading…' }]
+                : warehouses.length
+                  ? warehouses.map((w) => ({ value: w.uid, label: `${w.code} — ${w.name}` }))
+                  : [{ value: '', label: 'No warehouses — create one in Administration' }]
+            }
+          />
+          {hasWarehouse && (
+            <span className="ml-auto text-2xs text-fg-subtle">
+              Company → Branch → Plant → Warehouse → <span className="font-medium text-fg">Zone → Bin</span>
             </span>
-          ))}
-          <span className="ml-auto text-2xs">
-            The four highlighted levels are maintained here. Company, branch, plant and warehouse live in Administration.
-          </span>
-        </CardBody>
+          )}
+        </div>
       </Card>
 
-      {tab === 'zones' && (
+      {!hasWarehouse && !whLoading && (
+        <Alert tone="info" title="No warehouse selected">
+          Create a warehouse under Administration → Organisation, then its zones and bins are maintained here.
+        </Alert>
+      )}
+
+      {tab === 'zones' && hasWarehouse && (
         <DataTable
-          rows={zoneCrud.rows}
+          rows={zones}
           columns={zoneColumns}
           rowKey={(z) => z.uid}
-          searchPlaceholder="Search zone code, name or warehouse…"
-          onExport={doExport}
-          onRowClick={(z) => zoneCrud.openEdit(z)}
-          emptyTitle="No zones"
-          emptyAction={<Button variant="primary" size="sm" onClick={() => zoneCrud.openCreate()}>Add the first zone</Button>}
+          loading={zonesQ.isLoading}
+          searchPlaceholder="Search zone code or name…"
+          onRowClick={(z) => setZoneModal(z)}
+          emptyTitle="No zones yet"
+          emptyDescription="Add a zone (e.g. Rack Area A), then generate its bins."
+          emptyAction={<Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setZoneModal('new')}>Add zone</Button>}
           rowActions={(z) => (
             <>
-              <MenuItem label="Edit" onClick={() => zoneCrud.openEdit(z)} />
-              <MenuItem label="Delete" danger onClick={() => zoneCrud.askDelete(z)} />
+              <MenuItem label="Edit" icon={<Pencil />} onClick={() => setZoneModal(z)} />
+              <MenuItem label={z.is_active ? 'Deactivate' : 'Restore'} icon={z.is_active ? <Power /> : <RotateCcw />} danger={z.is_active} separatorBefore onClick={() => toggleZone(z)} />
             </>
           )}
         />
       )}
 
-      {tab === 'racks' && (
+      {tab === 'bins' && hasWarehouse && (
         <DataTable
-          rows={rackCrud.rows}
-          columns={rackColumns}
-          rowKey={(r) => r.uid}
-          searchPlaceholder="Search rack, zone or warehouse…"
-          onExport={doExport}
-          onRowClick={(r) => rackCrud.openEdit(r)}
-          emptyTitle="No racks"
-          emptyAction={<Button variant="primary" size="sm" onClick={() => rackCrud.openCreate()}>Add the first rack</Button>}
-          rowActions={(r) => (
-            <>
-              <MenuItem label="Edit" onClick={() => rackCrud.openEdit(r)} />
-              <MenuItem label="Delete" danger onClick={() => rackCrud.askDelete(r)} />
-            </>
-          )}
-        />
-      )}
-
-      {tab === 'shelves' && (
-        <DataTable
-          rows={shelfCrud.rows}
-          columns={shelfColumns}
-          rowKey={(s) => s.uid}
-          searchPlaceholder="Search shelf, rack or warehouse…"
-          onExport={doExport}
-          onRowClick={(s) => shelfCrud.openEdit(s)}
-          emptyTitle="No shelves"
-          emptyAction={<Button variant="primary" size="sm" onClick={() => shelfCrud.openCreate()}>Add the first shelf</Button>}
-          rowActions={(s) => (
-            <>
-              <MenuItem label="Edit" onClick={() => shelfCrud.openEdit(s)} />
-              <MenuItem label="Delete" danger onClick={() => shelfCrud.askDelete(s)} />
-            </>
-          )}
-        />
-      )}
-
-      {tab === 'bins' && (
-        <DataTable
-          rows={binCrud.rows}
+          rows={bins}
           columns={binColumns}
           rowKey={(b) => b.uid}
-          searchPlaceholder="Search bin, zone, item or batch…"
-          onExport={doExport}
-          onRowClick={(b) => binCrud.openEdit(b)}
-          emptyTitle="No bins"
-          emptyAction={<Button variant="primary" size="sm" onClick={() => binCrud.openCreate()}>Add the first bin</Button>}
+          loading={binsQ.isLoading}
+          searchPlaceholder="Search bin address…"
+          emptyTitle="No bins yet"
+          emptyDescription="Add a bin, or bulk-generate a whole rack from an aisle × rack × level × position pattern."
+          emptyAction={<Button variant="outline" size="sm" icon={<Wand2 className="h-4 w-4" />} onClick={() => setBulkModal(true)}>Bulk generate</Button>}
           rowActions={(b) => (
             <>
-              <MenuItem label="Edit" onClick={() => binCrud.openEdit(b)} />
-              <MenuItem label="Print bin label" onClick={() => toast.success('Label queued', `v1|LOC|${b.warehouseCode}|${b.zone}|${b.code}`)} />
-              <MenuItem label="Delete" danger separatorBefore onClick={() => binCrud.askDelete(b)} />
+              <MenuItem label="Edit" icon={<Pencil />} onClick={() => setBinModal(b)} />
+              <MenuItem label={b.status === 'BLOCKED' ? 'Unblock' : 'Block'} icon={<Ban />} onClick={() => blockOrUnblock(b)} />
+              <MenuItem label={b.is_active ? 'Deactivate' : 'Restore'} icon={b.is_active ? <Power /> : <RotateCcw />} danger={b.is_active} separatorBefore onClick={() => toggleBin(b)} />
             </>
           )}
-          rowClassName={(b) => cn((b.status === 'BLOCKED' || b.status === 'DAMAGED') && 'bg-danger/[0.03]')}
+          rowClassName={(b) => ((b.status === 'BLOCKED' || b.status === 'DAMAGED') ? 'bg-danger/[0.03]' : undefined)}
         />
       )}
 
-      {zoneCrud.dialogs}
-      {rackCrud.dialogs}
-      {shelfCrud.dialogs}
-      {binCrud.dialogs}
-
-      <Card className="mt-4">
-        <CardHeader title="Two rules that keep the structure honest" />
-        <CardBody className="grid gap-3 text-xs leading-relaxed text-fg-muted sm:grid-cols-2">
-          <p>
-            <span className="font-medium text-fg">Nothing is deleted from under something else.</span> A zone with racks, a rack
-            with shelves, or a bin with stock in it cannot be removed — the message names exactly what is blocking it.
-          </p>
-          <p>
-            <span className="font-medium text-fg">Every bin has a printable address.</span> The bin code is what goes on the
-            label and what the scanner reads, so it must be unique inside its warehouse.
-          </p>
-        </CardBody>
-      </Card>
+      {zoneModal && <ZoneModal target={zoneModal} warehouseUid={warehouseUid} onClose={() => setZoneModal(null)} />}
+      {binModal && <BinModal target={binModal} warehouseUid={warehouseUid} zones={zones} onClose={() => setBinModal(null)} />}
+      {bulkModal && <BulkModal warehouseUid={warehouseUid} zones={zones} onClose={() => setBulkModal(false)} />}
     </div>
+  )
+}
+
+/* ─────────────────────────── Zone modal ─────────────────────────── */
+function ZoneModal({ target, warehouseUid, onClose }: { target: Zone | 'new'; warehouseUid: string; onClose: () => void }) {
+  const toast = useToast()
+  const isNew = target === 'new'
+  const zone = isNew ? null : target
+  const createZone = useCreateZone()
+  const updateZone = useUpdateZone()
+
+  const [code, setCode] = useState(zone?.code ?? 'auto…')
+  const [name, setName] = useState(zone?.name ?? '')
+  const [zoneType, setZoneType] = useState(zone?.zone_type ?? '')
+  const [pickSeq, setPickSeq] = useState(String(zone?.pick_sequence ?? 0))
+  const [errors, setErrors] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    if (isNew) zoneApi.nextCode(warehouseUid).then((c) => setCode(c)).catch(() => {})
+  }, [isNew, warehouseUid])
+
+  const handleErr = (e: unknown) => {
+    if (e instanceof ProblemError) {
+      const fe: Record<string, string> = {}
+      for (const x of e.problem.errors ?? []) fe[x.field] = x.message
+      setErrors(fe)
+      toast.error(e.problem.title || 'Failed', e.problem.detail)
+    } else toast.error('Failed', 'Unknown error.')
+  }
+
+  function save() {
+    setErrors({})
+    const base = { name: name.trim(), zone_type: zoneType.trim() || null, pick_sequence: Number(pickSeq || 0) }
+    if (isNew) {
+      createZone.mutate(
+        { warehouse_uid: warehouseUid, ...base },
+        { onSuccess: (z) => { toast.success('Zone created', `${z.code} added.`); onClose() }, onError: handleErr },
+      )
+    } else {
+      updateZone.mutate(
+        { uid: zone!.uid, body: { version: zone!.version, ...base } },
+        { onSuccess: () => { toast.success('Zone updated', `${zone!.code} saved.`); onClose() }, onError: handleErr },
+      )
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="sm"
+      title={isNew ? 'Add zone' : `Edit ${zone?.code}`}
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={save} loading={createZone.isPending || updateZone.isPending} disabled={!name.trim()}>
+            {isNew ? 'Add zone' : 'Save changes'}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <Input label="Zone code" value={code} readOnly className="bg-surface-2" hint="Auto-generated · not editable" onChange={() => {}} />
+        <Input label="Zone name" required value={name} error={errors.name} maxLength={150} placeholder="Rack Area A" onChange={(e) => setName(e.target.value)} />
+        <Input label="Zone type" value={zoneType} maxLength={40} placeholder="RACK / BULK / STAGING" onChange={(e) => setZoneType(e.target.value)} />
+        <Input label="Pick sequence" type="number" value={pickSeq} onChange={(e) => setPickSeq(e.target.value)} hint="Order a picker walks the store" />
+      </div>
+    </Modal>
+  )
+}
+
+/* ─────────────────────────── Bin modal (single) ─────────────────────────── */
+function BinModal({ target, warehouseUid, zones, onClose }: { target: Bin | 'new'; warehouseUid: string; zones: Zone[]; onClose: () => void }) {
+  const toast = useToast()
+  const isNew = target === 'new'
+  const bin = isNew ? null : target
+  const createBin = useCreateBin()
+  const updateBin = useUpdateBin()
+  const [code, setCode] = useState(bin?.code ?? '')
+  const [zoneUid, setZoneUid] = useState(bin?.zone_uid ?? '')
+  const [binType, setBinType] = useState(bin?.bin_type ?? 'RACK')
+  const [maxWeight, setMaxWeight] = useState(bin?.max_weight_kg ? String(bin.max_weight_kg) : '')
+  const [pickSeq, setPickSeq] = useState(String(bin?.pick_sequence ?? 0))
+  const [mixing, setMixing] = useState(bin?.mixing_allowed ?? true)
+  const [errors, setErrors] = useState<Record<string, string>>({})
+
+  function save() {
+    setErrors({})
+    const base = {
+      zone_uid: zoneUid || null,
+      bin_type: binType,
+      max_weight_kg: maxWeight ? Number(maxWeight) : null,
+      pick_sequence: Number(pickSeq || 0),
+      mixing_allowed: mixing,
+    }
+
+    if (isNew) {
+      createBin.mutate(
+        {
+          warehouse_uid: warehouseUid,
+          code: code.trim().toUpperCase(),
+          ...base,
+        },
+        {
+          onSuccess: (b) => { toast.success('Bin created', `${b.code} added.`); onClose() },
+          onError: handleErr,
+        },
+      )
+    } else {
+      updateBin.mutate(
+        {
+          uid: bin!.uid,
+          body: {
+            version: bin!.version,
+            ...base,
+            // Allow code update if backend permits, though usually scannable codes shouldn't change
+            code: code.trim().toUpperCase(),
+          },
+        },
+        {
+          onSuccess: () => { toast.success('Bin updated', `${bin!.code} saved.`); onClose() },
+          onError: handleErr,
+        },
+      )
+    }
+  }
+
+  const handleErr = (e: unknown) => {
+    if (e instanceof ProblemError) {
+      const fe: Record<string, string> = {}
+      for (const x of e.problem.errors ?? []) fe[x.field] = x.message
+      setErrors(fe)
+      toast.error(e.problem.title || 'Failed', e.problem.detail)
+    } else toast.error('Failed', 'Unknown error.')
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="sm"
+      title={isNew ? 'Add bin' : `Edit ${bin?.code}`}
+      description="A single bin address, e.g. A-01-1-1. Unique within the warehouse."
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={save} loading={createBin.isPending || updateBin.isPending} disabled={!code.trim()}>
+            {isNew ? 'Add bin' : 'Save changes'}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <Input label="Bin address" required value={code} error={errors.code} maxLength={30} placeholder="A-01-1-1" onChange={(e) => setCode(e.target.value.toUpperCase())} />
+        <Select label="Zone" value={zoneUid} onChange={(e) => setZoneUid(e.target.value)} options={[{ value: '', label: '— none —' }, ...zones.map((z) => ({ value: z.uid, label: `${z.code} — ${z.name}` }))]} />
+        <Select label="Bin type" value={binType} onChange={(e) => setBinType(e.target.value)} options={BIN_TYPES.map((t) => ({ value: t, label: t.replace(/_/g, ' ').toLowerCase() }))} />
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Max weight (kg)" type="number" value={maxWeight} onChange={(e) => setMaxWeight(e.target.value)} />
+          <Input label="Pick sequence" type="number" value={pickSeq} onChange={(e) => setPickSeq(e.target.value)} />
+        </div>
+        <Switch checked={mixing} onChange={setMixing} label="Allow mixed items / batches in this bin" />
+      </div>
+    </Modal>
+  )
+}
+
+/* ─────────────────────────── Bulk generate modal ─────────────────────────── */
+function BulkModal({ warehouseUid, zones, onClose }: { warehouseUid: string; zones: Zone[]; onClose: () => void }) {
+  const toast = useToast()
+  const bulk = useBulkGenerateBins()
+  const [zoneUid, setZoneUid] = useState('')
+  const [binType, setBinType] = useState('RACK')
+  const [aisles, setAisles] = useState('4')
+  const [racks, setRacks] = useState('10')
+  const [levels, setLevels] = useState('3')
+  const [positions, setPositions] = useState('2')
+
+  const total = (Number(aisles) || 0) * (Number(racks) || 0) * (Number(levels) || 0) * (Number(positions) || 0)
+  const firstCode = `A-01-1-1`
+  const lastCode = `${String.fromCharCode(64 + Math.min(26, Math.max(1, Number(aisles) || 1)))}-${String(Math.max(1, Number(racks) || 1)).padStart(2, '0')}-${Math.max(1, Number(levels) || 1)}-${Math.max(1, Number(positions) || 1)}`
+
+  function generate() {
+    bulk.mutate(
+      {
+        warehouse_uid: warehouseUid,
+        zone_uid: zoneUid || null,
+        aisles: Number(aisles),
+        racks: Number(racks),
+        levels: Number(levels),
+        positions: Number(positions),
+        bin_type: binType,
+      },
+      {
+        onSuccess: (r) => { toast.success('Bins generated', `${r.created} created, ${r.skipped} already existed.`); onClose() },
+        onError: (e) => toast.error('Generation failed', e instanceof ProblemError ? e.problem.detail : 'Unknown error.'),
+      },
+    )
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="sm"
+      title="Bulk-generate bins"
+      description="Creates every A-01-1-1 … address from the pattern in one go. Existing addresses are skipped."
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={generate} loading={bulk.isPending} disabled={total < 1 || total > 5000}>Generate {total > 0 ? `${total} bins` : ''}</Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <Select label="Zone (optional)" value={zoneUid} onChange={(e) => setZoneUid(e.target.value)} options={[{ value: '', label: '— none —' }, ...zones.map((z) => ({ value: z.uid, label: `${z.code} — ${z.name}` }))]} />
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Aisles (A–Z)" type="number" value={aisles} onChange={(e) => setAisles(e.target.value)} hint="1–26" />
+          <Input label="Racks" type="number" value={racks} onChange={(e) => setRacks(e.target.value)} />
+          <Input label="Levels" type="number" value={levels} onChange={(e) => setLevels(e.target.value)} />
+          <Input label="Positions" type="number" value={positions} onChange={(e) => setPositions(e.target.value)} />
+        </div>
+        <Select label="Bin type" value={binType} onChange={(e) => setBinType(e.target.value)} options={BIN_TYPES.map((t) => ({ value: t, label: t.replace(/_/g, ' ').toLowerCase() }))} />
+        <Alert tone={total > 5000 ? 'danger' : 'info'}>
+          {total > 5000
+            ? `${total.toLocaleString()} bins exceeds the 5,000 limit — reduce the ranges or split across zones.`
+            : <>Will generate <strong className="text-fg">{total.toLocaleString()}</strong> bins, <span className="font-mono">{firstCode}</span> … <span className="font-mono">{lastCode}</span>.</>}
+        </Alert>
+      </div>
+    </Modal>
   )
 }

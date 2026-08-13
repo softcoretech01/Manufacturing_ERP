@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { AlertTriangle, Hash, Play, Plus, ShieldCheck } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { AlertTriangle, Check, Play, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -10,390 +10,78 @@ import { Tabs } from '@/components/ui/Tabs'
 import { Alert, PageHeader } from '@/components/ui/Misc'
 import { Input, Select, Switch } from '@/components/ui/Input'
 import { useToast } from '@/components/ui/Toast'
-import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDateTime } from '@/lib/format'
-import { numberAllocations, numberSeries } from '@/mock/data2'
-import type { NumberAllocation, NumberSeries } from '@/types'
-
-/* ─────────────────────────── Format engine ─────────────────────────── */
-
-const TOKENS = [
-  { token: '{PREFIX}', desc: 'Series prefix, e.g. PO' },
-  { token: '{BRANCH}', desc: 'Branch code of the document' },
-  { token: '{PLANT}', desc: 'Plant code of the document' },
-  { token: '{FY}', desc: 'Financial year short code, e.g. 2627' },
-  { token: '{YYYY}', desc: 'Calendar year, 4 digits' },
-  { token: '{YY}', desc: 'Calendar year, 2 digits' },
-  { token: '{MM}', desc: 'Month, 2 digits' },
-  { token: '{DD}', desc: 'Day, 2 digits' },
-  { token: '{SEQ}', desc: 'Sequence, padded to the configured width' },
-  { token: '{SUBTYPE}', desc: 'Document sub-type code' },
-]
+import { ProblemError } from '@/api/client'
+import {
+  useSeries,
+  useExhaustionWarnings,
+  useAllocations,
+  useGapAnalysis,
+  useCreateSeries,
+  useUpdateSeries,
+  useDeactivateSeries,
+  usePreview,
+  useSimulate,
+} from '@/hooks/useNumbering'
+import type { Series } from '@/api/numbering'
 
 /**
- * Renders a format string the same way the server would. Kept pure so the
- * editor preview and the simulator cannot disagree.
+ * Document numbering (SRS V1-NUM §3). Wired to the real engine — one service
+ * issues every document number. The editor's preview and validation come from
+ * the server so it can never disagree with what the allocator would produce.
  */
-function renderFormat(
-  format: string,
-  ctx: { prefix: string; branch: string; plant: string; fy: string; subType: string; seq: number; pad: number },
-) {
-  const now = new Date()
-  return format
-    .replace(/\{PREFIX\}/g, ctx.prefix)
-    .replace(/\{BRANCH\}/g, ctx.branch)
-    .replace(/\{PLANT\}/g, ctx.plant)
-    .replace(/\{FY\}/g, ctx.fy)
-    .replace(/\{YYYY\}/g, String(now.getFullYear()))
-    .replace(/\{YY\}/g, String(now.getFullYear()).slice(2))
-    .replace(/\{MM\}/g, String(now.getMonth() + 1).padStart(2, '0'))
-    .replace(/\{DD\}/g, String(now.getDate()).padStart(2, '0'))
-    .replace(/\{SUBTYPE\}/g, ctx.subType)
-    .replace(/\{SEQ\}/g, String(ctx.seq).padStart(ctx.pad, '0'))
-}
 
-interface SeriesIssue {
-  severity: 'ERROR' | 'WARNING'
-  message: string
-}
-
-function validateSeries(s: {
-  formatString: string
-  isStatutory: boolean
-  isGapless: boolean
-  allocateOn: string
-  paddingWidth: number
-  prefix: string
-}): SeriesIssue[] {
-  const issues: SeriesIssue[] = []
-
-  if (!s.formatString.includes('{SEQ}')) {
-    issues.push({ severity: 'ERROR', message: 'Format must contain {SEQ} or every document would get the same number.' })
-  }
-
-  // GST invoice numbers are capped at 16 characters and restricted to
-  // alphanumerics, hyphen and slash. A longer number is rejected by the IRP.
-  if (s.isStatutory) {
-    const sample = renderFormat(s.formatString, {
-      prefix: s.prefix || 'XX',
-      branch: 'HO',
-      plant: 'P1',
-      fy: '2627',
-      subType: 'STD',
-      seq: 999999,
-      pad: s.paddingWidth,
-    })
-    if (sample.length > 16) {
-      issues.push({ severity: 'ERROR', message: `Statutory number would be ${sample.length} characters — GST rule 46 caps invoice numbers at 16.` })
-    }
-    if (!/^[A-Za-z0-9/-]+$/.test(sample)) {
-      issues.push({ severity: 'ERROR', message: 'Statutory numbers may contain only letters, digits, hyphen and slash.' })
-    }
-    if (!s.isGapless) {
-      issues.push({ severity: 'ERROR', message: 'A statutory series must be gapless — the tax authority requires an unbroken sequence.' })
-    }
-    if (s.allocateOn !== 'APPROVAL') {
-      issues.push({ severity: 'WARNING', message: 'Allocating a statutory number on DRAFT creates gaps when drafts are abandoned. Allocate on approval.' })
-    }
-  }
-
-  if (s.isGapless && s.allocateOn === 'DRAFT') {
-    issues.push({ severity: 'WARNING', message: 'Gapless + allocate-on-draft serialises document creation and will bottleneck under load.' })
-  }
-  if (s.paddingWidth < 3) {
-    issues.push({ severity: 'WARNING', message: 'Padding below 3 digits makes numbers hard to sort and read.' })
-  }
-
-  return issues
-}
-
-/* ─────────────────────────── Editor ─────────────────────────── */
-
-function SeriesEditor({
-  open,
-  onClose,
-  series,
-}: {
-  open: boolean
-  onClose: () => void
-  series: NumberSeries | null
-}) {
-  const toast = useToast()
-  const [format, setFormat] = useState(series?.formatString ?? '{PREFIX}/{BRANCH}/{FY}/{SEQ}')
-  const [prefix, setPrefix] = useState(series?.prefix ?? 'PO')
-  const [pad, setPad] = useState(series?.paddingWidth ?? 5)
-  const [statutory, setStatutory] = useState(series?.isStatutory ?? false)
-  const [gapless, setGapless] = useState(series?.isGapless ?? false)
-  const [allocateOn, setAllocateOn] = useState(series?.allocateOn ?? 'DRAFT')
-  const [start, setStart] = useState(series?.startNumber ?? 1)
-
-  const issues = validateSeries({ formatString: format, isStatutory: statutory, isGapless: gapless, allocateOn, paddingWidth: pad, prefix })
-  const errors = issues.filter((i) => i.severity === 'ERROR')
-
-  const preview = [0, 1, 2].map((i) =>
-    renderFormat(format, {
-      prefix,
-      branch: series?.branchCode || 'HO',
-      plant: series?.plantCode || 'P1',
-      fy: series?.fyCode || '2627',
-      subType: series?.subType || 'STD',
-      seq: (series?.currentNumber ?? start) + i,
-      pad,
-    }),
-  )
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      size="lg"
-      title={series ? `Edit series — ${series.documentLabel}` : 'New number series'}
-      description="The format is data, not code. Changing it affects future allocations only; issued numbers are never rewritten."
-      footer={
-        <>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button
-            variant="primary"
-            disabled={errors.length > 0}
-            onClick={() => {
-              toast.success('Series saved', `Next number will be ${preview[0]}.`)
-              onClose()
-            }}
-          >
-            Save series
-          </Button>
-        </>
-      }
-    >
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-3.5">
-          <Select
-            label="Document type"
-            required
-            defaultValue={series?.documentType}
-            options={[...new Set(numberSeries.map((s) => s.documentType))].map((t) => ({
-              value: t,
-              label: `${t} — ${numberSeries.find((s) => s.documentType === t)?.documentLabel}`,
-            }))}
-          />
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="Prefix" value={prefix} onChange={(e) => setPrefix(e.target.value.toUpperCase())} required />
-            <Input label="Padding width" type="number" min={1} max={12} value={pad} onChange={(e) => setPad(Number(e.target.value))} />
-          </div>
-          <Input
-            label="Format string"
-            value={format}
-            onChange={(e) => setFormat(e.target.value)}
-            required
-            className="font-mono"
-            hint="Tokens are substituted at allocation time from the document's own context."
-          />
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="Start number" type="number" value={start} onChange={(e) => setStart(Number(e.target.value))} />
-            <Select
-              label="Reset frequency"
-              defaultValue={series?.resetFrequency ?? 'FINANCIAL_YEARLY'}
-              options={[
-                { value: 'NEVER', label: 'Never' },
-                { value: 'FINANCIAL_YEARLY', label: 'Every financial year' },
-                { value: 'YEARLY', label: 'Every calendar year' },
-                { value: 'MONTHLY', label: 'Monthly' },
-                { value: 'DAILY', label: 'Daily' },
-              ]}
-            />
-          </div>
-          <Select
-            label="Allocate number on"
-            value={allocateOn}
-            onChange={(e) => setAllocateOn(e.target.value as 'DRAFT' | 'APPROVAL')}
-            options={[
-              { value: 'DRAFT', label: 'Draft creation — number visible while editing' },
-              { value: 'APPROVAL', label: 'Approval — no number burned on abandoned drafts' },
-            ]}
-          />
-          <div className="space-y-2.5 rounded border border-border p-3">
-            <Switch checked={statutory} onChange={setStatutory} label="Statutory series (GST / e-invoice)" />
-            <Switch checked={gapless} onChange={setGapless} label="Gapless — no missing numbers permitted" disabled={statutory} />
-            <p className="text-2xs text-fg-subtle">
-              Gapless allocation takes a row lock on the counter. Use it only where the law demands
-              it; operational series should stay non-gapless so concurrent users never queue.
-            </p>
-          </div>
-        </div>
-
-        <div className="space-y-3.5">
-          <div>
-            <p className="field-label">Live preview</p>
-            <div className="space-y-1.5 rounded border border-border bg-surface-2 p-3">
-              {preview.map((p, i) => (
-                <p key={i} className={i === 0 ? 'font-mono text-sm font-semibold text-fg' : 'font-mono text-xs text-fg-muted'}>
-                  {p}
-                  {i === 0 && <span className="ml-2 text-2xs font-normal text-fg-subtle">next</span>}
-                  <span className="ml-2 text-2xs font-normal text-fg-subtle">{p.length} chars</span>
-                </p>
-              ))}
-            </div>
-          </div>
-
-          {issues.length > 0 && (
-            <div className="space-y-1.5">
-              {issues.map((i, idx) => (
-                <div
-                  key={idx}
-                  className={
-                    i.severity === 'ERROR'
-                      ? 'flex items-start gap-2 rounded border border-danger/30 bg-danger/5 px-2.5 py-2 text-2xs text-danger'
-                      : 'flex items-start gap-2 rounded border border-warning/30 bg-warning/5 px-2.5 py-2 text-2xs text-warning'
-                  }
-                >
-                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  <span className="text-fg-muted">{i.message}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div>
-            <p className="field-label">Available tokens</p>
-            <div className="max-h-52 overflow-auto rounded border border-border">
-              <table className="grid-table">
-                <tbody>
-                  {TOKENS.map((t) => (
-                    <tr key={t.token}>
-                      <td className="w-28">
-                        <button
-                          type="button"
-                          onClick={() => setFormat((f) => f + t.token)}
-                          className="font-mono text-2xs text-brand-600 hover:underline"
-                        >
-                          {t.token}
-                        </button>
-                      </td>
-                      <td className="text-2xs text-fg-muted">{t.desc}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Modal>
-  )
-}
-
-/* ─────────────────────────── Page ─────────────────────────── */
+const RESETS = [
+  { value: 'NEVER', label: 'Never' },
+  { value: 'FINANCIAL_YEARLY', label: 'Every financial year' },
+  { value: 'YEARLY', label: 'Every calendar year' },
+  { value: 'MONTHLY', label: 'Monthly' },
+  { value: 'DAILY', label: 'Daily' },
+]
+const TOKENS = ['{PREFIX}', '{BRANCH}', '{PLANT}', '{FY}', '{YYYY}', '{YY}', '{MM}', '{DD}', '{SEQ}', '{SEQ:5}']
 
 export function NumberingPage() {
+  const [tab, setTab] = useState('series')
+  const [editing, setEditing] = useState<Series | 'new' | null>(null)
+  const [simOpen, setSimOpen] = useState(false)
+  const [selectedUid, setSelectedUid] = useState<string | null>(null)
+
+  const seriesQ = useSeries()
+  const rows = seriesQ.data ?? []
+  const warnQ = useExhaustionWarnings()
+  const warnings = warnQ.data ?? []
+  const deactivate = useDeactivateSeries()
   const toast = useToast()
 
-  function doExport(format: ExportFormat) {
-    try {
-      const n = exportRows(format, 'document-numbering', 'Document numbering', columnsFromTable(seriesColumns), numberSeries)
-      toast.success('Export ready', n + ' rows written as ' + (format === 'xlsx' ? 'Excel' : format.toUpperCase()) + '.')
-    } catch (e) {
-      toast.error('Export failed', e instanceof Error ? e.message : 'Unknown error.')
-    }
-  }
-  const [tab, setTab] = useState('series')
-  const [editing, setEditing] = useState<NumberSeries | null>(null)
-  const [editorOpen, setEditorOpen] = useState(false)
-  const [simOpen, setSimOpen] = useState(false)
+  useEffect(() => {
+    if (!selectedUid && rows.length) setSelectedUid(rows[0].uid)
+  }, [selectedUid, rows])
 
-  const statutoryCount = numberSeries.filter((s) => s.isStatutory).length
-  const inactiveCount = numberSeries.filter((s) => !s.isActive).length
-  const voided = numberAllocations.filter((a) => a.status === 'VOIDED')
-
-  /** A statutory series with a voided number is a compliance problem, not a data problem. */
-  const gapRisk = useMemo(() => {
-    const statutoryUids = new Set(numberSeries.filter((s) => s.isStatutory).map((s) => s.uid))
-    return voided.filter((a) => statutoryUids.has(a.seriesUid))
-  }, [voided])
-
-  const seriesColumns: Column<NumberSeries>[] = [
+  const seriesColumns: Column<Series>[] = [
     {
-      key: 'documentLabel',
-      header: 'Document type',
-      sortable: true,
-      sticky: true,
-      width: '220px',
+      key: 'document_label', header: 'Document type', sortable: true, sticky: true, width: '220px',
       render: (s) => (
         <div className="min-w-0">
-          <p className="truncate text-xs font-medium text-fg">{s.documentLabel}</p>
-          <p className="truncate font-mono text-2xs text-fg-subtle">
-            {s.documentType}
-            {s.subType && ` · ${s.subType}`}
-          </p>
+          <p className="truncate text-xs font-medium text-fg">{s.document_label}</p>
+          <p className="truncate font-mono text-2xs text-fg-subtle">{s.document_type}{s.sub_type && ` · ${s.sub_type}`}</p>
         </div>
       ),
     },
+    { key: 'format_string', header: 'Format', render: (s) => <span className="font-mono text-2xs">{s.format_string}</span> },
+    { key: 'next_number', header: 'Next number', width: '180px', render: (s) => <span className="font-mono text-xs font-medium text-fg">{s.next_number}</span> },
+    { key: 'issued_count', header: 'Issued', align: 'right', sortable: true, width: '90px', render: (s) => s.issued_count },
+    { key: 'allocate_on', header: 'Allocate on', width: '110px', render: (s) => <Badge tone={s.allocate_on === 'APPROVAL' ? 'progress' : 'neutral'} size="sm" dot={false}>{s.allocate_on.toLowerCase()}</Badge> },
     {
-      key: 'scope',
-      header: 'Scope',
-      width: '140px',
-      accessor: (s) => `${s.branchCode}${s.plantCode}`,
-      render: (s) => (
-        <span className="font-mono text-2xs text-fg-muted">
-          {s.branchCode}/{s.plantCode}
-          {s.fyCode && `/${s.fyCode}`}
-        </span>
-      ),
-    },
-    { key: 'formatString', header: 'Format', render: (s) => <span className="font-mono text-2xs">{s.formatString}</span> },
-    { key: 'nextNumber', header: 'Next number', width: '190px', render: (s) => <span className="font-mono text-xs font-medium text-fg">{s.nextNumber}</span> },
-    { key: 'issuedCount', header: 'Issued', align: 'right', sortable: true, width: '90px' },
-    {
-      key: 'resetFrequency',
-      header: 'Reset',
-      width: '110px',
-      defaultHidden: true,
-      render: (s) => <span className="text-2xs text-fg-muted">{s.resetFrequency.toLowerCase().replace('_', ' ')}</span>,
-    },
-    {
-      key: 'allocateOn',
-      header: 'Allocate on',
-      width: '110px',
-      render: (s) => <Badge tone={s.allocateOn === 'APPROVAL' ? 'progress' : 'neutral'} size="sm" dot={false}>{s.allocateOn.toLowerCase()}</Badge>,
-    },
-    {
-      key: 'flags',
-      header: 'Flags',
-      width: '170px',
-      accessor: (s) => (s.isStatutory ? 2 : 0) + (s.isGapless ? 1 : 0),
+      key: 'flags', header: 'Flags', width: '160px', accessor: (s) => (s.is_statutory ? 2 : 0) + (s.is_gapless ? 1 : 0),
       render: (s) => (
         <div className="flex flex-wrap gap-1">
-          {s.isStatutory && <Badge tone="danger" size="sm" dot={false}>statutory</Badge>}
-          {s.isGapless && <Badge tone="warning" size="sm" dot={false}>gapless</Badge>}
-          {s.isDefault && <Badge tone="brand" size="sm" dot={false}>default</Badge>}
+          {s.is_statutory && <Badge tone="danger" size="sm" dot={false}>statutory</Badge>}
+          {s.is_gapless && <Badge tone="warning" size="sm" dot={false}>gapless</Badge>}
+          {s.is_default && <Badge tone="brand" size="sm" dot={false}>default</Badge>}
         </div>
       ),
     },
-    {
-      key: 'isActive',
-      header: 'Status',
-      width: '100px',
-      accessor: (s) => (s.isActive ? 1 : 0),
-      render: (s) => <Badge tone={s.isActive ? 'success' : 'neutral'} size="sm">{s.isActive ? 'Active' : 'Inactive'}</Badge>,
-    },
-  ]
-
-  const allocColumns: Column<NumberAllocation>[] = [
-    { key: 'formattedNumber', header: 'Number', sortable: true, width: '200px', render: (a) => <span className="font-mono text-xs font-medium">{a.formattedNumber}</span> },
-    { key: 'sequence', header: 'Seq', align: 'right', sortable: true, width: '80px' },
-    { key: 'entityLabel', header: 'Consumed by' },
-    {
-      key: 'status',
-      header: 'Status',
-      width: '120px',
-      render: (a) => (
-        <Badge tone={a.status === 'CONSUMED' ? 'success' : a.status === 'ALLOCATED' ? 'pending' : 'danger'} size="sm">
-          {a.status.toLowerCase()}
-        </Badge>
-      ),
-    },
-    { key: 'reason', header: 'Reason', render: (a) => <span className="text-2xs text-fg-muted">{a.reason ?? '—'}</span> },
-    { key: 'allocatedBy', header: 'By', width: '140px' },
-    { key: 'allocatedAt', header: 'When', sortable: true, width: '160px', render: (a) => formatDateTime(a.allocatedAt) },
+    { key: 'is_active', header: 'Status', width: '100px', accessor: (s) => (s.is_active ? 1 : 0), render: (s) => <Badge tone={s.is_active ? 'success' : 'neutral'} size="sm">{s.is_active ? 'Active' : 'Inactive'}</Badge> },
   ]
 
   return (
@@ -404,149 +92,304 @@ export function NumberingPage() {
         breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Platform services' }, { label: 'Document numbering' }]}
         actions={
           <>
-            <Button variant="outline" size="sm" icon={<Play className="h-4 w-4" />} onClick={() => setSimOpen(true)}>
-              Simulate
-            </Button>
-            <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => { setEditing(null); setEditorOpen(true) }}>
-              New series
-            </Button>
+            <Button variant="outline" size="sm" icon={<Play className="h-4 w-4" />} onClick={() => setSimOpen(true)}>Simulate</Button>
+            <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setEditing('new')}>New series</Button>
           </>
         }
-        tabs={
-          <Tabs
-            active={tab}
-            onChange={setTab}
-            tabs={[
-              { id: 'series', label: 'Series', count: numberSeries.length },
-              { id: 'allocations', label: 'Allocation log', count: numberAllocations.length },
-              { id: 'gaps', label: 'Gap analysis', count: gapRisk.length },
-            ]}
-          />
-        }
+        tabs={<Tabs active={tab} onChange={setTab} tabs={[
+          { id: 'series', label: 'Series', count: rows.length },
+          { id: 'allocations', label: 'Allocation log' },
+          { id: 'gaps', label: 'Gap analysis' },
+        ]} />}
       />
 
-      {gapRisk.length > 0 && (
-        <Alert tone="danger" className="mb-4" title={`${gapRisk.length} voided number(s) in a statutory series`}>
-          A gapless series must have no missing numbers. Each void needs a documented reason and
-          appears on the GSTR-1 reconciliation as a cancelled invoice — it cannot simply be
-          reissued.
+      {seriesQ.error && <Alert tone="danger" title="Could not load series">{seriesQ.error instanceof ProblemError ? seriesQ.error.problem.detail : 'Is the backend running?'}</Alert>}
+      {warnings.length > 0 && (
+        <Alert tone="warning" className="mb-4" title={`${warnings.length} series near capacity`}>
+          {warnings.map((w) => `${w.label} at ${w.used_pct}%`).join(', ')}. Widen padding or reset earlier.
         </Alert>
       )}
 
       {tab === 'series' && (
         <DataTable
-          rows={numberSeries}
+          rows={rows}
           columns={seriesColumns}
           rowKey={(s) => s.uid}
-          searchPlaceholder="Document type, prefix or format…"
+          loading={seriesQ.isLoading}
+          searchPlaceholder="Document type, format…"
           pageSize={20}
-          onExport={doExport}
-          onRowClick={(s) => { setEditing(s); setEditorOpen(true) }}
+          onRowClick={(s) => setEditing(s)}
           rowActions={(s) => (
             <>
-              <MenuItem label="Edit format" onClick={() => { setEditing(s); setEditorOpen(true) }} />
-              <MenuItem label="View allocations" onClick={() => setTab('allocations')} />
-              <MenuItem label="Reserve a block" onClick={() => toast.info('Reserve a block', `Reserve a contiguous range of ${s.documentLabel} numbers for offline or pre-printed use.`)} />
-              <MenuItem label="Set as default" disabled={s.isDefault} onClick={() => toast.success('Default series set', `${s.documentLabel} is now the default series for ${s.documentType}.`)} />
-              <MenuItem label={s.isActive ? 'Deactivate' : 'Activate'} danger={s.isActive} separatorBefore onClick={() => toast.success(s.isActive ? 'Series deactivated' : 'Series activated', `${s.documentLabel} is now ${s.isActive ? 'inactive' : 'active'}.`)} />
+              <MenuItem label="Edit format" onClick={() => setEditing(s)} />
+              <MenuItem label="View allocations" onClick={() => { setSelectedUid(s.uid); setTab('allocations') }} />
+              <MenuItem
+                label={s.is_active ? 'Deactivate' : 'Activate'}
+                danger={s.is_active}
+                separatorBefore
+                onClick={() => deactivate.mutate({ uid: s.uid, active: !s.is_active }, {
+                  onSuccess: () => toast.success(s.is_active ? 'Series deactivated' : 'Series activated', s.document_label),
+                  onError: (e) => toast.error('Failed', e instanceof ProblemError ? e.problem.detail : 'Unknown error.'),
+                })}
+              />
             </>
           )}
+          emptyTitle="No series yet"
+          emptyDescription="Define a number series so documents of that type can be created."
         />
       )}
 
-      {tab === 'allocations' && (
-        <>
-          <Alert tone="info" className="mb-3" title="Every number is accounted for">
-            An allocation row is written the instant a number is issued, before the document is
-            saved. If the document is abandoned, the row stays as ALLOCATED and is reported here —
-            numbers never disappear silently.
-          </Alert>
-          <DataTable
-            rows={numberAllocations}
-            columns={allocColumns}
-            rowKey={(a) => a.uid}
-            searchPlaceholder="Number, entity or user…"
-            onExport={doExport}
-          />
-        </>
+      {(tab === 'allocations' || tab === 'gaps') && (
+        <Card className="mb-4"><CardBody className="flex items-end gap-3">
+          <Select label="Series" containerClassName="w-80" value={selectedUid ?? ''} onChange={(e) => setSelectedUid(e.target.value)}
+            options={rows.map((s) => ({ value: s.uid, label: `${s.document_label}${s.sub_type ? ` · ${s.sub_type}` : ''}` }))} />
+        </CardBody></Card>
       )}
 
-      {tab === 'gaps' && (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
-            <CardHeader title="Voided numbers" description="Reported to the tax authority as cancelled" />
-            <CardBody className="space-y-2">
-              {voided.length === 0 && <p className="text-xs text-fg-muted">No voided numbers.</p>}
-              {voided.map((a) => {
-                const s = numberSeries.find((x) => x.uid === a.seriesUid)
-                return (
-                  <div key={a.uid} className="rounded border border-border p-2.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono text-xs font-medium text-fg">{a.formattedNumber}</span>
-                      {s?.isStatutory ? <Badge tone="danger" size="sm">statutory</Badge> : <Badge tone="neutral" size="sm">operational</Badge>}
-                    </div>
-                    <p className="mt-1 text-2xs text-fg-muted">{a.reason ?? 'No reason recorded'}</p>
-                    <p className="mt-0.5 text-2xs text-fg-subtle">
-                      {a.allocatedBy} · {formatDateTime(a.allocatedAt)}
-                    </p>
-                  </div>
-                )
-              })}
-            </CardBody>
-          </Card>
+      {tab === 'allocations' && <AllocationLog uid={selectedUid} />}
+      {tab === 'gaps' && <GapAnalysis uid={selectedUid} series={rows.find((s) => s.uid === selectedUid)} />}
 
-          <Card>
-            <CardHeader title="Continuity check" description="Per statutory series" />
-            <CardBody className="space-y-3">
-              {numberSeries.filter((s) => s.isStatutory).map((s) => {
-                const holes = voided.filter((a) => a.seriesUid === s.uid).length
-                return (
-                  <div key={s.uid} className="rounded border border-border p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-medium text-fg">{s.documentLabel}</span>
-                      <Badge tone={holes === 0 ? 'success' : 'danger'} size="sm">
-                        {holes === 0 ? 'Unbroken' : `${holes} break(s)`}
-                      </Badge>
-                    </div>
-                    <p className="mt-1 font-mono text-2xs text-fg-subtle">
-                      {s.startNumber} → {s.currentNumber} · {s.issuedCount} issued
-                    </p>
-                  </div>
-                )
-              })}
-            </CardBody>
-          </Card>
-        </div>
-      )}
+      {editing && <SeriesEditor target={editing} allSeries={rows} onClose={() => setEditing(null)} />}
+      <SimulatorModal open={simOpen} series={rows} onClose={() => setSimOpen(false)} />
+    </div>
+  )
+}
 
-      <SeriesEditor open={editorOpen} onClose={() => setEditorOpen(false)} series={editing} />
+/* ─────────────────────────── Allocation log ─────────────────────────── */
+function AllocationLog({ uid }: { uid: string | null }) {
+  const { data, isLoading } = useAllocations(uid ?? undefined)
+  const rows = data ?? []
+  const columns: Column<(typeof rows)[number]>[] = [
+    { key: 'formatted_number', header: 'Number', sortable: true, width: '200px', render: (a) => <span className="font-mono text-xs font-medium">{a.formatted_number}</span> },
+    { key: 'sequence', header: 'Seq', align: 'right', sortable: true, width: '80px', render: (a) => a.sequence },
+    { key: 'entity_label', header: 'Consumed by', render: (a) => a.entity_label ?? '—' },
+    { key: 'status', header: 'Status', width: '120px', render: (a) => <Badge tone={a.status === 'CONSUMED' ? 'success' : a.status === 'ALLOCATED' ? 'pending' : 'danger'} size="sm">{a.status.toLowerCase()}</Badge> },
+    { key: 'reason', header: 'Reason', render: (a) => <span className="text-2xs text-fg-muted">{a.reason ?? '—'}</span> },
+    { key: 'allocated_by_name', header: 'By', width: '140px', render: (a) => a.allocated_by_name ?? '—' },
+    { key: 'allocated_at', header: 'When', sortable: true, width: '160px', render: (a) => formatDateTime(a.allocated_at) },
+  ]
+  return (
+    <>
+      <Alert tone="info" className="mb-3" title="Every number is accounted for">
+        An allocation row is written the instant a number is issued. Abandoned drafts stay as ALLOCATED or VOIDED — numbers never disappear silently.
+      </Alert>
+      <DataTable rows={rows} columns={columns} rowKey={(a) => a.uid} loading={isLoading} searchPlaceholder="Number, entity…" emptyTitle="No numbers issued yet" />
+    </>
+  )
+}
 
-      <Modal
-        open={simOpen}
-        onClose={() => setSimOpen(false)}
-        title="Number simulator"
-        description="Shows which series would be selected for a document and what number it would receive."
-        footer={<Button variant="primary" onClick={() => setSimOpen(false)}>Close</Button>}
-      >
-        <div className="space-y-3.5">
-          <Select label="Document type" defaultValue="PO" options={[...new Set(numberSeries.map((s) => s.documentType))].map((t) => ({ value: t, label: t }))} />
-          <div className="grid grid-cols-2 gap-3">
-            <Select label="Branch" options={[{ value: 'HO', label: 'HO' }, { value: 'CHN', label: 'CHN' }, { value: 'MUM', label: 'MUM' }]} />
-            <Select label="Plant" options={[{ value: 'P1', label: 'P1' }, { value: 'P2', label: 'P2' }]} />
+/* ─────────────────────────── Gap analysis ─────────────────────────── */
+function GapAnalysis({ uid, series }: { uid: string | null; series?: Series }) {
+  const { data, isLoading } = useGapAnalysis(uid ?? undefined)
+  if (isLoading || !data) return <Card><CardBody className="py-8 text-center text-sm text-fg-muted">Loading…</CardBody></Card>
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <Card>
+        <CardHeader title="Continuity" description={series?.document_label} />
+        <CardBody className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Badge tone={data.unbroken ? 'success' : 'danger'} size="sm">{data.unbroken ? 'Unbroken' : `${data.gaps.length} gap(s)`}</Badge>
+            {data.unbroken && <Check className="h-4 w-4 text-success" />}
           </div>
-          <Alert tone="info" title="Series selection order">
-            Most specific wins: document type + sub-type + branch + plant + FY, then progressively
-            broader, ending at the company default. If no series matches, document creation is
-            blocked with a clear message rather than falling back to a raw counter.
-          </Alert>
+          <p className="font-mono text-2xs text-fg-subtle">
+            {data.issued} issued · sequence {data.range_from ?? '—'} → {data.range_to ?? '—'} · {data.voided.length} voided
+          </p>
+          {series?.is_statutory && (
+            <Alert tone={data.unbroken ? 'tip' : 'danger'}>
+              {data.unbroken
+                ? 'Gapless verified — the unbroken sequence a GST auditor asks for.'
+                : 'A statutory series must have no missing numbers. Investigate each gap.'}
+            </Alert>
+          )}
+        </CardBody>
+      </Card>
+      <Card>
+        <CardHeader title="Voided & missing" description="Reported to the tax authority as cancelled" />
+        <CardBody className="space-y-2">
+          {data.voided.length === 0 && data.gaps.length === 0 && <p className="text-xs text-fg-muted">No voided or missing numbers.</p>}
+          {data.voided.map((seq) => (
+            <div key={`v${seq}`} className="flex items-center justify-between rounded border border-border p-2 text-xs">
+              <span className="font-mono">seq {seq}</span><Badge tone="warning" size="sm">voided</Badge>
+            </div>
+          ))}
+          {data.gaps.map((seq) => (
+            <div key={`g${seq}`} className="flex items-center justify-between rounded border border-danger/30 bg-danger/5 p-2 text-xs">
+              <span className="font-mono">seq {seq}</span><Badge tone="danger" size="sm">missing</Badge>
+            </div>
+          ))}
+        </CardBody>
+      </Card>
+    </div>
+  )
+}
+
+/* ─────────────────────────── Editor ─────────────────────────── */
+function SeriesEditor({ target, allSeries, onClose }: { target: Series | 'new'; allSeries: Series[]; onClose: () => void }) {
+  const toast = useToast()
+  const isNew = target === 'new'
+  const s = isNew ? null : target
+  const create = useCreateSeries()
+  const update = useUpdateSeries()
+  const preview = usePreview()
+
+  const [documentType, setDocumentType] = useState(s?.document_type ?? '')
+  const [documentLabel, setDocumentLabel] = useState(s?.document_label ?? '')
+  const [subType, setSubType] = useState(s?.sub_type ?? '')
+  const [format, setFormat] = useState(s?.format_string ?? '{PREFIX}/{FY}/{SEQ}')
+  const [prefix, setPrefix] = useState(s?.prefix ?? '')
+  const [pad, setPad] = useState(s?.padding_width ?? 5)
+  const [start, setStart] = useState(s?.start_number ?? 1)
+  const [reset, setReset] = useState(s?.reset_frequency ?? 'FINANCIAL_YEARLY')
+  const [allocateOn, setAllocateOn] = useState(s?.allocate_on ?? 'DRAFT')
+  const [statutory, setStatutory] = useState(s?.is_statutory ?? false)
+  const [gapless, setGapless] = useState(s?.is_gapless ?? false)
+  const [errors, setErrors] = useState<Record<string, string>>({})
+
+  const issued = (s?.issued_count ?? 0) > 0
+
+  // Server preview (editor and allocator agree). Debounced on the relevant fields.
+  const previewMut = preview.mutate
+  useEffect(() => {
+    const t = setTimeout(() => {
+      previewMut({ format_string: format, prefix: prefix || null, padding_width: pad, start_number: start, sub_type: subType || null, is_statutory: statutory, is_gapless: gapless, allocate_on: allocateOn })
+    }, 250)
+    return () => clearTimeout(t)
+  }, [previewMut, format, prefix, pad, start, subType, statutory, gapless, allocateOn])
+
+  const pv = preview.data
+  const issues = pv?.issues ?? []
+  const hasError = issues.some((i) => i.severity === 'ERROR')
+
+  function save() {
+    setErrors({})
+    const body = {
+      document_type: documentType.trim(), document_label: documentLabel.trim(), sub_type: subType.trim() || null,
+      format_string: format, prefix: prefix.trim() || null, padding_width: pad, start_number: start,
+      reset_frequency: reset, allocate_on: allocateOn, is_statutory: statutory, is_gapless: gapless,
+    }
+    const onError = (e: unknown) => {
+      if (e instanceof ProblemError) {
+        const fe: Record<string, string> = {}
+        for (const x of e.problem.errors ?? []) fe[x.field] = x.message
+        setErrors(fe)
+        toast.error(e.problem.title || 'Save failed', e.problem.detail)
+      } else toast.error('Save failed', 'Unknown error.')
+    }
+    if (isNew) create.mutate(body, { onSuccess: () => { toast.success('Series created', `Next number: ${pv?.numbers[0] ?? ''}`); onClose() }, onError })
+    else update.mutate({ uid: s!.uid, body: { ...body, version: s!.version } }, { onSuccess: () => { toast.success('Series saved', 'Issued numbers are never rewritten.'); onClose() }, onError })
+  }
+
+  const docTypes = [...new Set(allSeries.map((x) => x.document_type))]
+
+  return (
+    <Modal open onClose={onClose} size="lg"
+      title={isNew ? 'New number series' : `Edit series — ${s?.document_label}`}
+      description="The format is data, not code. Changing it affects future allocations only; issued numbers are never rewritten."
+      footer={<><Button variant="outline" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" onClick={save} loading={create.isPending || update.isPending} disabled={hasError || !documentType.trim() || !documentLabel.trim()}>Save series</Button></>}
+    >
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-3.5">
+          {isNew ? (
+            <Input label="Document type" required value={documentType} error={errors.document_type} onChange={(e) => setDocumentType(e.target.value.toUpperCase())} hint="e.g. PURCHASE_ORDER" list="doctypes" />
+          ) : (
+            <Input label="Document type" value={documentType} disabled readOnlyReason={issued ? 'Locked — series has issued numbers' : 'Immutable'} />
+          )}
+          <datalist id="doctypes">{docTypes.map((t) => <option key={t} value={t} />)}</datalist>
+          <Input label="Label" required value={documentLabel} error={errors.document_label} onChange={(e) => setDocumentLabel(e.target.value)} />
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Sub-type" value={subType} disabled={issued} onChange={(e) => setSubType(e.target.value.toUpperCase())} placeholder="e.g. DOMESTIC" />
+            <Input label="Prefix" value={prefix} disabled={issued} onChange={(e) => setPrefix(e.target.value.toUpperCase())} />
+          </div>
+          <Input label="Format string" required value={format} error={errors.format_string} disabled={issued} onChange={(e) => setFormat(e.target.value)} className="font-mono" />
+          <div className="flex flex-wrap gap-1">
+            {TOKENS.map((t) => <button key={t} type="button" disabled={issued} onClick={() => setFormat((f) => f + t)} className="rounded border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-brand-600 hover:bg-surface-3 disabled:opacity-40">{t}</button>)}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Start number" type="number" value={start} disabled={issued} onChange={(e) => setStart(Number(e.target.value))} />
+            <Input label="Padding width" type="number" min={1} max={12} value={pad} onChange={(e) => setPad(Number(e.target.value))} hint={issued ? 'Only widening allowed' : undefined} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Select label="Reset frequency" value={reset} onChange={(e) => setReset(e.target.value)} options={RESETS} />
+            <Select label="Allocate on" value={allocateOn} disabled={statutory} onChange={(e) => setAllocateOn(e.target.value)}
+              options={[{ value: 'DRAFT', label: 'Draft creation' }, { value: 'APPROVAL', label: 'Approval' }]} />
+          </div>
+          <div className="space-y-2.5 rounded border border-border p-3">
+            <Switch checked={statutory} onChange={(v) => { setStatutory(v); if (v) { setGapless(true); setAllocateOn('APPROVAL') } }} label="Statutory series (GST / e-invoice)" />
+            <Switch checked={gapless} onChange={setGapless} disabled={statutory} label="Gapless — no missing numbers permitted" />
+            <p className="text-2xs text-fg-subtle">Statutory forces gapless + allocate-on-approval and caps the number at 16 GST-legal characters.</p>
+          </div>
+        </div>
+
+        <div className="space-y-3.5">
+          <div>
+            <p className="field-label">Live preview {preview.isPending && <span className="text-2xs text-fg-subtle">…</span>}</p>
+            <div className="space-y-1.5 rounded border border-border bg-surface-2 p-3">
+              {(pv?.numbers ?? []).map((p, i) => (
+                <p key={i} className={i === 0 ? 'font-mono text-sm font-semibold text-fg' : 'font-mono text-xs text-fg-muted'}>
+                  {p}{i === 0 && <span className="ml-2 text-2xs font-normal text-fg-subtle">next</span>}
+                </p>
+              ))}
+              {pv && <p className="mt-1 text-2xs text-fg-subtle">Max length: {pv.max_length} chars</p>}
+            </div>
+          </div>
+          {issues.length > 0 && (
+            <div className="space-y-1.5">
+              {issues.map((i, idx) => (
+                <div key={idx} className={i.severity === 'ERROR' ? 'flex items-start gap-2 rounded border border-danger/30 bg-danger/5 px-2.5 py-2 text-2xs text-danger' : 'flex items-start gap-2 rounded border border-warning/30 bg-warning/5 px-2.5 py-2 text-2xs text-warning'}>
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span className="text-fg-muted">{i.message}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {issued && <Alert tone="info">This series has issued {s?.issued_count} numbers. Format, prefix and sub-type are locked; you may only widen padding or change reset/behaviour.</Alert>}
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+/* ─────────────────────────── Simulator ─────────────────────────── */
+function SimulatorModal({ open, series, onClose }: { open: boolean; series: Series[]; onClose: () => void }) {
+  const simulate = useSimulate()
+  const [docType, setDocType] = useState('')
+  const [subType, setSubType] = useState('')
+  const [branch, setBranch] = useState('CHN')
+  const [plant, setPlant] = useState('P1')
+  const result = simulate.data
+
+  useEffect(() => { if (open && series.length && !docType) setDocType(series[0].document_type) }, [open, series, docType])
+  if (!open) return null
+
+  const docTypes = [...new Set(series.map((s) => s.document_type))]
+  function run() {
+    simulate.mutate({ document_type: docType, sub_type: subType || null, branch_code: branch, plant_code: plant })
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Numbering simulator" description="Shows which series would be selected and what number it would receive — without consuming a number."
+      footer={<><Button variant="outline" onClick={onClose}>Close</Button><Button variant="primary" onClick={run} loading={simulate.isPending}>Simulate</Button></>}>
+      <div className="space-y-3.5">
+        <div className="grid grid-cols-2 gap-3">
+          <Select label="Document type" value={docType} onChange={(e) => setDocType(e.target.value)} options={docTypes.map((t) => ({ value: t, label: t }))} />
+          <Input label="Sub-type (optional)" value={subType} onChange={(e) => setSubType(e.target.value.toUpperCase())} placeholder="DOMESTIC" />
+          <Input label="Branch code" value={branch} onChange={(e) => setBranch(e.target.value.toUpperCase())} />
+          <Input label="Plant code" value={plant} onChange={(e) => setPlant(e.target.value.toUpperCase())} />
+        </div>
+        {result && (result.matched ? (
           <div className="rounded border border-border bg-surface-2 p-3">
             <p className="text-2xs uppercase tracking-wide text-fg-subtle">Resolved series</p>
-            <p className="mt-0.5 text-xs text-fg">{numberSeries[0].documentLabel} · {numberSeries[0].formatString}</p>
+            <p className="mt-0.5 text-xs text-fg">{result.series_label} · <span className="font-mono">{result.format}</span></p>
             <p className="mt-2 text-2xs uppercase tracking-wide text-fg-subtle">Number that would be issued</p>
-            <p className="mt-0.5 font-mono text-base font-semibold text-fg">{numberSeries[0].nextNumber}</p>
+            <p className="mt-0.5 font-mono text-base font-semibold text-fg">{result.next_numbers?.[0]}</p>
+            <p className="mt-1 text-2xs text-fg-muted">Next 5: {result.next_numbers?.join(', ')}</p>
+            <p className="mt-1 text-2xs text-fg-subtle">On the next FY roll: <span className="font-mono">{result.on_fy_roll}</span></p>
           </div>
-        </div>
-      </Modal>
-    </div>
+        ) : (
+          <Alert tone="danger" title="No series matches — document creation would be blocked">{result.reason}</Alert>
+        ))}
+        <Alert tone="info" title="Series selection order">Most specific wins: sub-type + branch + plant, then progressively broader, ending at the company default. If none matches, creation is blocked rather than falling back to a raw counter.</Alert>
+      </div>
+    </Modal>
   )
 }

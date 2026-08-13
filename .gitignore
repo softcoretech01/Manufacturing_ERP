@@ -1,61 +1,29 @@
-# Environments
-.env
-.env.local
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# Python
+# ─── Python ───────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
 *.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
+.venv/
+venv/
 .pytest_cache/
-htmlcov/
+.mypy_cache/
+.ruff_cache/
 .coverage
+htmlcov/
 
-# Node
+# ─── Secrets / local config ───────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+backend/keys/
+*.pem
+
+# ─── Node / frontend ──────────────────────────────────────────────────────
 node_modules/
-npm-debug.log
-yarn-error.log
-yarn-debug.log
-.pnp
-.pnp.js
 dist/
-build/
-out/
+*.tsbuildinfo
 
-# IDEs and Editors
+# ─── Editor / OS ──────────────────────────────────────────────────────────
+.DS_Store
 .idea/
 .vscode/
-*.swp
-*.swo
-*~
-.DS_Store
-
-# Logs and databases
 *.log
-*.sqlite3
-
-.md

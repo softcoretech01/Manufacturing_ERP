@@ -14,7 +14,7 @@ from typing import Self
 
 from app.core.enums import Channel, RowRule
 
-_ctx: ContextVar["TenantContext | None"] = ContextVar("tenant_context", default=None)
+_ctx: ContextVar[TenantContext | None] = ContextVar("tenant_context", default=None)
 
 
 @dataclass(slots=True)
