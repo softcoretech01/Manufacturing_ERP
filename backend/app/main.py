@@ -22,7 +22,7 @@ from app.core.errors import (
 from app.core.logging import configure_logging
 from app.core.middleware import CorrelationIdMiddleware
 from app.core.security import ensure_dev_keys
-from app.models import Base  # noqa: F401  (registers metadata)
+from app.core.base import Base  # noqa: F401
 from app.modules.iam.api.management_router import router as iam_mgmt_router
 from app.modules.iam.api.router import router as iam_router
 from app.modules.inventory.api.routers import router as inventory_router
