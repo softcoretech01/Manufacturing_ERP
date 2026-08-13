@@ -1,155 +1,233 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronRight, ListTree, Plus, Users } from 'lucide-react'
-import { cn } from '@/lib/cn'
+import { Pencil, Plus, Power, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
-import { Card, CardBody, CardHeader, DataRow } from '@/components/ui/Card'
+import { DataTable, type Column } from '@/components/ui/DataTable'
 import { Badge } from '@/components/ui/Badge'
+import { MenuItem } from '@/components/ui/Menu'
+import { PageHeader, Alert } from '@/components/ui/Misc'
 import { Modal } from '@/components/ui/Modal'
-import { Alert, Avatar, PageHeader } from '@/components/ui/Misc'
 import { Input, Select } from '@/components/ui/Input'
 import { useToast } from '@/components/ui/Toast'
-import { costCentres, departments, plants, users } from '@/mock/data'
-import type { Department } from '@/types'
+import { HowItWorks } from '@/components/crud/CrudKit'
+import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
+import { ProblemError } from '@/api/client'
+import { departments as deptApi, type Department } from '@/api/organisation'
+import {
+  useDepartments,
+  useCreateDepartment,
+  useUpdateDepartment,
+  useDeactivateDepartment,
+  useRestoreDepartment,
+} from '@/hooks/useOrganisation'
+import { useSession } from '@/api/session'
+
+/** Wired to the live FastAPI backend (Organisation module). */
+
+const DEPARTMENT_TYPES = [
+  { value: 'PRODUCTION', label: 'Production' },
+  { value: 'QUALITY', label: 'Quality' },
+  { value: 'STORES', label: 'Stores' },
+  { value: 'PURCHASE', label: 'Purchase' },
+  { value: 'SALES', label: 'Sales' },
+  { value: 'FINANCE', label: 'Finance' },
+  { value: 'HR', label: 'HR' },
+  { value: 'MAINTENANCE', label: 'Maintenance' },
+  { value: 'ENGINEERING', label: 'Engineering' },
+  { value: 'ADMIN', label: 'Admin' },
+]
+
+interface FormState {
+  code: string
+  name: string
+  department_type: string
+  parent_uid: string
+}
+
+const BLANK: FormState = { code: '', name: '', department_type: 'PRODUCTION', parent_uid: '' }
 
 export function DepartmentsPage() {
   const toast = useToast()
-  const [expanded, setExpanded] = useState<Set<string>>(new Set(['dep-01']))
-  const [sel, setSel] = useState('dep-07')
-  const [open, setOpen] = useState(false)
+  const companyUid = useSession((s) => s.companyUid)
 
-  const dept = departments.find((d) => d.uid === sel)!
-  const children = departments.filter((d) => d.parentUid === dept.uid)
-  const members = users.filter((u) => u.department === dept.name)
+  const { data, isLoading, error, refetch } = useDepartments({ page_size: 200 })
+  const createDept = useCreateDepartment()
+  const updateDept = useUpdateDepartment()
+  const deactivateDept = useDeactivateDepartment()
+  const restoreDept = useRestoreDepartment()
 
-  const roots = departments.filter((d) => !d.parentUid)
+  const rows = data?.data ?? []
 
-  const renderNode = (d: Department, depth: number) => {
-    const kids = departments.filter((x) => x.parentUid === d.uid)
-    const isOpen = expanded.has(d.uid)
-    return (
-      <div key={d.uid}>
-        <div
-          className={cn(
-            'flex items-center gap-1 rounded px-1 py-1.5 transition-colors',
-            sel === d.uid ? 'bg-brand-500/10' : 'hover:bg-surface-3',
-          )}
-          style={{ paddingLeft: `${depth * 16 + 4}px` }}
-        >
-          <button
-            onClick={() =>
-              setExpanded((s) => {
-                const n = new Set(s)
-                n.has(d.uid) ? n.delete(d.uid) : n.add(d.uid)
-                return n
-              })
-            }
-            className={cn('shrink-0 rounded p-0.5 text-fg-subtle', !kids.length && 'invisible')}
-          >
-            {isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-          </button>
-          <button onClick={() => setSel(d.uid)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
-            <span className={cn('truncate text-xs', sel === d.uid ? 'font-medium text-brand-600' : 'text-fg')}>{d.name}</span>
-            <span className="shrink-0 font-mono text-[9px] text-fg-subtle">{d.code}</span>
-          </button>
-          <span className="shrink-0 text-2xs text-fg-subtle tabular">
-            {users.filter((u) => u.department === d.name).length}
-          </span>
-        </div>
-        {isOpen && kids.map((k) => renderNode(k, depth + 1))}
-      </div>
-    )
+  const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState<Department | null>(null)
+  const [form, setForm] = useState<FormState>(BLANK)
+  const [errors, setErrors] = useState<Record<string, string>>({})
+
+  const set = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }))
+
+  function openCreate() {
+    setEditing(null)
+    setForm(BLANK)
+    setErrors({})
+    setFormOpen(true)
+    deptApi.nextCode().then((code) => setForm((f) => ({ ...f, code }))).catch(() => {})
   }
+
+  function openEdit(d: Department) {
+    setEditing(d)
+    setForm({ code: d.code, name: d.name, department_type: d.department_type, parent_uid: d.parent_uid ?? '' })
+    setErrors({})
+    setFormOpen(true)
+  }
+
+  function handleError(err: unknown, fallback: string) {
+    if (err instanceof ProblemError) {
+      const fe: Record<string, string> = {}
+      for (const e of err.problem.errors ?? []) fe[e.field] = e.message
+      setErrors(fe)
+      toast.error(err.problem.title || 'Request failed', err.problem.detail)
+    } else {
+      toast.error(fallback, err instanceof Error ? err.message : 'Unknown error.')
+    }
+  }
+
+  function save() {
+    setErrors({})
+    if (editing) {
+      updateDept.mutate(
+        { uid: editing.uid, body: { version: editing.version, name: form.name.trim(), department_type: form.department_type, parent_uid: form.parent_uid || null } },
+        {
+          onSuccess: () => {
+            toast.success('Department updated', `${editing.code} saved.`)
+            setFormOpen(false)
+          },
+          onError: (e) => handleError(e, 'Update failed'),
+        },
+      )
+    } else {
+      createDept.mutate(
+        { name: form.name.trim(), department_type: form.department_type, parent_uid: form.parent_uid || null },
+        {
+          onSuccess: (created) => {
+            toast.success('Department created', `${created.code} added.`)
+            setFormOpen(false)
+          },
+          onError: (e) => handleError(e, 'Create failed'),
+        },
+      )
+    }
+  }
+
+  function toggleActive(d: Department) {
+    if (d.is_active) {
+      deactivateDept.mutate(
+        { uid: d.uid, body: { version: d.version } },
+        {
+          onSuccess: () => toast.success('Department deactivated', `${d.name} is now inactive.`),
+          onError: (e) => handleError(e, 'Deactivate failed'),
+        },
+      )
+    } else {
+      restoreDept.mutate(d.uid, {
+        onSuccess: () => toast.success('Department restored', `${d.name} is active again.`),
+        onError: (e) => handleError(e, 'Restore failed'),
+      })
+    }
+  }
+
+  const columns: Column<Department>[] = [
+    { key: 'code', header: 'Code', sortable: true, width: '90px', render: (d) => <span className="font-mono text-xs font-medium">{d.code}</span> },
+    { key: 'name', header: 'Department', sortable: true, render: (d) => <span className="font-medium text-fg">{d.name}</span> },
+    { key: 'parent_code', header: 'Parent', sortable: true, width: '160px', accessor: (d) => d.parent_code ?? '', render: (d) => d.parent_code ? <span className="text-xs text-fg-muted"><span className="font-mono">{d.parent_code}</span> · {d.parent_name}</span> : <span className="text-xs text-fg-subtle">top level</span> },
+    { key: 'department_type', header: 'Type', sortable: true, width: '150px', render: (d) => <Badge tone="neutral" size="sm" dot={false}>{d.department_type.replace(/_/g, ' ').toLowerCase()}</Badge> },
+    {
+      key: 'is_active',
+      header: 'Status',
+      width: '100px',
+      accessor: (d) => (d.is_active ? 'Active' : 'Inactive'),
+      render: (d) => <Badge tone={d.is_active ? 'success' : 'neutral'} size="sm">{d.is_active ? 'Active' : 'Inactive'}</Badge>,
+    },
+  ]
+
+  function doExport(format: ExportFormat) {
+    try {
+      const n = exportRows(format, 'departments', 'Departments', columnsFromTable(columns), rows)
+      toast.success('Export ready', `${n} rows saved as ${format === 'xlsx' ? 'Excel' : format.toUpperCase()}.`)
+    } catch (e) {
+      toast.error('Export failed', e instanceof Error ? e.message : 'Unknown error.')
+    }
+  }
+
+  const saving = createDept.isPending || updateDept.isPending
 
   return (
     <div>
       <PageHeader
         title="Departments"
-        description="The organisational hierarchy that drives approval routing, cost allocation and HR structure."
         breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Organisation' }, { label: 'Departments' }]}
-        actions={<Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setOpen(true)}>New department</Button>}
+        actions={<Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={openCreate}>Add department</Button>}
       />
 
-      <Alert tone="info" className="mb-4" title="Department heads are workflow approvers">
-        Approval rules using the <span className="font-mono">DEPARTMENT_HEAD</span> approver type
-        resolve to the head assigned here. A department with no head assigned causes the workflow to
-        escalate rather than silently auto-approve.
-      </Alert>
+      <HowItWorks>
+        Live data from the Organisation module. Departments organise people and cost ownership; the code is
+        auto-generated. A department can optionally sit under a parent department.
+      </HowItWorks>
 
-      <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
-        <Card className="h-fit">
-          <CardHeader title="Hierarchy" description={`${departments.length} departments`} />
-          <div className="max-h-[62vh] overflow-y-auto p-2">{roots.map((d) => renderNode(d, 0))}</div>
-        </Card>
+      {!companyUid && <Alert tone="warning" title="Not signed in to the backend">Sign in first so the app has an API session.</Alert>}
+      {error && (
+        <Alert tone="danger" title="Could not load departments">
+          {error instanceof ProblemError ? error.problem.detail : 'Is the backend running?'}{' '}
+          <button className="underline" onClick={() => refetch()}>Retry</button>
+        </Alert>
+      )}
 
-        <div className="min-w-0 space-y-4">
-          <Card>
-            <CardHeader title={dept.name} description={dept.departmentType.replace(/_/g, ' ')}
-              actions={<Button size="sm" variant="outline" onClick={() => toast.info('Edit department', `${dept.name} (${dept.code}) — edit the department master.`)}>Edit</Button>} />
-            <CardBody className="grid gap-x-8 sm:grid-cols-2">
-              <DataRow label="Code" value={dept.code} mono />
-              <DataRow label="Type" value={dept.departmentType} />
-              <DataRow label="Head" value={dept.head} />
-              <DataRow label="Cost centre" value={dept.costCentre} mono />
-              <DataRow label="Parent" value={departments.find((d) => d.uid === dept.parentUid)?.name ?? '— top level —'} />
-              <DataRow label="Sub-departments" value={String(children.length)} />
-              <DataRow label="Members" value={String(members.length)} />
-              <DataRow label="Status" value={<Badge tone={dept.isActive ? 'success' : 'neutral'} size="sm">{dept.isActive ? 'Active' : 'Inactive'}</Badge>} />
-            </CardBody>
-          </Card>
+      <DataTable
+        rows={rows}
+        columns={columns}
+        rowKey={(d) => d.uid}
+        loading={isLoading}
+        searchPlaceholder="Department name or code…"
+        onExport={doExport}
+        onRowClick={openEdit}
+        emptyTitle="No departments yet"
+        emptyDescription="Add your first department."
+        emptyAction={<Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={openCreate}>Add department</Button>}
+        rowActions={(d) => (
+          <>
+            <MenuItem label="Edit" icon={<Pencil />} onClick={() => openEdit(d)} />
+            <MenuItem label={d.is_active ? 'Deactivate' : 'Restore'} icon={d.is_active ? <Power /> : <RotateCcw />} separatorBefore onClick={() => toggleActive(d)} />
+          </>
+        )}
+      />
 
-          {children.length > 0 && (
-            <Card>
-              <CardHeader title="Sub-departments" />
-              <table className="grid-table">
-                <thead><tr><th className="w-24">Code</th><th>Department</th><th className="w-40">Head</th><th className="w-32">Cost centre</th></tr></thead>
-                <tbody>
-                  {children.map((c) => (
-                    <tr key={c.uid} className="cursor-pointer" onClick={() => setSel(c.uid)}>
-                      <td className="font-mono text-xs">{c.code}</td>
-                      <td className="text-xs text-fg">{c.name}</td>
-                      <td className="text-xs text-fg-muted">{c.head}</td>
-                      <td className="font-mono text-[11px]">{c.costCentre}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </Card>
-          )}
-
-          <Card>
-            <CardHeader title="Members" description={`${members.length} users assigned to this department`} />
-            {members.length === 0 ? (
-              <CardBody><p className="text-center text-xs text-fg-subtle">No users assigned.</p></CardBody>
-            ) : (
-              <div className="divide-y divide-border">
-                {members.map((u) => (
-                  <div key={u.uid} className="flex items-center gap-3 px-4 py-2.5">
-                    <Avatar name={u.fullName} size="sm" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm text-fg">{u.fullName}</p>
-                      <p className="truncate text-2xs text-fg-subtle">{u.designation}</p>
-                    </div>
-                    {u.fullName === dept.head && <Badge tone="brand" size="sm">Head</Badge>}
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-        </div>
-      </div>
-
-      <Modal open={open} onClose={() => setOpen(false)} title="New department"
-        footer={<><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button variant="primary" onClick={() => { toast.success('Department created'); setOpen(false) }}>Create</Button></>}>
-        <div className="space-y-3.5">
-          <Input label="Department code" required placeholder="TOOL" />
-          <Input label="Department name" required placeholder="Tool Room" />
-          <Select label="Type" required
-            options={['PRODUCTION', 'QUALITY', 'STORES', 'PURCHASE', 'SALES', 'FINANCE', 'HR', 'MAINTENANCE', 'ENGINEERING', 'ADMIN', 'PPC', 'DISPATCH'].map((v) => ({ value: v, label: v }))} />
-          <Select label="Parent department" options={[{ value: '', label: '— top level —' }, ...departments.map((d) => ({ value: d.uid, label: d.name }))]} />
-          <Select label="Department head" options={[{ value: '', label: '— unassigned —' }, ...users.filter((u) => u.status === 'ACTIVE').map((u) => ({ value: u.uid, label: `${u.fullName} — ${u.designation}` }))]}
-            hint="Used by approval rules with the DEPARTMENT_HEAD approver type." />
-          <Select label="Default cost centre" options={costCentres.map((c) => ({ value: c.uid, label: `${c.code} — ${c.name}` }))} />
-          <Select label="Plant" options={[{ value: '', label: '— not plant-specific —' }, ...plants.map((p) => ({ value: p.uid, label: p.name }))]} />
+      <Modal
+        open={formOpen}
+        onClose={() => setFormOpen(false)}
+        title={editing ? `Edit ${editing.code}` : 'Add department'}
+        size="md"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
+            <Button variant="primary" onClick={save} loading={saving}>{editing ? 'Save changes' : 'Add department'}</Button>
+          </>
+        }
+      >
+        <div className="grid gap-3.5 sm:grid-cols-2">
+          <Input label="Department code" value={form.code || 'auto…'} readOnly className="bg-surface-2"
+            hint="Auto-generated · not editable" onChange={() => {}} />
+          <Select label="Type" value={form.department_type} error={errors.department_type}
+            onChange={(e) => set({ department_type: e.target.value })} options={DEPARTMENT_TYPES} />
+          <Input label="Department name" required containerClassName="sm:col-span-2" value={form.name} error={errors.name} maxLength={150}
+            placeholder="Production" onChange={(e) => set({ name: e.target.value })} />
+          <Select label="Parent department (optional)" containerClassName="sm:col-span-2" value={form.parent_uid}
+            error={errors.parent_uid}
+            hint={editing ? 'A department cannot be its own parent or a child of its descendants.' : undefined}
+            onChange={(e) => set({ parent_uid: e.target.value })}
+            options={[
+              { value: '', label: '— none (top level) —' },
+              ...rows
+                .filter((d) => d.is_active && d.uid !== editing?.uid)
+                .map((d) => ({ value: d.uid, label: `${d.code} — ${d.name}` })),
+            ]} />
         </div>
       </Modal>
     </div>

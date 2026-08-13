@@ -161,18 +161,24 @@ class WarehouseType(StrEnum):
 
 
 class BinType(StrEnum):
-    FLOOR = "FLOOR"
     RACK = "RACK"
     PALLET = "PALLET"
-    SHELF = "SHELF"
-    COIL_STAND = "COIL_STAND"
     BULK = "BULK"
+    COIL_STAND = "COIL_STAND"
+    FLOOR = "FLOOR"
+    SHELF = "SHELF"
+    BIN_BOX = "BIN_BOX"
+    TANK = "TANK"
+    STAGING = "STAGING"
 
 
 class BinStatus(StrEnum):
     AVAILABLE = "AVAILABLE"
-    BLOCKED = "BLOCKED"
     FULL = "FULL"
+    BLOCKED = "BLOCKED"
+    UNDER_COUNT = "UNDER_COUNT"
+    DAMAGED = "DAMAGED"
+    INACTIVE = "INACTIVE"
 
 
 class DepartmentType(StrEnum):

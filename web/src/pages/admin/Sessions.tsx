@@ -1,82 +1,71 @@
 import { useState } from 'react'
-import { LogOut, Monitor, Plus, ScanLine, Smartphone, Tablet } from 'lucide-react'
+import { LogOut, Monitor, Smartphone, Tablet } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { Badge } from '@/components/ui/Badge'
-import { Card, CardBody, CardHeader } from '@/components/ui/Card'
+import { Card, CardBody } from '@/components/ui/Card'
 import { MenuItem } from '@/components/ui/Menu'
 import { Alert, Avatar, PageHeader } from '@/components/ui/Misc'
 import { Tabs } from '@/components/ui/Tabs'
-import { Modal } from '@/components/ui/Modal'
-import { Input, Select, Switch } from '@/components/ui/Input'
 import { useToast } from '@/components/ui/Toast'
-import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDateTime, formatTimeAgo } from '@/lib/format'
-import { plants, sessions } from '@/mock/data'
-import type { Session } from '@/types'
+import { ProblemError } from '@/api/client'
+import { useSession } from '@/api/session'
+import type { Session } from '@/api/iam'
+import { useSessions, useRevokeSession } from '@/hooks/useIam'
 
-const DEVICES = [
-  { uid: 'dev-01', code: 'HH-014', name: 'Line A handheld', type: 'HANDHELD', plant: 'Plant 1 — Sriperumbudur', platform: 'Zebra TC26 / Android 13', pinLogin: true, lastSeen: 'now', registered: true },
-  { uid: 'dev-02', code: 'HH-015', name: 'Line B handheld', type: 'HANDHELD', plant: 'Plant 1 — Sriperumbudur', platform: 'Zebra TC26 / Android 13', pinLogin: true, lastSeen: '12m ago', registered: true },
-  { uid: 'dev-03', code: 'KSK-01', name: 'Press shop kiosk', type: 'KIOSK', plant: 'Plant 1 — Sriperumbudur', platform: 'Android 12 tablet', pinLogin: true, lastSeen: '3m ago', registered: true },
-  { uid: 'dev-04', code: 'KSK-02', name: 'Coating shop kiosk', type: 'KIOSK', plant: 'Plant 1 — Sriperumbudur', platform: 'Android 12 tablet', pinLogin: true, lastSeen: '2h ago', registered: true },
-  { uid: 'dev-05', code: 'TB-QC-01', name: 'QC inspection tablet', type: 'TABLET', plant: 'Plant 1 — Sriperumbudur', platform: 'iPad / iPadOS 18', pinLogin: false, lastSeen: '41m ago', registered: true },
-  { uid: 'dev-06', code: 'HH-021', name: 'FG store handheld', type: 'HANDHELD', plant: 'Plant 1 — Sriperumbudur', platform: 'TSC Alpha-30R / Android 11', pinLogin: true, lastSeen: '6h ago', registered: true },
-  { uid: 'dev-07', code: 'HH-030', name: 'Hosur store handheld', type: 'HANDHELD', plant: 'Plant 2 — Hosur', platform: 'Zebra TC22 / Android 13', pinLogin: true, lastSeen: '1d ago', registered: true },
-  { uid: 'dev-08', code: 'HH-031', name: 'Unassigned spare', type: 'HANDHELD', plant: '—', platform: 'Zebra TC22 / Android 13', pinLogin: false, lastSeen: 'never', registered: false },
-]
+/** Active sessions are wired to the live DB-backed refresh-token sessions.
+ * The device-registry and session-policy tabs are previews of subsystems that
+ * do not have a backend yet (shop-floor device management, policy engine). */
+
+const statusTone = (s: string): 'success' | 'neutral' | 'danger' =>
+  s === 'ACTIVE' ? 'success' : s === 'REVOKED' ? 'danger' : 'neutral'
 
 export function SessionsPage() {
   const toast = useToast()
-
-  function doExport(format: ExportFormat) {
-    try {
-      const n = exportRows(format, 'sessions-devices', 'Sessions & devices', columnsFromTable(columns), sessions)
-      toast.success('Export ready', n + ' rows written as ' + (format === 'xlsx' ? 'Excel' : format.toUpperCase()) + '.')
-    } catch (e) {
-      toast.error('Export failed', e instanceof Error ? e.message : 'Unknown error.')
-    }
-  }
+  const companyUid = useSession((s) => s.companyUid)
+  const { data, isLoading, error, refetch } = useSessions()
+  const revoke = useRevokeSession()
+  const sessions = data ?? []
   const [tab, setTab] = useState('sessions')
-  const [regOpen, setRegOpen] = useState(false)
-  const [shopUnlimited, setShopUnlimited] = useState(true)
-  const [notifyNewDevice, setNotifyNewDevice] = useState(true)
-  const [invalidateFamily, setInvalidateFamily] = useState(true)
-  const [regPinLogin, setRegPinLogin] = useState(true)
+
+  function revokeSession(s: Session) {
+    revoke.mutate(s.uid, {
+      onSuccess: () => toast.success('Session revoked', `${s.user_name}'s session was terminated.`),
+      onError: (e) => toast.error('Failed', e instanceof ProblemError ? e.problem.detail : 'Could not revoke.'),
+    })
+  }
 
   const columns: Column<Session>[] = [
     {
-      key: 'userName',
+      key: 'user_name',
       header: 'User',
       sortable: true,
       render: (s) => (
         <span className="flex items-center gap-2">
-          <Avatar name={s.userName} size="sm" />
-          <span className="text-sm text-fg">{s.userName}</span>
+          <Avatar name={s.user_name} size="sm" />
+          <span className="min-w-0">
+            <span className="block truncate text-sm text-fg">{s.user_name}</span>
+            <span className="block truncate font-mono text-2xs text-fg-subtle">{s.user_login}</span>
+          </span>
         </span>
       ),
     },
+    { key: 'ip_address', header: 'IP address', width: '130px', render: (s) => <span className="font-mono text-[11px]">{s.ip_address ?? '—'}</span> },
+    { key: 'issued_at', header: 'Started', sortable: true, width: '150px', render: (s) => formatDateTime(s.issued_at) },
+    { key: 'expires_at', header: 'Expires', sortable: true, width: '130px', render: (s) => <span className="text-xs text-fg-muted">{formatTimeAgo(s.expires_at)}</span> },
     {
-      key: 'device',
-      header: 'Device',
+      key: 'status',
+      header: 'Status',
       sortable: true,
+      width: '120px',
+      accessor: (s) => s.status,
       render: (s) => (
-        <span className="flex items-center gap-1.5 text-xs text-fg-muted">
-          {s.channel === 'MOBILE' ? <Smartphone className="h-3.5 w-3.5" /> : s.channel === 'KIOSK' ? <Tablet className="h-3.5 w-3.5" /> : <Monitor className="h-3.5 w-3.5" />}
-          {s.device}
+        <span className="flex items-center gap-1.5">
+          <Badge tone={statusTone(s.status)} size="sm">{s.status.toLowerCase()}</Badge>
+          {s.is_current && <Badge tone="brand" size="sm">this session</Badge>}
         </span>
       ),
-    },
-    { key: 'channel', header: 'Channel', sortable: true, width: '90px', render: (s) => <Badge tone={s.channel === 'PORTAL' ? 'warning' : 'neutral'} size="sm" dot={false}>{s.channel}</Badge> },
-    { key: 'ipAddress', header: 'IP address', width: '120px', render: (s) => <span className="font-mono text-[11px]">{s.ipAddress}</span> },
-    { key: 'location', header: 'Location', width: '130px' },
-    { key: 'startedAt', header: 'Started', sortable: true, width: '140px', render: (s) => formatDateTime(s.startedAt) },
-    {
-      key: 'lastActivityAt',
-      header: 'Last active',
-      sortable: true,
-      width: '110px',
-      render: (s) => (s.isCurrent ? <Badge tone="success" size="sm">This session</Badge> : <span className="text-xs text-fg-muted">{formatTimeAgo(s.lastActivityAt)}</span>),
     },
   ]
 
@@ -84,21 +73,12 @@ export function SessionsPage() {
     <div>
       <PageHeader
         title="Sessions & devices"
-        description="Live sessions across web, mobile, kiosk and portal — and the registry of shop-floor devices permitted to accept PIN or badge login."
+        description="Live login sessions across the company. Device registry and session policy are previews of subsystems that are not built yet."
         breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Access Control' }, { label: 'Sessions & devices' }]}
-        actions={
-          tab === 'devices' ? (
-            <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setRegOpen(true)}>Register device</Button>
-          ) : (
-            <Button variant="danger" size="sm" icon={<LogOut className="h-4 w-4" />} onClick={() => toast.warning('All sessions terminated', 'Every user except you must sign in again.')}>
-              Terminate all
-            </Button>
-          )
-        }
         tabs={
           <Tabs active={tab} onChange={setTab} tabs={[
-            { id: 'sessions', label: 'Active sessions', count: sessions.length },
-            { id: 'devices', label: 'Device registry', count: DEVICES.length },
+            { id: 'sessions', label: 'Active sessions', count: sessions.filter((s) => s.status === 'ACTIVE').length },
+            { id: 'devices', label: 'Device registry' },
             { id: 'policy', label: 'Session policy' },
           ]} />
         }
@@ -106,117 +86,66 @@ export function SessionsPage() {
 
       {tab === 'sessions' && (
         <>
+          {!companyUid && <Alert tone="warning" title="Not signed in to the backend">Sign in first so the app has an API session.</Alert>}
+          {error && (
+            <Alert tone="danger" title="Could not load sessions">
+              {error instanceof ProblemError ? error.problem.detail : 'Is the backend running?'}{' '}
+              <button className="underline" onClick={() => refetch()}>Retry</button>
+            </Alert>
+          )}
           <DataTable
             rows={sessions}
             columns={columns}
             rowKey={(s) => s.uid}
-            searchPlaceholder="User, device or IP…"
-            onExport={doExport}
+            loading={isLoading}
+            searchPlaceholder="User or IP…"
+            emptyTitle="No sessions"
+            emptyDescription="Sessions appear here as users sign in."
             rowActions={(s) => (
-              <>
-                <MenuItem label="View user" onClick={() => toast.info('View user', `Open the profile for ${s.userName}.`)} />
-                <MenuItem label="Sign out this session" icon={<LogOut />} danger disabled={s.isCurrent}
-                  onClick={() => toast.success('Session terminated', `${s.userName} was signed out of ${s.device}.`)} />
-              </>
+              <MenuItem
+                label="Revoke session"
+                icon={<LogOut />}
+                danger
+                disabled={s.is_current || s.status !== 'ACTIVE'}
+                onClick={() => revokeSession(s)}
+              />
             )}
           />
+          <p className="mt-2 text-2xs text-fg-subtle">
+            Revoking a session invalidates its refresh token immediately; the user must sign in again.
+            Your own current session cannot be revoked here.
+          </p>
         </>
       )}
 
       {tab === 'devices' && (
-        <>
-          <Alert tone="info" className="mb-4" title="Why devices are registered">
-            Shop-floor PIN and badge login only works on a device registered to that plant. This keeps
-            a low-friction credential bound to a physical location, while every transaction is still
-            attributed to the individual operator — never to a shared account.
-          </Alert>
-
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {DEVICES.map((d) => (
-              <Card key={d.uid}>
-                <CardBody>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-sm font-medium text-fg">{d.code}</span>
-                        <Badge tone={d.registered ? 'success' : 'warning'} size="sm">
-                          {d.registered ? 'Registered' : 'Unregistered'}
-                        </Badge>
-                      </div>
-                      <p className="mt-0.5 truncate text-xs text-fg-muted">{d.name}</p>
-                    </div>
-                    <span className="shrink-0 rounded bg-surface-3 p-1.5 text-fg-subtle">
-                      {d.type === 'KIOSK' ? <Tablet className="h-4 w-4" /> : d.type === 'TABLET' ? <Tablet className="h-4 w-4" /> : <Smartphone className="h-4 w-4" />}
-                    </span>
-                  </div>
-                  <dl className="mt-3 space-y-1 text-2xs">
-                    <div className="flex justify-between"><dt className="text-fg-subtle">Plant</dt><dd className="text-fg-muted">{d.plant}</dd></div>
-                    <div className="flex justify-between"><dt className="text-fg-subtle">Platform</dt><dd className="text-fg-muted">{d.platform}</dd></div>
-                    <div className="flex justify-between"><dt className="text-fg-subtle">PIN login</dt><dd className={d.pinLogin ? 'text-success' : 'text-fg-subtle'}>{d.pinLogin ? 'Enabled' : 'Disabled'}</dd></div>
-                    <div className="flex justify-between"><dt className="text-fg-subtle">Last seen</dt><dd className="text-fg-muted">{d.lastSeen}</dd></div>
-                  </dl>
-                  <div className="mt-3 flex gap-1.5">
-                    <Button size="xs" variant="outline" className="flex-1" onClick={() => toast.info('Edit device', `${d.code} — ${d.name}. Device configuration.`)}>Edit</Button>
-                    <Button size="xs" variant="ghost" className="flex-1" onClick={() => toast.success('Label queued', 'ZPL sent to the RM Store printer.')}>Print label</Button>
-                  </div>
-                </CardBody>
-              </Card>
-            ))}
-          </div>
-        </>
+        <Card>
+          <CardBody className="py-10 text-center">
+            <div className="mx-auto mb-3 flex w-fit gap-2 text-fg-subtle">
+              <Smartphone className="h-5 w-5" /><Tablet className="h-5 w-5" /><Monitor className="h-5 w-5" />
+            </div>
+            <p className="text-sm font-medium text-fg">Device registry — not yet available</p>
+            <p className="mx-auto mt-1 max-w-md text-xs text-fg-muted">
+              Registering shop-floor handhelds and kiosks for PIN/badge login needs the shop-floor
+              device subsystem (a device master + kiosk auth), which isn't built yet. It will live here
+              once that module lands.
+            </p>
+          </CardBody>
+        </Card>
       )}
 
       {tab === 'policy' && (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
-            <CardHeader title="Session lifetime" />
-            <CardBody className="space-y-3.5">
-              <Input label="Idle timeout (minutes)" type="number" defaultValue={30} hint="A warning appears 2 minutes before expiry with an extend option." />
-              <Input label="Absolute session lifetime (hours)" type="number" defaultValue={12} />
-              <Input label="Mobile re-authentication (hours)" type="number" defaultValue={12} hint="Biometric unlock is permitted in the interim." />
-              <Input label="Shop-floor kiosk auto-lock (minutes)" type="number" defaultValue={5} />
-            </CardBody>
-          </Card>
-          <Card>
-            <CardHeader title="Concurrency" />
-            <CardBody className="space-y-3.5">
-              <Input label="Max concurrent sessions — internal user" type="number" defaultValue={3} />
-              <Input label="Max concurrent sessions — portal user" type="number" defaultValue={1} />
-              <Select label="When the limit is exceeded" defaultValue="evict"
-                options={[{ value: 'evict', label: 'Evict the oldest session' }, { value: 'block', label: 'Block the new login' }]} />
-              <Switch checked={shopUnlimited} onChange={setShopUnlimited} label="Shop-floor devices: unlimited concurrent sessions" />
-              <Switch checked={notifyNewDevice} onChange={setNotifyNewDevice} label="Notify the user by email on login from a new device" />
-              <Switch checked={invalidateFamily} onChange={setInvalidateFamily} label="Invalidate the whole session family if a refresh token is reused" />
-              <Alert tone="warning" className="mt-2">
-                Refresh-token reuse means the token was stolen. Invalidating the family and raising a
-                security alert is the correct response — do not disable this.
-              </Alert>
-            </CardBody>
-          </Card>
-        </div>
+        <Card>
+          <CardBody className="py-10 text-center">
+            <p className="text-sm font-medium text-fg">Session policy — not yet available</p>
+            <p className="mx-auto mt-1 max-w-md text-xs text-fg-muted">
+              Idle timeout, absolute lifetime and concurrency limits need a policy store that the auth
+              service reads and enforces. Today the backend uses fixed token lifetimes (15-min access,
+              rotating refresh). Configurable policy is a future enhancement.
+            </p>
+          </CardBody>
+        </Card>
       )}
-
-      <Modal
-        open={regOpen}
-        onClose={() => setRegOpen(false)}
-        size="sm"
-        title="Register a device"
-        description="Only registered devices may accept PIN or badge login."
-        footer={
-          <>
-            <Button variant="outline" onClick={() => setRegOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={() => { toast.success('Device registered'); setRegOpen(false) }}>Register</Button>
-          </>
-        }
-      >
-        <div className="space-y-3.5">
-          <Input label="Device code" required placeholder="HH-032" hint="Printed on the physical device label." />
-          <Input label="Device name" required placeholder="Line C handheld" />
-          <Select label="Device type" required options={[{ value: 'HANDHELD', label: 'Handheld scanner' }, { value: 'TABLET', label: 'Tablet' }, { value: 'KIOSK', label: 'Fixed kiosk' }, { value: 'PHONE', label: 'Phone' }]} />
-          <Select label="Plant" required options={plants.map((p) => ({ value: p.uid, label: p.name }))} />
-          <Switch checked={regPinLogin} onChange={setRegPinLogin} label="Allow PIN / badge login on this device" />
-        </div>
-      </Modal>
     </div>
   )
 }
