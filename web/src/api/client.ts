@@ -66,7 +66,11 @@ interface RequestOptions {
 }
 
 function buildUrl(path: string, params?: RequestOptions['params']): string {
-  const url = new URL(BASE_URL.replace(/\/$/, '') + path)
+  const base = BASE_URL.replace(/\/$/, '')
+  // Support both an absolute base (http://host/api/v1) and a relative one
+  // (/api/v1, served same-origin via the Vite dev proxy).
+  const absolute = /^https?:\/\//i.test(base) ? base + path : window.location.origin + base + path
+  const url = new URL(absolute)
   if (params) {
     for (const [k, v] of Object.entries(params)) {
       if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v))
@@ -137,7 +141,14 @@ async function request<T>(method: string, path: string, opts: RequestOptions = {
     return request<T>(method, path, { ...opts, _retried: true })
   }
   if (res.status === 401) {
+    // The session is gone and refresh could not recover it. Clear it and send the
+    // user to sign in, rather than leaving them on an API-backed page that just
+    // keeps erroring with "Missing Authorization header". The path guard avoids a
+    // redirect loop while ON /login (e.g. a wrong-password 401 shows inline there).
     clearSession()
+    if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+      window.location.assign('/login')
+    }
   }
   return (await parse(res)) as T
 }
@@ -145,6 +156,7 @@ async function request<T>(method: string, path: string, opts: RequestOptions = {
 export const api = {
   get: <T>(path: string, params?: RequestOptions['params']) => request<T>('GET', path, { params }),
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, { body }),
+  put: <T>(path: string, body?: unknown) => request<T>('PUT', path, { body }),
   patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, { body }),
   del: <T>(path: string) => request<T>('DELETE', path),
 }

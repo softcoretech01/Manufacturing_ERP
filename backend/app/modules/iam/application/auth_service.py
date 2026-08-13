@@ -19,9 +19,10 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.audit import CoreAuditLog
 from app.core.config import settings
 from app.core.context import TenantContext
-from app.core.enums import PermissionEffect, RowRule, UserStatus
+from app.core.enums import AuditAction, PermissionEffect, RowRule, UserStatus
 from app.core.errors import ForbiddenError, UnauthenticatedError
 from app.core.ids import new_uid
 from app.core.security import (
@@ -49,6 +50,34 @@ class TokenBundle:
     user_name: str
     company_uid: str
     company_id: int
+
+
+def _audit_login(
+    session: AsyncSession,
+    *,
+    company_id: int | None,
+    user_id: int,
+    user_name: str,
+    action: AuditAction,
+    ip: str | None,
+) -> None:
+    """Write a login/logout event to the audit log. Only ever called on paths that
+    commit (successful login, logout) — failed-login auditing would need a separate
+    commit because the request rolls back, so it is intentionally not done here."""
+    session.add(
+        CoreAuditLog(
+            company_id=company_id,
+            occurred_at=utcnow(),
+            actor_user_id=user_id,
+            actor_name=user_name,
+            entity_type="sys_user",
+            entity_id=user_id,
+            action=action.value,
+            ip_address=ip,
+            channel="WEB",
+            correlation_id="-",
+        )
+    )
 
 
 def _hash_refresh(token: str) -> str:
@@ -219,6 +248,14 @@ async def authenticate(
     user.failed_attempts = 0
     user.locked_until = None
     user.last_login_at = utcnow()
+    _audit_login(
+        session,
+        company_id=company.id,
+        user_id=user.id,
+        user_name=user.full_name,
+        action=AuditAction.LOGIN,
+        ip=ip,
+    )
     return await _issue_tokens(session, user, company, ip=ip)
 
 
@@ -251,3 +288,15 @@ async def logout(session: AsyncSession, *, refresh_token: str) -> None:
     ).scalar_one_or_none()
     if sess is not None and sess.revoked_at is None:
         sess.revoked_at = utcnow()
+        user = (
+            await session.execute(select(SysUser).where(SysUser.id == sess.user_id))
+        ).scalar_one_or_none()
+        if user is not None:
+            _audit_login(
+                session,
+                company_id=sess.company_id,
+                user_id=sess.user_id,
+                user_name=user.full_name,
+                action=AuditAction.LOGOUT,
+                ip=None,
+            )

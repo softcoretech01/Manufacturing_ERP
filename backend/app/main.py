@@ -23,8 +23,12 @@ from app.core.logging import configure_logging
 from app.core.middleware import CorrelationIdMiddleware
 from app.core.security import ensure_dev_keys
 from app.models import Base  # noqa: F401  (registers metadata)
+from app.modules.iam.api.management_router import router as iam_mgmt_router
 from app.modules.iam.api.router import router as iam_router
+from app.modules.inventory.api.routers import router as inventory_router
+from app.modules.numbering.api.router import router as numbering_router
 from app.modules.organisation.api.routers import router as org_router
+from app.modules.workflow.api.routers import router as workflow_router
 
 
 @asynccontextmanager
@@ -63,7 +67,11 @@ def create_app() -> FastAPI:
 
     api = settings.api_v1_prefix
     app.include_router(iam_router, prefix=api)
+    app.include_router(iam_mgmt_router, prefix=api)
     app.include_router(org_router, prefix=api)
+    app.include_router(inventory_router, prefix=api)
+    app.include_router(workflow_router, prefix=api)
+    app.include_router(numbering_router, prefix=api)
 
     @app.get("/health", tags=["Health"])
     async def health() -> dict[str, str]:

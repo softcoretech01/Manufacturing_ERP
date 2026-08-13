@@ -58,8 +58,15 @@ function makeHooks<TOut extends { uid: string }, TCreate, TUpdate>(
 
   const useInvalidate = () => {
     const qc = useQueryClient()
-    const companyUid = useSession((s) => s.companyUid)
-    return () => qc.invalidateQueries({ queryKey: ['org', companyUid, resource] })
+    // Invalidate every org query for the current resource across all companies.
+    // Dropping companyUid avoids a stale-closure miss (the captured value could
+    // predate session hydration), and refetchType:'active' forces the mounted
+    // list to refetch so the table always reflects the write.
+    return () =>
+      qc.invalidateQueries({
+        predicate: (q) => q.queryKey[0] === 'org' && q.queryKey[2] === resource,
+        refetchType: 'active',
+      })
   }
 
   const useCreate = (): UseMutationResult<TOut, unknown, TCreate> => {
@@ -107,21 +114,32 @@ export const useUpdateCompany = companyHooks.useUpdate
 
 const plantHooks = makeHooks('plants', org.plants)
 export const usePlants = plantHooks.useList
+export const usePlant = plantHooks.useGet
 export const useCreatePlant = plantHooks.useCreate
 export const useUpdatePlant = plantHooks.useUpdate
 export const useDeactivatePlant = plantHooks.useDeactivate
+export const useRestorePlant = plantHooks.useRestore
 
 const warehouseHooks = makeHooks('warehouses', org.warehouses)
 export const useWarehouses = warehouseHooks.useList
 export const useCreateWarehouse = warehouseHooks.useCreate
+export const useUpdateWarehouse = warehouseHooks.useUpdate
+export const useDeactivateWarehouse = warehouseHooks.useDeactivate
+export const useRestoreWarehouse = warehouseHooks.useRestore
 
 const departmentHooks = makeHooks('departments', org.departments)
 export const useDepartments = departmentHooks.useList
 export const useCreateDepartment = departmentHooks.useCreate
+export const useUpdateDepartment = departmentHooks.useUpdate
+export const useDeactivateDepartment = departmentHooks.useDeactivate
+export const useRestoreDepartment = departmentHooks.useRestore
 
 const costCentreHooks = makeHooks('cost-centres', org.costCentres)
 export const useCostCentres = costCentreHooks.useList
 export const useCreateCostCentre = costCentreHooks.useCreate
+export const useUpdateCostCentre = costCentreHooks.useUpdate
+export const useDeactivateCostCentre = costCentreHooks.useDeactivate
+export const useRestoreCostCentre = costCentreHooks.useRestore
 
 /* ─────────────────────────── Bespoke: FY + currency ─────────────────────────── */
 export function useFinancialYears() {
@@ -133,6 +151,49 @@ export function useFinancialYears() {
   })
 }
 
+export function useFinancialYearPeriods(uid: string | undefined) {
+  const companyUid = useSession((s) => s.companyUid)
+  return useQuery({
+    queryKey: orgKeys.detail(companyUid, 'financial-years', `${uid}:periods`),
+    queryFn: () => org.financialYears.periods(uid as string),
+    enabled: !!companyUid && !!uid,
+  })
+}
+
+function useInvalidateFy() {
+  const qc = useQueryClient()
+  return () =>
+    qc.invalidateQueries({
+      predicate: (q) => q.queryKey[0] === 'org' && q.queryKey[2] === 'financial-years',
+      refetchType: 'active',
+    })
+}
+
+export function useCreateFinancialYear() {
+  const invalidate = useInvalidateFy()
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) => org.financialYears.create(body),
+    onSuccess: invalidate,
+  })
+}
+
+export function useSetCurrentFinancialYear() {
+  const invalidate = useInvalidateFy()
+  return useMutation({
+    mutationFn: (uid: string) => org.financialYears.setCurrent(uid),
+    onSuccess: invalidate,
+  })
+}
+
+export function useOrgStructure() {
+  const companyUid = useSession((s) => s.companyUid)
+  return useQuery({
+    queryKey: orgKeys.list(companyUid, 'structure'),
+    queryFn: () => org.structure.get(),
+    enabled: !!companyUid,
+  })
+}
+
 export function useCurrencies() {
   const companyUid = useSession((s) => s.companyUid)
   return useQuery({
@@ -140,5 +201,26 @@ export function useCurrencies() {
     queryFn: () => org.currencies.list(),
     enabled: !!companyUid,
     staleTime: 60 * 60 * 1000, // currencies rarely change
+  })
+}
+
+export function useExchangeRates(params?: ListParams) {
+  const companyUid = useSession((s) => s.companyUid)
+  return useQuery({
+    queryKey: orgKeys.list(companyUid, 'exchange-rates', params),
+    queryFn: () => org.exchangeRates.list(params),
+    enabled: !!companyUid,
+  })
+}
+
+export function useCreateExchangeRate() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) => org.exchangeRates.create(body),
+    onSuccess: () =>
+      qc.invalidateQueries({
+        predicate: (q) => q.queryKey[0] === 'org' && q.queryKey[2] === 'exchange-rates',
+        refetchType: 'active',
+      }),
   })
 }

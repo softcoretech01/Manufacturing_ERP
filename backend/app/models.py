@@ -11,13 +11,20 @@ from app.core.audit import CoreAuditLog  # noqa: F401
 from app.core.base import Base
 from app.core.outbox import CoreOutbox  # noqa: F401
 from app.modules.iam.infrastructure.models import (  # noqa: F401
+    SysApiKey,
+    SysDelegation,
     SysPermission,
     SysRole,
     SysRolePermission,
     SysSession,
+    SysSodRule,
     SysUser,
     SysUserCompany,
     SysUserRole,
+)
+from app.modules.inventory.infrastructure.models import (  # noqa: F401
+    InvBin,
+    InvZone,
 )
 from app.modules.organisation.infrastructure.models import (  # noqa: F401
     MstCurrency,
@@ -31,6 +38,17 @@ from app.modules.organisation.infrastructure.models import (  # noqa: F401
     SysFinancialYear,
     SysPlant,
     SysWarehouse,
+)
+from app.modules.numbering.infrastructure.models import (  # noqa: F401
+    CoreNumberAllocation,
+    CoreNumberSeries,
+)
+from app.modules.workflow.infrastructure.models import (  # noqa: F401
+    CoreApprovalRule,
+    CoreApprovalRuleLevel,
+    CoreWorkflowHistory,
+    CoreWorkflowInstance,
+    CoreWorkflowTask,
 )
 
 __all__ = ["Base"]

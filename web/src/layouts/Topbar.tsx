@@ -29,8 +29,8 @@ import { PORTALS, portalOf } from '@/config/portals'
 import { useActiveContext, useAuth, useCurrentUser } from '@/store/auth'
 import { useUi } from '@/store/ui'
 import { branches, companies, financialYears, plants } from '@/mock/data'
-import { isApprovable } from '@/lib/procFlow'
-import { approvalTasks, inAppNotifications } from '@/mock/data2'
+import { inAppNotifications } from '@/mock/data2'
+import { useInbox } from '@/hooks/useWorkflow'
 import { Drawer } from '@/components/ui/Modal'
 
 export function Topbar() {
@@ -42,8 +42,9 @@ export function Topbar() {
   const { theme, setTheme, setCommandOpen, readNotifications, markRead, markAllRead } = useUi()
   const [notifOpen, setNotifOpen] = useState(false)
 
-  const pending = approvalTasks.filter((t) => t.status === 'PENDING' && isApprovable(t.documentType))
-  const overdue = pending.filter((t) => t.isOverdue).length
+  // Real approval queue: this user's pending workflow tasks (V1-WFL S-WFL-03).
+  const pending = useInbox(false).data ?? []
+  const overdue = pending.filter((t) => t.overdue).length
   const notifications = inAppNotifications.map((n) => ({
     ...n,
     isRead: n.isRead || readNotifications.includes(n.uid),

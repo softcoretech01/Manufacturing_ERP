@@ -7,6 +7,7 @@ from __future__ import annotations
 from datetime import date
 
 from sqlalchemy import Select, func, select
+from sqlalchemy.orm import selectinload
 
 from app.core.repository import BaseRepository
 from app.modules.organisation.infrastructure.models import (
@@ -116,6 +117,13 @@ class WarehouseRepository(BaseRepository[SysWarehouse]):
 class DepartmentRepository(BaseRepository[SysDepartment]):
     model = SysDepartment
 
+    def _scoped(self, *, include_deleted: bool = False) -> Select[tuple[SysDepartment]]:
+        # Eager-load the parent (one level) on every read — list, get, update — so
+        # parent code/name serialise without an async lazy load.
+        return super()._scoped(include_deleted=include_deleted).options(
+            selectinload(SysDepartment.parent)
+        )
+
     async def parent_map(self, company_id: int) -> dict[int, int | None]:
         stmt = select(SysDepartment.id, SysDepartment.parent_id).where(
             SysDepartment.company_id == company_id, SysDepartment.deleted_at.is_(None)
@@ -137,6 +145,11 @@ class DepartmentRepository(BaseRepository[SysDepartment]):
 
 class CostCentreRepository(BaseRepository[SysCostCentre]):
     model = SysCostCentre
+
+    def _scoped(self, *, include_deleted: bool = False) -> Select[tuple[SysCostCentre]]:
+        return super()._scoped(include_deleted=include_deleted).options(
+            selectinload(SysCostCentre.parent)
+        )
 
     async def parent_map(self, company_id: int) -> dict[int, int | None]:
         stmt = select(SysCostCentre.id, SysCostCentre.parent_id).where(

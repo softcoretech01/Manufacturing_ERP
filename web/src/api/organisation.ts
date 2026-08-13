@@ -97,6 +97,11 @@ export interface Branch {
   gstin: string | null
   has_separate_gstin: boolean
   gst_state_code: string | null
+  address_line1: string | null
+  pincode: string | null
+  phone: string | null
+  email: string | null
+  contact_person: string | null
   is_active: boolean
   version: number
 }
@@ -105,7 +110,12 @@ export interface Plant {
   uid: string
   code: string
   name: string
+  branch_uid: string | null
+  branch_code: string | null
+  branch_name: string | null
   factory_licence_no: string | null
+  factory_licence_valid_to: string | null
+  pollution_consent_no: string | null
   installed_capacity_per_day: number | null
   is_active: boolean
   version: number
@@ -115,6 +125,12 @@ export interface Warehouse {
   uid: string
   code: string
   name: string
+  branch_uid: string | null
+  branch_code: string | null
+  branch_name: string | null
+  plant_uid: string | null
+  plant_code: string | null
+  plant_name: string | null
   warehouse_type: string
   is_bin_managed: boolean
   is_batch_mandatory: boolean
@@ -129,6 +145,9 @@ export interface Department {
   code: string
   name: string
   department_type: string
+  parent_uid: string | null
+  parent_code: string | null
+  parent_name: string | null
   level: number
   is_active: boolean
   version: number
@@ -139,6 +158,9 @@ export interface CostCentre {
   code: string
   name: string
   cost_centre_type: string
+  parent_uid: string | null
+  parent_code: string | null
+  parent_name: string | null
   level: number
   is_postable: boolean
   is_active: boolean
@@ -173,6 +195,8 @@ export interface Crud<TOut, TCreate, TUpdate> {
   update: (uid: string, body: Versioned<TUpdate>) => Promise<TOut>
   deactivate: (uid: string, body: DeactivateBody) => Promise<TOut>
   restore: (uid: string) => Promise<TOut>
+  /** Preview the next auto-generated code (read-only in the form). */
+  nextCode: () => Promise<string>
 }
 
 function crud<TOut, TCreate, TUpdate>(resource: string): Crud<TOut, TCreate, TUpdate> {
@@ -183,15 +207,16 @@ function crud<TOut, TCreate, TUpdate>(resource: string): Crud<TOut, TCreate, TUp
     update: (uid, body) => api.patch<TOut>(`/${resource}/${uid}`, body),
     deactivate: (uid, body) => api.post<TOut>(`/${resource}/${uid}/deactivate`, body),
     restore: (uid) => api.post<TOut>(`/${resource}/${uid}/restore`),
+    nextCode: () => api.get<{ code: string }>(`/${resource}/next-code`).then((r) => r.code),
   }
 }
 
-export const companies = crud<Company, Partial<Company>, Partial<Company>>('companies')
-export const branches = crud<Branch, Partial<Branch>, Partial<Branch>>('branches')
-export const plants = crud<Plant, Record<string, unknown>, Partial<Plant>>('plants')
-export const warehouses = crud<Warehouse, Record<string, unknown>, Partial<Warehouse>>('warehouses')
-export const departments = crud<Department, Record<string, unknown>, Partial<Department>>('departments')
-export const costCentres = crud<CostCentre, Record<string, unknown>, Partial<CostCentre>>('cost-centres')
+export const companies = crud<Company, Record<string, unknown>, Record<string, unknown>>('companies')
+export const branches = crud<Branch, Record<string, unknown>, Record<string, unknown>>('branches')
+export const plants = crud<Plant, Record<string, unknown>, Record<string, unknown>>('plants')
+export const warehouses = crud<Warehouse, Record<string, unknown>, Record<string, unknown>>('warehouses')
+export const departments = crud<Department, Record<string, unknown>, Record<string, unknown>>('departments')
+export const costCentres = crud<CostCentre, Record<string, unknown>, Record<string, unknown>>('cost-centres')
 
 export const financialYears = {
   list: () => api.get<FinancialYear[]>('/financial-years'),
@@ -203,4 +228,74 @@ export const financialYears = {
 
 export const currencies = {
   list: () => api.get<Currency[]>('/currencies'),
+}
+
+export interface ExchangeRate {
+  uid: string
+  from_currency_code: string
+  to_currency_code: string
+  rate_type: string
+  rate: number
+  effective_date: string
+  source: string | null
+  version: number
+}
+
+export const exchangeRates = {
+  list: (params?: ListParams) =>
+    api.get<Page<ExchangeRate>>('/exchange-rates', params as Record<string, string | number>),
+  create: (body: Record<string, unknown>) => api.post<ExchangeRate>('/exchange-rates', body),
+}
+
+/* ─────────────────────────── Organisation structure ─────────────────────────── */
+export interface StructureWarehouse {
+  uid: string
+  code: string
+  name: string
+  warehouse_type: string
+  is_active: boolean
+}
+export interface StructurePlant {
+  uid: string
+  code: string
+  name: string
+  is_active: boolean
+  installed_capacity_per_day: number | null
+  warehouses: StructureWarehouse[]
+}
+export interface StructureBranch {
+  uid: string
+  code: string
+  name: string
+  branch_type: string
+  is_active: boolean
+  plants: StructurePlant[]
+  warehouses: StructureWarehouse[]
+}
+export interface StructureUnit {
+  uid: string
+  code: string
+  name: string
+  type: string
+  level: number
+  is_active: boolean
+  parent_uid: string | null
+}
+export interface StructureCompany {
+  uid: string
+  code: string
+  legal_name: string
+  trade_name: string | null
+  gst_state_code: string | null
+}
+export interface OrgStructure {
+  company: StructureCompany | null
+  branches: StructureBranch[]
+  departments: StructureUnit[]
+  cost_centres: StructureUnit[]
+  counts: Record<string, number>
+}
+
+export const structure = {
+  get: () => api.get<OrgStructure>('/structure'),
 }

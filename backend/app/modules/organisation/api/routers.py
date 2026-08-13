@@ -20,6 +20,15 @@ from app.modules.organisation.application import services as svc
 router = APIRouter(tags=["Organisation"])
 
 
+# ═══════════════════════════ Structure (read model) ═════════════════════════
+@router.get("/structure", response_model=s.OrgStructureOut)
+async def get_structure(
+    session: SessionDep,
+    ctx: TenantContext = Depends(require("SYSTEM.COMPANY.VIEW")),
+):
+    return s.OrgStructureOut.model_validate(await svc.StructureService(session, ctx).build())
+
+
 def _page(rows: list, total: int, params: PageParams, model: type[BaseModel]) -> Page:
     return Page(data=[model.model_validate(r) for r in rows], meta=build_meta(params, total))
 
@@ -63,6 +72,13 @@ async def create_company(
     ctx: TenantContext = Depends(require("SYSTEM.COMPANY.CREATE")),
 ):
     return await svc.CompanyService(session, ctx).create(body)
+
+
+@router.get("/companies/next-code")
+async def next_company_code(
+    session: SessionDep, ctx: TenantContext = Depends(require("SYSTEM.COMPANY.CREATE"))
+) -> dict[str, str]:
+    return {"code": await svc.CompanyService(session, ctx).next_code()}
 
 
 @router.get("/companies/{uid}", response_model=s.CompanyOut)
@@ -137,6 +153,13 @@ async def create_branch(
     return await svc.BranchService(session, ctx).create(body)
 
 
+@router.get("/branches/next-code")
+async def next_branch_code(
+    session: SessionDep, ctx: TenantContext = Depends(require("SYSTEM.BRANCH.CREATE"))
+) -> dict[str, str]:
+    return {"code": await svc.BranchService(session, ctx).next_code()}
+
+
 @router.get("/branches/{uid}", response_model=s.BranchOut)
 async def get_branch(
     uid: str, session: SessionDep, ctx: TenantContext = Depends(require("SYSTEM.BRANCH.VIEW"))
@@ -188,6 +211,13 @@ async def create_plant(
     ctx: TenantContext = Depends(require("SYSTEM.PLANT.CREATE")),
 ):
     return await svc.PlantService(session, ctx).create(body)
+
+
+@router.get("/plants/next-code")
+async def next_plant_code(
+    session: SessionDep, ctx: TenantContext = Depends(require("SYSTEM.PLANT.CREATE"))
+) -> dict[str, str]:
+    return {"code": await svc.PlantService(session, ctx).next_code()}
 
 
 @router.get("/plants/{uid}", response_model=s.PlantOut)
@@ -245,6 +275,13 @@ async def create_warehouse(
     return await svc.WarehouseService(session, ctx).create(body)
 
 
+@router.get("/warehouses/next-code")
+async def next_warehouse_code(
+    session: SessionDep, ctx: TenantContext = Depends(require("SYSTEM.WAREHOUSE.CREATE"))
+) -> dict[str, str]:
+    return {"code": await svc.WarehouseService(session, ctx).next_code()}
+
+
 @router.get("/warehouses/{uid}", response_model=s.WarehouseOut)
 async def get_warehouse(
     uid: str, session: SessionDep, ctx: TenantContext = Depends(require("SYSTEM.WAREHOUSE.VIEW"))
@@ -298,6 +335,13 @@ async def create_department(
     ctx: TenantContext = Depends(require("SYSTEM.DEPARTMENT.CREATE")),
 ):
     return await svc.DepartmentService(session, ctx).create(body)
+
+
+@router.get("/departments/next-code")
+async def next_department_code(
+    session: SessionDep, ctx: TenantContext = Depends(require("SYSTEM.DEPARTMENT.CREATE"))
+) -> dict[str, str]:
+    return {"code": await svc.DepartmentService(session, ctx).next_code()}
 
 
 @router.get("/departments/{uid}", response_model=s.DepartmentOut)
@@ -355,6 +399,13 @@ async def create_cost_centre(
     ctx: TenantContext = Depends(require("SYSTEM.COST_CENTRE.CREATE")),
 ):
     return await svc.CostCentreService(session, ctx).create(body)
+
+
+@router.get("/cost-centres/next-code")
+async def next_cost_centre_code(
+    session: SessionDep, ctx: TenantContext = Depends(require("SYSTEM.COST_CENTRE.CREATE"))
+) -> dict[str, str]:
+    return {"code": await svc.CostCentreService(session, ctx).next_code()}
 
 
 @router.get("/cost-centres/{uid}", response_model=s.CostCentreOut)

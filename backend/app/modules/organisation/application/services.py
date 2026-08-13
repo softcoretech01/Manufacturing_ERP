@@ -11,8 +11,10 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import codegen
 from app.core.audit import diff, record_audit
 from app.core.context import TenantContext
 from app.core.enums import AuditAction, FinancialYearStatus
@@ -80,14 +82,20 @@ class CompanyService:
     async def get(self, uid: str) -> m.SysCompany:
         return await self.repo.get_by_uid_or_404(uid)
 
+    async def next_code(self) -> str:
+        return await codegen.next_code(self.session, m.SysCompany, "CO")
+
     async def create(self, data: Any) -> m.SysCompany:
         if data.pan and (err := rules.validate_pan(data.pan.upper())):
             raise _rule_error(err)
-        if await self.repo.exists_code(data.code, company_id=0):
+        code = (data.code or "").strip().upper() or await self.next_code()
+        if await self.repo.exists_code(code, company_id=0):
             raise DuplicateError(
-                f"Company code '{data.code}' already exists.", rule_code="V1-ORG-BR-002"
+                f"Company code '{code}' already exists.", rule_code="V1-ORG-BR-002"
             )
-        entity = m.SysCompany(**data.model_dump())
+        payload = data.model_dump()
+        payload["code"] = code
+        entity = m.SysCompany(**payload)
         if entity.pan:
             entity.pan = entity.pan.upper()
         self.repo.stamp_new(entity)
@@ -157,7 +165,7 @@ class CompanyService:
                 rule_code="V1-ORG-BR-006",
             )
         entity.is_active = False
-        self.repo.soft_delete(entity, expected_version=version)
+        self.repo.stamp_update(entity, expected_version=version)
         await self.repo.flush()
         await record_audit(
             self.session,
@@ -179,11 +187,11 @@ class CompanyService:
         return entity
 
     async def restore(self, uid: str) -> m.SysCompany:
-        entity = await self.repo.get_by_uid_or_404(uid, include_deleted=True)
-        if not entity.is_deleted:
-            raise BusinessRuleViolationError("Company is not deactivated.")
+        entity = await self.repo.get_by_uid_or_404(uid)
+        if entity.is_active:
+            raise BusinessRuleViolationError("Company is already active.")
         entity.is_active = True
-        self.repo.restore(entity)
+        self.repo.stamp_update(entity, expected_version=None)
         await self.repo.flush()
         await record_audit(
             self.session,
@@ -254,6 +262,11 @@ class BranchService:
     async def get(self, uid: str) -> m.SysBranch:
         return await self.repo.get_by_uid_or_404(uid)
 
+    async def next_code(self) -> str:
+        return await codegen.next_code(
+            self.session, m.SysBranch, "BR", company_id=self.ctx.company_id
+        )
+
     async def _company(self) -> m.SysCompany:
         company = await repo.CompanyRepository(self.session, self.ctx).get_by_uid(
             self.ctx.company_uid
@@ -284,10 +297,12 @@ class BranchService:
 
     async def create(self, data: Any) -> m.SysBranch:
         company = await self._company()
-        if await self.repo.exists_code(data.code, company_id=self.ctx.company_id):
-            raise DuplicateError(f"Branch code '{data.code}' already exists in this company.")
+        code = (data.code or "").strip().upper() or await self.next_code()
+        if await self.repo.exists_code(code, company_id=self.ctx.company_id):
+            raise DuplicateError(f"Branch code '{code}' already exists in this company.")
         await self._validate_gstin(data.gstin, data.gst_state_code, company)
         payload = data.model_dump()
+        payload["code"] = code
         if payload.get("gstin"):
             payload["gstin"] = payload["gstin"].upper()
         entity = m.SysBranch(company_id=self.ctx.company_id, **payload)
@@ -356,7 +371,7 @@ class BranchService:
                 rule_code="V1-ORG-BR-012",
             )
         entity.is_active = False
-        self.repo.soft_delete(entity, expected_version=version)
+        self.repo.stamp_update(entity, expected_version=version)
         await self.repo.flush()
         await record_audit(
             self.session,
@@ -378,11 +393,11 @@ class BranchService:
         return entity
 
     async def restore(self, uid: str) -> m.SysBranch:
-        entity = await self.repo.get_by_uid_or_404(uid, include_deleted=True)
-        if not entity.is_deleted:
-            raise BusinessRuleViolationError("Branch is not deactivated.")
+        entity = await self.repo.get_by_uid_or_404(uid)
+        if entity.is_active:
+            raise BusinessRuleViolationError("Branch is already active.")
         entity.is_active = True
-        self.repo.restore(entity)
+        self.repo.stamp_update(entity, expected_version=None)
         await self.repo.flush()
         await record_audit(
             self.session,
@@ -418,6 +433,11 @@ class PlantService:
     async def get(self, uid: str) -> m.SysPlant:
         return await self.repo.get_by_uid_or_404(uid)
 
+    async def next_code(self) -> str:
+        return await codegen.next_code(
+            self.session, m.SysPlant, "PL", company_id=self.ctx.company_id
+        )
+
     async def _branch(self, branch_uid: str) -> m.SysBranch:
         branch = await repo.BranchRepository(self.session, self.ctx).get_by_uid(branch_uid)
         if branch is None:
@@ -430,12 +450,17 @@ class PlantService:
 
     async def create(self, data: Any) -> m.SysPlant:
         branch = await self._branch(data.branch_uid)
-        if await self.repo.exists_code(data.code, company_id=self.ctx.company_id):
-            raise DuplicateError(f"Plant code '{data.code}' already exists in this company.")
+        code = (data.code or "").strip().upper() or await self.next_code()
+        if await self.repo.exists_code(code, company_id=self.ctx.company_id):
+            raise DuplicateError(f"Plant code '{code}' already exists in this company.")
         payload = data.model_dump(exclude={"branch_uid"})
+        payload["code"] = code
         entity = m.SysPlant(company_id=self.ctx.company_id, branch_id=branch.id, **payload)
         self.repo.stamp_new(entity)
         await self.repo.flush()
+        # Load the (eager) branch relationship so PlantOut can serialise
+        # branch_uid/code/name — a freshly-added object isn't query-loaded.
+        await self.session.refresh(entity, attribute_names=["branch"])
         await record_audit(
             self.session,
             self.ctx,
@@ -483,7 +508,7 @@ class PlantService:
                 rule_code="V1-ORG-BR-012",
             )
         entity.is_active = False
-        self.repo.soft_delete(entity, expected_version=version)
+        self.repo.stamp_update(entity, expected_version=version)
         await self.repo.flush()
         await record_audit(
             self.session,
@@ -505,9 +530,9 @@ class PlantService:
         return entity
 
     async def restore(self, uid: str) -> m.SysPlant:
-        entity = await self.repo.get_by_uid_or_404(uid, include_deleted=True)
+        entity = await self.repo.get_by_uid_or_404(uid)
         entity.is_active = True
-        self.repo.restore(entity)
+        self.repo.stamp_update(entity, expected_version=None)
         await self.repo.flush()
         return entity
 
@@ -538,6 +563,11 @@ class WarehouseService:
     async def get(self, uid: str) -> m.SysWarehouse:
         return await self.repo.get_by_uid_or_404(uid)
 
+    async def next_code(self) -> str:
+        return await codegen.next_code(
+            self.session, m.SysWarehouse, "WH", company_id=self.ctx.company_id
+        )
+
     async def create(self, data: Any) -> m.SysWarehouse:
         branch = await repo.BranchRepository(self.session, self.ctx).get_by_uid(data.branch_uid)
         if branch is None:
@@ -560,14 +590,19 @@ class WarehouseService:
                     ],
                 )
             plant_id = plant.id
-        if await self.repo.exists_code(data.code, company_id=self.ctx.company_id):
-            raise DuplicateError(f"Warehouse code '{data.code}' already exists in this company.")
+        code = (data.code or "").strip().upper() or await self.next_code()
+        if await self.repo.exists_code(code, company_id=self.ctx.company_id):
+            raise DuplicateError(f"Warehouse code '{code}' already exists in this company.")
         payload = data.model_dump(exclude={"branch_uid", "plant_uid"})
+        payload["code"] = code
         entity = m.SysWarehouse(
             company_id=self.ctx.company_id, branch_id=branch.id, plant_id=plant_id, **payload
         )
         self.repo.stamp_new(entity)
         await self.repo.flush()
+        # Load the eager branch/plant relationships so WarehouseOut can serialise
+        # them — a freshly-added object isn't query-loaded.
+        await self.session.refresh(entity, attribute_names=["branch", "plant"])
         await record_audit(
             self.session,
             self.ctx,
@@ -614,7 +649,7 @@ class WarehouseService:
         # org.warehouse.deactivated event being rejected / a pre-check. Documented
         # as a cross-module dependency in the handoff.
         entity.is_active = False
-        self.repo.soft_delete(entity, expected_version=version)
+        self.repo.stamp_update(entity, expected_version=version)
         await self.repo.flush()
         await record_audit(
             self.session,
@@ -636,9 +671,9 @@ class WarehouseService:
         return entity
 
     async def restore(self, uid: str) -> m.SysWarehouse:
-        entity = await self.repo.get_by_uid_or_404(uid, include_deleted=True)
+        entity = await self.repo.get_by_uid_or_404(uid)
         entity.is_active = True
-        self.repo.restore(entity)
+        self.repo.stamp_update(entity, expected_version=None)
         await self.repo.flush()
         return entity
 
@@ -669,6 +704,11 @@ class DepartmentService:
     async def get(self, uid: str) -> m.SysDepartment:
         return await self.repo.get_by_uid_or_404(uid)
 
+    async def next_code(self) -> str:
+        return await codegen.next_code(
+            self.session, m.SysDepartment, "DP", company_id=self.ctx.company_id
+        )
+
     async def _resolve_parent(
         self, parent_uid: str | None, *, node_id: int | None = None
     ) -> tuple[int | None, int]:
@@ -683,10 +723,12 @@ class DepartmentService:
         return parent.id, parent.level + 1
 
     async def create(self, data: Any) -> m.SysDepartment:
-        if await self.repo.exists_code(data.code, company_id=self.ctx.company_id):
-            raise DuplicateError(f"Department code '{data.code}' already exists in this company.")
+        code = (data.code or "").strip().upper() or await self.next_code()
+        if await self.repo.exists_code(code, company_id=self.ctx.company_id):
+            raise DuplicateError(f"Department code '{code}' already exists in this company.")
         parent_id, level = await self._resolve_parent(data.parent_uid)
         payload = data.model_dump(exclude={"parent_uid", "plant_uid"})
+        payload["code"] = code
         entity = m.SysDepartment(
             company_id=self.ctx.company_id, parent_id=parent_id, level=level, **payload
         )
@@ -701,20 +743,26 @@ class DepartmentService:
             entity_uid=entity.uid,
             new_values=_snapshot(entity, self.AUDITED),
         )
-        return entity
+        # Re-fetch so the (eager) parent is loaded for DepartmentOut serialisation.
+        return await self.repo.get_by_uid_or_404(entity.uid)
 
     async def update(self, uid: str, data: Any) -> m.SysDepartment:
         entity = await self.repo.get_by_uid_or_404(uid)
         before = _snapshot(entity, self.AUDITED)
         payload = data.model_dump(exclude_unset=True, exclude={"version", "parent_uid"})
+        reparented = False
         if "parent_uid" in data.model_fields_set:
             parent_id, level = await self._resolve_parent(data.parent_uid, node_id=entity.id)
             entity.parent_id = parent_id
             entity.level = level
+            reparented = True
         for key, value in payload.items():
             setattr(entity, key, value)
         self.repo.stamp_update(entity, expected_version=data.version)
         await self.repo.flush()
+        if reparented:
+            # Drop the now-stale cached parent so the re-fetch reloads the new one.
+            self.session.expire(entity, ["parent"])
         old, new = diff(before, _snapshot(entity, self.AUDITED))
         await record_audit(
             self.session,
@@ -726,7 +774,8 @@ class DepartmentService:
             old_values=old,
             new_values=new,
         )
-        return entity
+        # Re-fetch so the (eager) parent is loaded/fresh for DepartmentOut.
+        return await self.repo.get_by_uid_or_404(uid)
 
     async def deactivate(self, uid: str, version: int, reason: str | None) -> m.SysDepartment:
         entity = await self.repo.get_by_uid_or_404(uid)
@@ -735,7 +784,7 @@ class DepartmentService:
                 "Department cannot be deactivated while it has active sub-departments."
             )
         entity.is_active = False
-        self.repo.soft_delete(entity, expected_version=version)
+        self.repo.stamp_update(entity, expected_version=version)
         await self.repo.flush()
         await record_audit(
             self.session,
@@ -749,9 +798,9 @@ class DepartmentService:
         return entity
 
     async def restore(self, uid: str) -> m.SysDepartment:
-        entity = await self.repo.get_by_uid_or_404(uid, include_deleted=True)
+        entity = await self.repo.get_by_uid_or_404(uid)
         entity.is_active = True
-        self.repo.restore(entity)
+        self.repo.stamp_update(entity, expected_version=None)
         await self.repo.flush()
         return entity
 
@@ -789,6 +838,11 @@ class CostCentreService:
     async def get(self, uid: str) -> m.SysCostCentre:
         return await self.repo.get_by_uid_or_404(uid)
 
+    async def next_code(self) -> str:
+        return await codegen.next_code(
+            self.session, m.SysCostCentre, "CC", company_id=self.ctx.company_id
+        )
+
     async def _resolve_parent(
         self, parent_uid: str | None, *, node_id: int | None = None
     ) -> tuple[int | None, int]:
@@ -803,10 +857,12 @@ class CostCentreService:
         return parent.id, parent.level + 1
 
     async def create(self, data: Any) -> m.SysCostCentre:
-        if await self.repo.exists_code(data.code, company_id=self.ctx.company_id):
-            raise DuplicateError(f"Cost centre code '{data.code}' already exists in this company.")
+        code = (data.code or "").strip().upper() or await self.next_code()
+        if await self.repo.exists_code(code, company_id=self.ctx.company_id):
+            raise DuplicateError(f"Cost centre code '{code}' already exists in this company.")
         parent_id, level = await self._resolve_parent(data.parent_uid)
         payload = data.model_dump(exclude={"parent_uid"})
+        payload["code"] = code
         entity = m.SysCostCentre(
             company_id=self.ctx.company_id, parent_id=parent_id, level=level, **payload
         )
@@ -821,7 +877,8 @@ class CostCentreService:
             entity_uid=entity.uid,
             new_values=_snapshot(entity, self.AUDITED),
         )
-        return entity
+        # Re-fetch so the (eager) parent is loaded for CostCentreOut serialisation.
+        return await self.repo.get_by_uid_or_404(entity.uid)
 
     async def update(self, uid: str, data: Any) -> m.SysCostCentre:
         entity = await self.repo.get_by_uid_or_404(uid)
@@ -835,6 +892,8 @@ class CostCentreService:
             setattr(entity, key, value)
         self.repo.stamp_update(entity, expected_version=data.version)
         await self.repo.flush()
+        if "parent_uid" in data.model_fields_set:
+            self.session.expire(entity, ["parent"])
         old, new = diff(before, _snapshot(entity, self.AUDITED))
         await record_audit(
             self.session,
@@ -846,7 +905,8 @@ class CostCentreService:
             old_values=old,
             new_values=new,
         )
-        return entity
+        # Re-fetch so the (eager) parent is loaded/fresh for CostCentreOut.
+        return await self.repo.get_by_uid_or_404(uid)
 
     async def deactivate(self, uid: str, version: int, reason: str | None) -> m.SysCostCentre:
         entity = await self.repo.get_by_uid_or_404(uid)
@@ -856,7 +916,7 @@ class CostCentreService:
                 rule_code="V1-ORG-BR-020",
             )
         entity.is_active = False
-        self.repo.soft_delete(entity, expected_version=version)
+        self.repo.stamp_update(entity, expected_version=version)
         await self.repo.flush()
         await record_audit(
             self.session,
@@ -870,9 +930,9 @@ class CostCentreService:
         return entity
 
     async def restore(self, uid: str) -> m.SysCostCentre:
-        entity = await self.repo.get_by_uid_or_404(uid, include_deleted=True)
+        entity = await self.repo.get_by_uid_or_404(uid)
         entity.is_active = True
-        self.repo.restore(entity)
+        self.repo.stamp_update(entity, expected_version=None)
         await self.repo.flush()
         return entity
 
@@ -978,6 +1038,134 @@ class FinancialYearService:
             reason="set current",
         )
         return fy
+
+
+# ─────────────────────────── Organisation structure (read model) ────────────
+class StructureService:
+    """Assembles the full organisation hierarchy for the Structure explorer in one
+    read: company → branches → plants → warehouses, plus departments and cost
+    centres (flat with a parent reference). Read-only; company-scoped."""
+
+    def __init__(self, session: AsyncSession, ctx: TenantContext) -> None:
+        self.session = session
+        self.ctx = ctx
+
+    async def _all(self, model: Any) -> list[Any]:
+        stmt = select(model).where(
+            model.company_id == self.ctx.company_id, model.deleted_at.is_(None)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def build(self) -> dict[str, Any]:
+        cid = self.ctx.company_id
+        company = (
+            await self.session.execute(
+                select(m.SysCompany).where(
+                    m.SysCompany.id == cid, m.SysCompany.deleted_at.is_(None)
+                )
+            )
+        ).scalar_one_or_none()
+        branches = await self._all(m.SysBranch)
+        plants = await self._all(m.SysPlant)
+        warehouses = await self._all(m.SysWarehouse)
+        departments = await self._all(m.SysDepartment)
+        cost_centres = await self._all(m.SysCostCentre)
+
+        def wh(w: Any) -> dict[str, Any]:
+            return {
+                "uid": w.uid,
+                "code": w.code,
+                "name": w.name,
+                "warehouse_type": w.warehouse_type,
+                "is_active": w.is_active,
+            }
+
+        wh_by_plant: dict[int, list[Any]] = {}
+        wh_by_branch: dict[int, list[Any]] = {}
+        for w in warehouses:
+            if w.plant_id:
+                wh_by_plant.setdefault(w.plant_id, []).append(w)
+            else:
+                wh_by_branch.setdefault(w.branch_id, []).append(w)
+
+        plants_by_branch: dict[int, list[Any]] = {}
+        for p in plants:
+            plants_by_branch.setdefault(p.branch_id, []).append(p)
+
+        def plant(p: Any) -> dict[str, Any]:
+            cap = p.installed_capacity_per_day
+            return {
+                "uid": p.uid,
+                "code": p.code,
+                "name": p.name,
+                "is_active": p.is_active,
+                "installed_capacity_per_day": float(cap) if cap is not None else None,
+                "warehouses": [wh(w) for w in wh_by_plant.get(p.id, [])],
+            }
+
+        branch_list = [
+            {
+                "uid": b.uid,
+                "code": b.code,
+                "name": b.name,
+                "branch_type": b.branch_type,
+                "is_active": b.is_active,
+                "plants": [plant(p) for p in plants_by_branch.get(b.id, [])],
+                "warehouses": [wh(w) for w in wh_by_branch.get(b.id, [])],
+            }
+            for b in branches
+        ]
+
+        dept_uid = {d.id: d.uid for d in departments}
+        cc_uid = {c.id: c.uid for c in cost_centres}
+        dept_list = [
+            {
+                "uid": d.uid,
+                "code": d.code,
+                "name": d.name,
+                "type": d.department_type,
+                "level": d.level,
+                "is_active": d.is_active,
+                "parent_uid": dept_uid.get(d.parent_id),
+            }
+            for d in departments
+        ]
+        cc_list = [
+            {
+                "uid": c.uid,
+                "code": c.code,
+                "name": c.name,
+                "type": c.cost_centre_type,
+                "level": c.level,
+                "is_active": c.is_active,
+                "parent_uid": cc_uid.get(c.parent_id),
+            }
+            for c in cost_centres
+        ]
+
+        return {
+            "company": (
+                {
+                    "uid": company.uid,
+                    "code": company.code,
+                    "legal_name": company.legal_name,
+                    "trade_name": company.trade_name,
+                    "gst_state_code": company.gst_state_code,
+                }
+                if company
+                else None
+            ),
+            "branches": branch_list,
+            "departments": dept_list,
+            "cost_centres": cc_list,
+            "counts": {
+                "branches": len(branches),
+                "plants": len(plants),
+                "warehouses": len(warehouses),
+                "departments": len(departments),
+                "cost_centres": len(cost_centres),
+            },
+        }
 
 
 # ─────────────────────────── Currency + exchange rate ───────────────────────

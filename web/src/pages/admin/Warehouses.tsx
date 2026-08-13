@@ -1,355 +1,317 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Boxes, Grid3x3, Plus, Printer, Warehouse as WarehouseIcon, Zap } from 'lucide-react'
+import { Boxes, Pencil, Plus, Power, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
-import { Card, CardBody, CardHeader } from '@/components/ui/Card'
-import { Badge, StatusBadge } from '@/components/ui/Badge'
 import { DataTable, type Column } from '@/components/ui/DataTable'
+import { Badge } from '@/components/ui/Badge'
 import { MenuItem } from '@/components/ui/Menu'
+import { PageHeader, Alert } from '@/components/ui/Misc'
 import { Modal } from '@/components/ui/Modal'
-import { Tabs } from '@/components/ui/Tabs'
-import { Alert, PageHeader, ProgressBar } from '@/components/ui/Misc'
 import { Input, Select, Switch } from '@/components/ui/Input'
 import { useToast } from '@/components/ui/Toast'
+import { HowItWorks } from '@/components/crud/CrudKit'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
-import { formatCompact, formatCurrency } from '@/lib/format'
-import { bins, branches, plants, warehouses } from '@/mock/data'
-import type { Bin, Warehouse } from '@/types'
+import { ProblemError } from '@/api/client'
+import { warehouses as whApi, type Warehouse } from '@/api/organisation'
+import {
+  useWarehouses,
+  useBranches,
+  usePlants,
+  useCreateWarehouse,
+  useUpdateWarehouse,
+  useDeactivateWarehouse,
+  useRestoreWarehouse,
+} from '@/hooks/useOrganisation'
+import { useSession } from '@/api/session'
+
+/** Wired to the live FastAPI backend (Organisation module). */
+
+const WAREHOUSE_TYPES = [
+  { value: 'RAW_MATERIAL', label: 'Raw material' },
+  { value: 'WIP', label: 'Work in progress' },
+  { value: 'FINISHED_GOODS', label: 'Finished goods' },
+  { value: 'PACKING_MATERIAL', label: 'Packing material' },
+  { value: 'CONSUMABLE_SPARES', label: 'Consumable / spares' },
+  { value: 'QUARANTINE', label: 'Quarantine' },
+  { value: 'REJECT', label: 'Reject' },
+  { value: 'SCRAP', label: 'Scrap' },
+]
+
+const VALUATION_METHODS = [
+  { value: 'WEIGHTED_AVG', label: 'Weighted average' },
+  { value: 'FIFO', label: 'FIFO' },
+  { value: 'STANDARD', label: 'Standard cost' },
+]
+
+interface FormState {
+  code: string
+  name: string
+  branch_uid: string
+  plant_uid: string
+  branch_label: string
+  plant_label: string
+  warehouse_type: string
+  valuation_method: string
+  is_bin_managed: boolean
+  is_batch_mandatory: boolean
+  allow_negative_stock: boolean
+}
+
+const BLANK: FormState = {
+  code: '',
+  name: '',
+  branch_uid: '',
+  plant_uid: '',
+  branch_label: '',
+  plant_label: '',
+  warehouse_type: 'RAW_MATERIAL',
+  valuation_method: 'WEIGHTED_AVG',
+  is_bin_managed: false,
+  is_batch_mandatory: false,
+  allow_negative_stock: false,
+}
 
 export function WarehousesPage() {
   const toast = useToast()
   const navigate = useNavigate()
+  const companyUid = useSession((s) => s.companyUid)
+
+  const { data, isLoading, error, refetch } = useWarehouses({ page_size: 200 })
+  const { data: branchData } = useBranches({ page_size: 200 })
+  const { data: plantData } = usePlants({ page_size: 200 })
+  const createWh = useCreateWarehouse()
+  const updateWh = useUpdateWarehouse()
+  const deactivateWh = useDeactivateWarehouse()
+  const restoreWh = useRestoreWarehouse()
+
+  const rows = data?.data ?? []
+  const branches = (branchData?.data ?? []).filter((b) => b.is_active)
+  const plants = (plantData?.data ?? []).filter((p) => p.is_active)
+
+  const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState<Warehouse | null>(null)
+  const [form, setForm] = useState<FormState>(BLANK)
+  const [errors, setErrors] = useState<Record<string, string>>({})
+
+  const set = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }))
+
+  function openCreate() {
+    setEditing(null)
+    setForm({ ...BLANK, branch_uid: branches[0]?.uid ?? '' })
+    setErrors({})
+    setFormOpen(true)
+    whApi.nextCode().then((code) => setForm((f) => ({ ...f, code }))).catch(() => {})
+  }
+
+  function openEdit(w: Warehouse) {
+    setEditing(w)
+    setForm({
+      code: w.code,
+      name: w.name,
+      branch_uid: w.branch_uid ?? '',
+      plant_uid: w.plant_uid ?? '',
+      branch_label: w.branch_code ? `${w.branch_code} — ${w.branch_name ?? ''}` : '—',
+      plant_label: w.plant_code ? `${w.plant_code} — ${w.plant_name ?? ''}` : '— none —',
+      warehouse_type: w.warehouse_type,
+      valuation_method: w.valuation_method,
+      is_bin_managed: w.is_bin_managed,
+      is_batch_mandatory: w.is_batch_mandatory,
+      allow_negative_stock: w.allow_negative_stock,
+    })
+    setErrors({})
+    setFormOpen(true)
+  }
+
+  function handleError(err: unknown, fallback: string) {
+    if (err instanceof ProblemError) {
+      const fe: Record<string, string> = {}
+      for (const e of err.problem.errors ?? []) fe[e.field] = e.message
+      setErrors(fe)
+      toast.error(err.problem.title || 'Request failed', err.problem.detail)
+    } else {
+      toast.error(fallback, err instanceof Error ? err.message : 'Unknown error.')
+    }
+  }
+
+  function save() {
+    setErrors({})
+    const common = {
+      name: form.name.trim(),
+      warehouse_type: form.warehouse_type,
+      valuation_method: form.valuation_method,
+      is_bin_managed: form.is_bin_managed,
+      is_batch_mandatory: form.is_batch_mandatory,
+      allow_negative_stock: form.allow_negative_stock,
+    }
+    if (editing) {
+      updateWh.mutate(
+        { uid: editing.uid, body: { version: editing.version, ...common } },
+        {
+          onSuccess: () => {
+            toast.success('Warehouse updated', `${editing.code} saved.`)
+            setFormOpen(false)
+          },
+          onError: (e) => handleError(e, 'Update failed'),
+        },
+      )
+    } else {
+      if (!form.branch_uid) {
+        setErrors({ branch_uid: 'Select a branch.' })
+        return
+      }
+      createWh.mutate(
+        { branch_uid: form.branch_uid, plant_uid: form.plant_uid || null, ...common },
+        {
+          onSuccess: (created) => {
+            toast.success('Warehouse created', `${created.code} added.`)
+            setFormOpen(false)
+          },
+          onError: (e) => handleError(e, 'Create failed'),
+        },
+      )
+    }
+  }
+
+  function toggleActive(w: Warehouse) {
+    if (w.is_active) {
+      deactivateWh.mutate(
+        { uid: w.uid, body: { version: w.version } },
+        {
+          onSuccess: () => toast.success('Warehouse deactivated', `${w.name} is now inactive.`),
+          onError: (e) => handleError(e, 'Deactivate failed'),
+        },
+      )
+    } else {
+      restoreWh.mutate(w.uid, {
+        onSuccess: () => toast.success('Warehouse restored', `${w.name} is active again.`),
+        onError: (e) => handleError(e, 'Restore failed'),
+      })
+    }
+  }
+
+  const columns: Column<Warehouse>[] = [
+    { key: 'code', header: 'Code', sortable: true, width: '90px', render: (w) => <span className="font-mono text-xs font-medium">{w.code}</span> },
+    { key: 'name', header: 'Warehouse', sortable: true, render: (w) => <span className="font-medium text-fg">{w.name}</span> },
+    { key: 'branch_code', header: 'Branch', sortable: true, width: '160px', accessor: (w) => w.branch_code ?? '', render: (w) => w.branch_code ? <span className="text-xs text-fg-muted"><span className="font-mono">{w.branch_code}</span> · {w.branch_name}</span> : <span className="text-xs text-fg-subtle">—</span> },
+    { key: 'warehouse_type', header: 'Type', sortable: true, width: '150px', render: (w) => <Badge tone="neutral" size="sm" dot={false}>{w.warehouse_type.replace(/_/g, ' ').toLowerCase()}</Badge> },
+    { key: 'valuation_method', header: 'Valuation', width: '130px', render: (w) => <span className="text-xs text-fg-muted">{w.valuation_method.replace(/_/g, ' ').toLowerCase()}</span> },
+    { key: 'is_batch_mandatory', header: 'Batch', align: 'center', width: '70px', accessor: (w) => (w.is_batch_mandatory ? 1 : 0), render: (w) => (w.is_batch_mandatory ? <Badge tone="brand" size="sm" dot={false}>yes</Badge> : <span className="text-fg-subtle">—</span>) },
+    {
+      key: 'is_active',
+      header: 'Status',
+      width: '100px',
+      accessor: (w) => (w.is_active ? 'Active' : 'Inactive'),
+      render: (w) => <Badge tone={w.is_active ? 'success' : 'neutral'} size="sm">{w.is_active ? 'Active' : 'Inactive'}</Badge>,
+    },
+  ]
 
   function doExport(format: ExportFormat) {
     try {
-      const n = exportRows(format, 'warehouses-bins', 'Warehouses & bins', columnsFromTable(whColumns), warehouses)
-      toast.success('Export ready', n + ' rows written as ' + (format === 'xlsx' ? 'Excel' : format.toUpperCase()) + '.')
+      const n = exportRows(format, 'warehouses', 'Warehouses', columnsFromTable(columns), rows)
+      toast.success('Export ready', `${n} rows saved as ${format === 'xlsx' ? 'Excel' : format.toUpperCase()}.`)
     } catch (e) {
       toast.error('Export failed', e instanceof Error ? e.message : 'Unknown error.')
     }
   }
-  const [tab, setTab] = useState('warehouses')
-  const [activeWh, setActiveWh] = useState('wh-01')
-  const [newOpen, setNewOpen] = useState(false)
-  const [bulkOpen, setBulkOpen] = useState(false)
-  const [binManaged, setBinManaged] = useState(true)
-  const [batchMandatory, setBatchMandatory] = useState(true)
-  const [allowNegative, setAllowNegative] = useState(false)
 
-  const wh = warehouses.find((w) => w.uid === activeWh)!
-  const whBins = bins.filter((b) => b.warehouseUid === activeWh)
-
-  const whColumns: Column<Warehouse>[] = [
-    { key: 'code', header: 'Code', sortable: true, width: '90px', render: (w) => <span className="font-mono text-xs font-medium">{w.code}</span> },
-    { key: 'name', header: 'Warehouse', sortable: true, render: (w) => <span className="font-medium text-fg">{w.name}</span> },
-    { key: 'warehouseType', header: 'Type', sortable: true, width: '150px', render: (w) => <Badge tone={typeTone(w.warehouseType)} size="sm" dot={false}>{w.warehouseType.replace(/_/g, ' ').toLowerCase()}</Badge> },
-    {
-      key: 'branch',
-      header: 'Branch',
-      width: '150px',
-      accessor: (w) => branches.find((b) => b.uid === w.branchUid)?.name ?? '',
-      render: (w) => <span className="text-xs">{branches.find((b) => b.uid === w.branchUid)?.code}</span>,
-    },
-    {
-      key: 'plant',
-      header: 'Plant',
-      width: '90px',
-      accessor: (w) => plants.find((p) => p.uid === w.plantUid)?.code ?? '',
-      render: (w) => <span className="text-xs">{plants.find((p) => p.uid === w.plantUid)?.code ?? '—'}</span>,
-    },
-    {
-      key: 'isBinManaged',
-      header: 'Bins',
-      align: 'right',
-      width: '80px',
-      accessor: (w) => w.binCount,
-      render: (w) => (w.isBinManaged ? <span className="tabular">{w.binCount}</span> : <span className="text-fg-subtle">—</span>),
-    },
-    {
-      key: 'flags',
-      header: 'Controls',
-      width: '180px',
-      render: (w) => (
-        <div className="flex flex-wrap gap-1">
-          {w.isBatchMandatory && <span className="rounded bg-surface-3 px-1 py-0.5 text-[9px] text-fg-muted">batch</span>}
-          {w.allowNegativeStock && <span className="rounded bg-danger/10 px-1 py-0.5 text-[9px] text-danger">−ve ok</span>}
-          {w.isSystemManaged && <span className="rounded bg-progress/10 px-1 py-0.5 text-[9px] text-progress">system</span>}
-        </div>
-      ),
-    },
-    { key: 'valuationMethod', header: 'Valuation', width: '120px', render: (w) => <span className="text-xs">{w.valuationMethod.replace('_', ' ').toLowerCase()}</span> },
-    { key: 'storekeeper', header: 'Storekeeper', width: '120px' },
-    { key: 'stockValue', header: 'Stock value', align: 'right', sortable: true, width: '120px', render: (w) => formatCurrency(w.stockValue) },
-  ]
-
-  const binColumns: Column<Bin>[] = [
-    { key: 'code', header: 'Bin', sortable: true, width: '110px', render: (b) => <span className="font-mono text-xs font-medium">{b.code}</span> },
-    { key: 'zone', header: 'Zone', sortable: true, width: '130px' },
-    { key: 'binType', header: 'Type', sortable: true, width: '110px', render: (b) => <span className="text-xs">{b.binType.replace(/_/g, ' ').toLowerCase()}</span> },
-    { key: 'maxWeightKg', header: 'Max (kg)', align: 'right', width: '90px', sortable: true, render: (b) => b.maxWeightKg.toLocaleString('en-IN') },
-    { key: 'pickSequence', header: 'Pick #', align: 'right', width: '80px', sortable: true },
-    { key: 'currentStock', header: 'Current stock', render: (b) => <span className="text-xs text-fg-muted">{b.currentStock}</span> },
-    {
-      key: 'utilisationPct',
-      header: 'Utilisation',
-      width: '130px',
-      sortable: true,
-      render: (b) => <ProgressBar value={b.utilisationPct} showLabel tone={b.utilisationPct > 90 ? 'danger' : b.utilisationPct > 70 ? 'warning' : 'success'} />,
-    },
-    { key: 'status', header: 'Status', width: '110px', render: (b) => <StatusBadge status={b.status} size="sm" /> },
-  ]
+  const saving = createWh.isPending || updateWh.isPending
+  // Only offer plants that belong to the branch being chosen (PlantOut.branch_uid).
+  const plantOptions = form.branch_uid ? plants.filter((p) => p.branch_uid === form.branch_uid) : plants
 
   return (
     <div>
       <PageHeader
-        title="Warehouses & bins"
-        description="Physical and logical stores, with bin-level location management where enabled. Quarantine, transit and job-work stores are system-managed."
-        breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Organisation' }, { label: 'Warehouses & bins' }]}
+        title="Warehouses"
+        breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Organisation' }, { label: 'Warehouses' }]}
         actions={
-          tab === 'bins' ? (
-            <>
-              <Button variant="outline" size="sm" icon={<Printer className="h-4 w-4" />} onClick={() => toast.success('Labels queued', 'ZPL sent to the RM Store printer.')}>Print labels</Button>
-              <Button variant="outline" size="sm" icon={<Zap className="h-4 w-4" />} onClick={() => setBulkOpen(true)}>Bulk generate</Button>
-              <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => toast.info('Add bin', 'Add a single bin, or use Bulk generate to create bins from a pattern.')}>Add bin</Button>
-            </>
-          ) : (
-            <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setNewOpen(true)}>New warehouse</Button>
-          )
-        }
-        tabs={
-          <Tabs active={tab} onChange={setTab} tabs={[
-            { id: 'warehouses', label: 'Warehouses', count: warehouses.length },
-            { id: 'bins', label: 'Bin locations', count: bins.length },
-          ]} />
+          <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={openCreate} disabled={!branches.length}>
+            Add warehouse
+          </Button>
         }
       />
 
-      {tab === 'warehouses' && (
-        <>
-          <Alert tone="info" className="mb-4" title="Warehouse controls carry real consequences">
-            Quarantine stock cannot be issued, allocated, reserved or sold — it moves only via a QC
-            decision. Transit and job-work stores accept postings only from transfer or subcontract
-            documents, never manual entry. A warehouse holding stock cannot be deactivated.
-          </Alert>
-          <DataTable
-            rows={warehouses}
-            columns={whColumns}
-            rowKey={(w) => w.uid}
-            searchPlaceholder="Warehouse code, name or type…"
-            onExport={doExport}
-            onRowClick={(w) => { setActiveWh(w.uid); if (w.isBinManaged) setTab('bins') }}
-            rowActions={(w) => (
-              <>
-                <MenuItem label="Edit warehouse" onClick={() => toast.info('Edit warehouse', `${w.code} — ${w.name}.`)} />
-                <MenuItem label="View bins" disabled={!w.isBinManaged} onClick={() => { setActiveWh(w.uid); setTab('bins') }} />
-                <MenuItem label="Stock enquiry" onClick={() => navigate('/inventory/stock')} />
-                <MenuItem label="Deactivate" danger disabled={w.stockValue > 0} onClick={() => toast.success('Warehouse deactivated', `${w.code} is no longer selectable on new documents.`)} />
-              </>
-            )}
-          />
-        </>
+      <HowItWorks>
+        Live data from the Organisation module. A warehouse belongs to a branch (and optionally a plant);
+        its code is auto-generated. Valuation method and batch/bin policies drive inventory behaviour later.
+      </HowItWorks>
+
+      {!companyUid && <Alert tone="warning" title="Not signed in to the backend">Sign in first so the app has an API session.</Alert>}
+      {!branches.length && companyUid && <Alert tone="info" title="Add a branch first">A warehouse must belong to a branch.</Alert>}
+      {error && (
+        <Alert tone="danger" title="Could not load warehouses">
+          {error instanceof ProblemError ? error.problem.detail : 'Is the backend running?'}{' '}
+          <button className="underline" onClick={() => refetch()}>Retry</button>
+        </Alert>
       )}
 
-      {tab === 'bins' && (
-        <>
-          <Card className="mb-4">
-            <CardBody className="flex flex-wrap items-end gap-3">
-              <Select label="Warehouse" containerClassName="w-72" value={activeWh} onChange={(e) => setActiveWh(e.target.value)}
-                options={warehouses.filter((w) => w.isBinManaged).map((w) => ({ value: w.uid, label: `${w.code} — ${w.name}` }))} />
-              <div className="flex gap-6 pb-1 text-xs">
-                <span className="text-fg-muted">Bins <strong className="text-fg tabular">{wh.binCount}</strong></span>
-                <span className="text-fg-muted">Zones <strong className="text-fg tabular">{new Set(whBins.map((b) => b.zone)).size}</strong></span>
-                <span className="text-fg-muted">Blocked <strong className="text-danger tabular">{whBins.filter((b) => b.status === 'BLOCKED').length}</strong></span>
-                <span className="text-fg-muted">Value <strong className="text-fg tabular">{formatCurrency(wh.stockValue)}</strong></span>
-              </div>
-            </CardBody>
-          </Card>
+      <DataTable
+        rows={rows}
+        columns={columns}
+        rowKey={(w) => w.uid}
+        loading={isLoading}
+        searchPlaceholder="Warehouse name or code…"
+        onExport={doExport}
+        onRowClick={openEdit}
+        emptyTitle="No warehouses yet"
+        emptyDescription="Add your first warehouse under a branch."
+        emptyAction={<Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={openCreate} disabled={!branches.length}>Add warehouse</Button>}
+        rowActions={(w) => (
+          <>
+            <MenuItem label="Edit" icon={<Pencil />} onClick={() => openEdit(w)} />
+            <MenuItem
+              label="Zones & bins"
+              icon={<Boxes />}
+              onClick={() => navigate(`/inventory/structure?warehouse=${w.uid}`)}
+            />
+            <MenuItem label={w.is_active ? 'Deactivate' : 'Restore'} icon={w.is_active ? <Power /> : <RotateCcw />} separatorBefore onClick={() => toggleActive(w)} />
+          </>
+        )}
+      />
 
-          <DataTable
-            rows={whBins}
-            columns={binColumns}
-            rowKey={(b) => b.uid}
-            searchPlaceholder="Bin code, zone or stock…"
-            onExport={doExport}
-            selectable
-            bulkActions={
-              <>
-                <Button size="xs" variant="outline" icon={<Printer className="h-3 w-3" />} onClick={() => toast.success('Labels queued')}>Print labels</Button>
-                <Button size="xs" variant="outline" onClick={() => toast.success('Bins blocked', 'The selected bins can no longer receive putaway.')}>Block</Button>
-              </>
-            }
-            rowActions={(b) => (
-              <>
-                <MenuItem label="Edit bin" onClick={() => toast.info('Edit bin', `${b.code} — ${b.zone}.`)} />
-                <MenuItem label="Print label" icon={<Printer />} onClick={() => toast.success('Label queued', 'ZPL sent to the RM Store printer.')} />
-                <MenuItem label="View stock" onClick={() => navigate('/inventory/stock')} />
-                <MenuItem label="Block bin" danger onClick={() => toast.success('Bin blocked', `${b.code} can no longer receive putaway.`)} />
-              </>
-            )}
-          />
-          <p className="mt-2 text-2xs text-fg-subtle">
-            Showing {whBins.length} sample bins of {wh.binCount} in this warehouse. The prototype seeds
-            a representative subset.
-          </p>
-        </>
-      )}
-
-      {/* ── Bulk bin generator ─────────────────────────────────────────── */}
-      <BulkBinModal open={bulkOpen} onClose={() => setBulkOpen(false)} />
-
-      <Modal open={newOpen} onClose={() => setNewOpen(false)} title="New warehouse" size="lg"
-        footer={<><Button variant="outline" onClick={() => setNewOpen(false)}>Cancel</Button><Button variant="primary" onClick={() => { toast.success('Warehouse created'); setNewOpen(false) }}>Create</Button></>}>
+      <Modal
+        open={formOpen}
+        onClose={() => setFormOpen(false)}
+        title={editing ? `Edit ${editing.code}` : 'Add warehouse'}
+        size="lg"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
+            <Button variant="primary" onClick={save} loading={saving}>{editing ? 'Save changes' : 'Add warehouse'}</Button>
+          </>
+        }
+      >
         <div className="grid gap-3.5 sm:grid-cols-2">
-          <Input label="Warehouse code" required placeholder="RM-02" />
-          <Input label="Warehouse name" required placeholder="Raw Material Store 2" />
-          <Select label="Warehouse type" required
-            options={['RAW_MATERIAL', 'WIP', 'FINISHED_GOODS', 'PACKING_MATERIAL', 'CONSUMABLE_SPARES', 'QUARANTINE', 'REJECT', 'SCRAP', 'SUBCONTRACTOR', 'TRANSIT', 'RETURN'].map((v) => ({ value: v, label: v.replace(/_/g, ' ') }))} />
-          <Select label="Branch" required options={branches.map((b) => ({ value: b.uid, label: b.name }))} />
-          <Select label="Plant" options={[{ value: '', label: '— not plant-linked —' }, ...plants.map((p) => ({ value: p.uid, label: p.name }))]} />
-          <Select label="Valuation method" defaultValue="WEIGHTED_AVG"
-            options={[{ value: 'WEIGHTED_AVG', label: 'Weighted average' }, { value: 'FIFO', label: 'FIFO' }, { value: 'STANDARD', label: 'Standard cost' }]} />
-          <Input label="Storekeeper" placeholder="🔍 Search users" containerClassName="sm:col-span-2" />
+          <Input label="Warehouse code" value={form.code || 'auto…'} readOnly className="bg-surface-2"
+            hint="Auto-generated · not editable" onChange={() => {}} />
+          <Input label="Warehouse name" required value={form.name} error={errors.name} maxLength={150}
+            placeholder="Raw Material Store" onChange={(e) => set({ name: e.target.value })} />
+          {editing ? (
+            <>
+              <Input label="Branch" value={form.branch_label} readOnly disabled
+                hint="Branch cannot be changed after creation" onChange={() => {}} />
+              <Input label="Plant" value={form.plant_label} readOnly disabled onChange={() => {}} />
+            </>
+          ) : (
+            <>
+              <Select label="Branch" required value={form.branch_uid} error={errors.branch_uid}
+                onChange={(e) => set({ branch_uid: e.target.value, plant_uid: '' })}
+                options={[{ value: '', label: 'Select a branch…' }, ...branches.map((b) => ({ value: b.uid, label: `${b.code} — ${b.name}` }))]} />
+              <Select label="Plant (optional)" value={form.plant_uid}
+                onChange={(e) => set({ plant_uid: e.target.value })}
+                options={[{ value: '', label: '— none —' }, ...plantOptions.map((p) => ({ value: p.uid, label: `${p.code} — ${p.name}` }))]} />
+            </>
+          )}
+          <Select label="Warehouse type" value={form.warehouse_type} error={errors.warehouse_type}
+            onChange={(e) => set({ warehouse_type: e.target.value })} options={WAREHOUSE_TYPES} />
+          <Select label="Valuation method" value={form.valuation_method}
+            onChange={(e) => set({ valuation_method: e.target.value })} options={VALUATION_METHODS} />
           <div className="space-y-2.5 sm:col-span-2">
-            <Switch checked={binManaged} onChange={setBinManaged} label="Enable bin location management" />
-            <Switch checked={batchMandatory} onChange={setBatchMandatory} label="Batch / lot tracking is mandatory" />
-            <Switch checked={allowNegative} onChange={setAllowNegative} label="Allow negative stock (raises an exception report entry every time)" />
+            <Switch checked={form.is_bin_managed} onChange={(v) => set({ is_bin_managed: v })} label="Bin managed (track storage locations within the warehouse)" />
+            <Switch checked={form.is_batch_mandatory} onChange={(v) => set({ is_batch_mandatory: v })} label="Batch mandatory (every stock movement must carry a batch)" />
+            <Switch checked={form.allow_negative_stock} onChange={(v) => set({ allow_negative_stock: v })} label="Allow negative stock" />
           </div>
         </div>
       </Modal>
     </div>
   )
-}
-
-function BulkBinModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const toast = useToast()
-  const [aisleFrom, setAisleFrom] = useState('A')
-  const [aisleTo, setAisleTo] = useState('F')
-  const [rackFrom, setRackFrom] = useState(1)
-  const [rackTo, setRackTo] = useState(10)
-  const [levelFrom, setLevelFrom] = useState(1)
-  const [levelTo, setLevelTo] = useState(4)
-  const [posFrom, setPosFrom] = useState(1)
-  const [posTo, setPosTo] = useState(3)
-
-  const preview = useMemo(() => {
-    const aisles = range(aisleFrom.charCodeAt(0), aisleTo.charCodeAt(0)).map((c) => String.fromCharCode(c))
-    const racks = range(rackFrom, rackTo).map((n) => String(n).padStart(2, '0'))
-    const levels = range(levelFrom, levelTo)
-    const positions = range(posFrom, posTo)
-    const total = aisles.length * racks.length * levels.length * positions.length
-    const samples: string[] = []
-    outer: for (const a of aisles)
-      for (const r of racks)
-        for (const l of levels)
-          for (const p of positions) {
-            samples.push(`${a}-${r}-${l}-${p}`)
-            if (samples.length >= 4) break outer
-          }
-    const last = `${aisles.at(-1)}-${racks.at(-1)}-${levels.at(-1)}-${positions.at(-1)}`
-    return { total, samples, last }
-  }, [aisleFrom, aisleTo, rackFrom, rackTo, levelFrom, levelTo, posFrom, posTo])
-
-  const existing = 12
-  const toCreate = Math.max(0, preview.total - existing)
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      size="lg"
-      title="Bulk generate bins"
-      description="Creating 700 bins by hand is not acceptable. Generate them from a pattern with a preview before commit."
-      footer={
-        <>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={() => { toast.success(`${toCreate} bins created`, `${existing} existing codes were skipped.`); onClose() }}>
-            Generate {toCreate.toLocaleString('en-IN')} bins
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        <div className="grid gap-3.5 sm:grid-cols-2">
-          <Select label="Zone" required options={[{ value: 'A', label: 'Rack Area A' }, { value: 'B', label: 'Rack Area B' }, { value: 'C', label: 'Coil Yard' }, { value: 'D', label: 'Bulk Zone' }]} />
-          <Select label="Bin type" required options={[{ value: 'RACK', label: 'Rack' }, { value: 'PALLET', label: 'Pallet' }, { value: 'SHELF', label: 'Shelf' }, { value: 'FLOOR', label: 'Floor' }, { value: 'COIL_STAND', label: 'Coil stand' }, { value: 'BULK', label: 'Bulk' }]} />
-        </div>
-
-        <Input label="Code pattern" defaultValue="{AISLE}-{RACK}-{LEVEL}-{POS}" hint="Available tokens: {AISLE} {RACK} {LEVEL} {POS}" />
-
-        <div className="rounded border border-border bg-surface-2 p-3">
-          <p className="mb-2.5 text-xs font-medium text-fg">Ranges</p>
-          <div className="space-y-2.5">
-            <RangeRow label="Aisle (letters)" from={aisleFrom} to={aisleTo} onFrom={setAisleFrom} onTo={setAisleTo} />
-            <RangeRow label="Rack (2 digits)" from={rackFrom} to={rackTo} onFrom={(v) => setRackFrom(+v)} onTo={(v) => setRackTo(+v)} numeric />
-            <RangeRow label="Level" from={levelFrom} to={levelTo} onFrom={(v) => setLevelFrom(+v)} onTo={(v) => setLevelTo(+v)} numeric />
-            <RangeRow label="Position" from={posFrom} to={posTo} onFrom={(v) => setPosFrom(+v)} onTo={(v) => setPosTo(+v)} numeric />
-          </div>
-        </div>
-
-        <div className="grid gap-3.5 sm:grid-cols-3">
-          <Input label="Max weight per bin (kg)" type="number" defaultValue={500} />
-          <Input label="Pick sequence start" type="number" defaultValue={1000} />
-          <Input label="Pick sequence step" type="number" defaultValue={10} />
-        </div>
-
-        <Alert tone="info" title={`Preview — ${preview.total.toLocaleString('en-IN')} bins`}>
-          <p className="mt-1 font-mono text-[11px] text-fg-muted">
-            {preview.samples.join(', ')} … {preview.last}
-          </p>
-        </Alert>
-
-        {existing > 0 && (
-          <Alert tone="warning">
-            {existing} of these codes already exist and will be skipped.{' '}
-            <strong>{toCreate.toLocaleString('en-IN')} bins will be created.</strong>
-          </Alert>
-        )}
-      </div>
-    </Modal>
-  )
-}
-
-function RangeRow({
-  label, from, to, onFrom, onTo, numeric,
-}: {
-  label: string
-  from: string | number
-  to: string | number
-  onFrom: (v: string) => void
-  onTo: (v: string) => void
-  numeric?: boolean
-}) {
-  return (
-    <div className="flex items-center gap-3">
-      <span className="w-32 shrink-0 text-xs text-fg-muted">{label}</span>
-      <span className="text-2xs text-fg-subtle">from</span>
-      <input
-        value={from}
-        onChange={(e) => onFrom(e.target.value)}
-        type={numeric ? 'number' : 'text'}
-        className="h-7 w-16 rounded border border-border bg-surface px-2 text-center text-xs text-fg focus:border-brand-500 focus:outline-none"
-      />
-      <span className="text-2xs text-fg-subtle">to</span>
-      <input
-        value={to}
-        onChange={(e) => onTo(e.target.value)}
-        type={numeric ? 'number' : 'text'}
-        className="h-7 w-16 rounded border border-border bg-surface px-2 text-center text-xs text-fg focus:border-brand-500 focus:outline-none"
-      />
-    </div>
-  )
-}
-
-function range(a: number, b: number) {
-  const out: number[] = []
-  for (let i = a; i <= b; i++) out.push(i)
-  return out
-}
-
-function typeTone(t: string) {
-  if (t === 'QUARANTINE' || t === 'REJECT') return 'warning' as const
-  if (t === 'SCRAP') return 'danger' as const
-  if (t === 'TRANSIT' || t === 'SUBCONTRACTOR') return 'progress' as const
-  if (t === 'FINISHED_GOODS') return 'success' as const
-  return 'neutral' as const
 }

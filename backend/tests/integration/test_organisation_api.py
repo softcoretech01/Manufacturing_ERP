@@ -115,8 +115,8 @@ async def test_optimistic_lock_conflict(client, world, login) -> None:
     assert stale.json()["type"].endswith("/concurrent-modification")
 
 
-# ─────────────────────────── Soft delete + restore ──────────────────────────
-async def test_soft_delete_and_restore(client, world, login) -> None:
+# ─────────────────────────── Deactivate + restore ───────────────────────────
+async def test_deactivate_and_restore(client, world, login) -> None:
     h = await login(world.admin_a, world.password, world.company_a_uid)
     b = await _mk_branch(client, h, code="SD")
     uid = b["uid"]
@@ -124,14 +124,16 @@ async def test_soft_delete_and_restore(client, world, login) -> None:
     de = await client.post(f"{API}/branches/{uid}/deactivate", json={"version": 1}, headers=h)
     assert de.status_code == 200 and de.json()["is_active"] is False
 
-    # excluded from the normal list, and a plain GET 404s
+    # Deactivation flips is_active but keeps the row visible (it is NOT deleted),
+    # so it can be seen and restored from the list.
     lst = await client.get(f"{API}/branches", headers=h)
-    assert all(row["uid"] != uid for row in lst.json()["data"])
-    assert (await client.get(f"{API}/branches/{uid}", headers=h)).status_code == 404
+    assert any(row["uid"] == uid for row in lst.json()["data"])
+    got = await client.get(f"{API}/branches/{uid}", headers=h)
+    assert got.status_code == 200 and got.json()["is_active"] is False
 
     re = await client.post(f"{API}/branches/{uid}/restore", headers=h)
     assert re.status_code == 200 and re.json()["is_active"] is True
-    assert (await client.get(f"{API}/branches/{uid}", headers=h)).status_code == 200
+    assert (await client.get(f"{API}/branches/{uid}", headers=h)).json()["is_active"] is True
 
 
 # ─────────────────────────── Dependency guards ──────────────────────────────

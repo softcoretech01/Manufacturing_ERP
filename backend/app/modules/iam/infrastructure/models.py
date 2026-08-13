@@ -10,13 +10,13 @@ that Organisation depends on, and exposes it through a stable service contract.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import Boolean, String
+from sqlalchemy import Boolean, Date, String, UniqueConstraint
 from sqlalchemy.dialects.mysql import BIGINT, DATETIME, INTEGER
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.base import Base, Entity
+from app.core.base import Base, CompanyEntity, Entity
 from app.core.enums import PermissionEffect, RoleType, UserStatus, UserType
 from app.core.ids import new_uid
 
@@ -116,3 +116,55 @@ class SysSession(Base):
     expires_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+
+
+class SysApiKey(CompanyEntity):
+    """A machine credential for integrations. The secret is shown once at creation;
+    only its SHA-256 hash is stored. Its permissions are exactly those of the linked
+    role (`role_id`). `revoked_at` kills it immediately."""
+
+    __tablename__ = "sys_api_key"
+    __table_args__ = (
+        UniqueConstraint("company_id", "name", "deleted_key", name="uk_api_key_name"),
+    )
+
+    name: Mapped[str] = mapped_column(String(150), nullable=False)
+    prefix: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    key_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    role_id: Mapped[int | None] = mapped_column(BIGINT(unsigned=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class SysSodRule(CompanyEntity):
+    """A segregation-of-duties rule: two permissions no single user should hold at
+    once. `BLOCK` means the pair is forbidden; `WARN` allows it with justification."""
+
+    __tablename__ = "sys_sod_rule"
+    __table_args__ = (
+        UniqueConstraint("company_id", "name", "deleted_key", name="uk_sod_name"),
+    )
+
+    name: Mapped[str] = mapped_column(String(150), nullable=False)
+    permission_a: Mapped[str] = mapped_column(String(80), nullable=False)
+    permission_b: Mapped[str] = mapped_column(String(80), nullable=False)
+    severity: Mapped[str] = mapped_column(String(10), nullable=False, default="BLOCK")
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class SysDelegation(CompanyEntity):
+    """Delegation of approval authority from one user to another for a period.
+    Stored here; the Workflow engine (a later module) is what will actually reroute
+    approvals through an active delegation."""
+
+    __tablename__ = "sys_delegation"
+
+    from_user_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), nullable=False, index=True)
+    to_user_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), nullable=False, index=True)
+    valid_from: Mapped[date] = mapped_column(Date, nullable=False)
+    valid_to: Mapped[date] = mapped_column(Date, nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

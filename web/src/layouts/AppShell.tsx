@@ -23,7 +23,7 @@ export function AppShell() {
               SSB Industries Private Limited ·{' '}
               <span className="font-mono">v0.1.0-prototype</span>
             </span>
-            <span>Frontend prototype — data is mocked in the browser; no backend is attached.</span>
+            <span>Organisation &amp; Access Control are live on the FastAPI backend; other modules are still prototype data.</span>
           </div>
         </footer>
       </div>

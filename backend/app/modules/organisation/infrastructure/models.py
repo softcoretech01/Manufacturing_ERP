@@ -18,7 +18,7 @@ from datetime import date, datetime
 
 from sqlalchemy import Boolean, Date, Index, String, Text, UniqueConstraint
 from sqlalchemy.dialects.mysql import BIGINT, DATETIME, DECIMAL, INTEGER, JSON, TINYINT
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.base import Base, CompanyEntity, Entity
 from app.core.enums import (
@@ -159,6 +159,27 @@ class SysPlant(CompanyEntity):
     installed_capacity_per_day: Mapped[float | None] = mapped_column(DECIMAL(18, 3), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
+    # Parent branch, resolved for display (no DB FK — soft reference within the
+    # module). Eager-loaded so serialising a plant never triggers an async lazy load.
+    branch = relationship(
+        "SysBranch",
+        primaryjoin="foreign(SysPlant.branch_id) == SysBranch.id",
+        viewonly=True,
+        lazy="selectin",
+    )
+
+    @property
+    def branch_uid(self) -> str | None:
+        return self.branch.uid if self.branch else None
+
+    @property
+    def branch_code(self) -> str | None:
+        return self.branch.code if self.branch else None
+
+    @property
+    def branch_name(self) -> str | None:
+        return self.branch.name if self.branch else None
+
 
 # ─────────────────────────── Warehouse ───────────────────────────────────────
 class SysWarehouse(CompanyEntity):
@@ -186,6 +207,45 @@ class SysWarehouse(CompanyEntity):
     pincode: Mapped[str | None] = mapped_column(String(10), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
+    # Parent branch (always) and plant (optional), resolved for display. Eager so
+    # serialising a warehouse never triggers an async lazy load.
+    branch = relationship(
+        "SysBranch",
+        primaryjoin="foreign(SysWarehouse.branch_id) == SysBranch.id",
+        viewonly=True,
+        lazy="selectin",
+    )
+    plant = relationship(
+        "SysPlant",
+        primaryjoin="foreign(SysWarehouse.plant_id) == SysPlant.id",
+        viewonly=True,
+        lazy="selectin",
+    )
+
+    @property
+    def branch_uid(self) -> str | None:
+        return self.branch.uid if self.branch else None
+
+    @property
+    def branch_code(self) -> str | None:
+        return self.branch.code if self.branch else None
+
+    @property
+    def branch_name(self) -> str | None:
+        return self.branch.name if self.branch else None
+
+    @property
+    def plant_uid(self) -> str | None:
+        return self.plant.uid if self.plant else None
+
+    @property
+    def plant_code(self) -> str | None:
+        return self.plant.code if self.plant else None
+
+    @property
+    def plant_name(self) -> str | None:
+        return self.plant.name if self.plant else None
+
 
 # ─────────────────────────── Department ──────────────────────────────────────
 class SysDepartment(CompanyEntity):
@@ -204,6 +264,29 @@ class SysDepartment(CompanyEntity):
     level: Mapped[int] = mapped_column(TINYINT(unsigned=True), nullable=False, default=0)
     path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    # Self-referential parent, resolved for display. `lazy="select"` (not selectin)
+    # so it loads exactly one level — a selectin here would recurse up the tree and
+    # blow up under async. The list query eager-loads it explicitly; create/update
+    # load it with an awaited refresh.
+    parent = relationship(
+        "SysDepartment",
+        primaryjoin="foreign(SysDepartment.parent_id) == remote(SysDepartment.id)",
+        viewonly=True,
+        lazy="select",
+    )
+
+    @property
+    def parent_uid(self) -> str | None:
+        return self.parent.uid if self.parent else None
+
+    @property
+    def parent_code(self) -> str | None:
+        return self.parent.code if self.parent else None
+
+    @property
+    def parent_name(self) -> str | None:
+        return self.parent.name if self.parent else None
 
 
 # ─────────────────────────── Cost centre ─────────────────────────────────────
@@ -226,6 +309,27 @@ class SysCostCentre(CompanyEntity):
     valid_from: Mapped[date | None] = mapped_column(Date, nullable=True)
     valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    # Self-referential parent for display — see SysDepartment.parent for why this
+    # is lazy="select" (avoids async selectin recursion up the tree).
+    parent = relationship(
+        "SysCostCentre",
+        primaryjoin="foreign(SysCostCentre.parent_id) == remote(SysCostCentre.id)",
+        viewonly=True,
+        lazy="select",
+    )
+
+    @property
+    def parent_uid(self) -> str | None:
+        return self.parent.uid if self.parent else None
+
+    @property
+    def parent_code(self) -> str | None:
+        return self.parent.code if self.parent else None
+
+    @property
+    def parent_name(self) -> str | None:
+        return self.parent.name if self.parent else None
 
 
 # ─────────────────────────── Financial year + periods ────────────────────────

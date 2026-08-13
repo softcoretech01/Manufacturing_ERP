@@ -1,0 +1,97 @@
+warning: in the working copy of 'backend/app/main.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/models.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/modules/iam/api/schemas.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/modules/iam/application/auth_service.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/modules/iam/infrastructure/models.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/modules/iam/permissions.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/modules/organisation/api/routers.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/modules/organisation/api/schemas.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/modules/organisation/application/services.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/modules/organisation/infrastructure/models.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/modules/organisation/infrastructure/repositories.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/migrations/env.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/scripts/seed_dev.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/tests/integration/test_organisation_api.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/api/client.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/api/organisation.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/hooks/useOrganisation.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/admin/ApiKeys.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/admin/Audit.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/admin/Branches.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/admin/Company.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/admin/CostCentres.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/admin/Currency.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/admin/Delegations.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/admin/Departments.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/admin/FinancialYear.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/admin/LoginActivity.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/admin/Numbering.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/admin/OrganisationExplorer.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/admin/PermissionExplorer.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/admin/Plants.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/admin/Roles.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/admin/Sessions.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/admin/Sod.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/admin/Users.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/admin/Warehouses.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/inventory/Structure.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/inventory/Warehouses.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/workflow/Designer.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/workflow/Inbox.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/workflow/Matrix.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/src/pages/workflow/Monitor.tsx', LF will be replaced by CRLF the next time Git touches it
+backend/.env.example
+backend/app/core/config.py
+backend/app/core/enums.py
+backend/app/core/logging.py
+backend/app/main.py
+backend/app/models.py
+backend/app/modules/iam/api/schemas.py
+backend/app/modules/iam/application/auth_service.py
+backend/app/modules/iam/infrastructure/models.py
+backend/app/modules/iam/permissions.py
+backend/app/modules/organisation/api/routers.py
+backend/app/modules/organisation/api/schemas.py
+backend/app/modules/organisation/application/services.py
+backend/app/modules/organisation/infrastructure/models.py
+backend/app/modules/organisation/infrastructure/repositories.py
+backend/migrations/env.py
+backend/scripts/seed_dev.py
+backend/tests/integration/test_organisation_api.py
+web/src/api/client.ts
+web/src/api/organisation.ts
+web/src/components/ui/DataTable.tsx
+web/src/components/ui/Input.tsx
+web/src/hooks/useOrganisation.ts
+web/src/layouts/AppShell.tsx
+web/src/layouts/Sidebar.tsx
+web/src/layouts/Topbar.tsx
+web/src/pages/admin/ApiKeys.tsx
+web/src/pages/admin/Audit.tsx
+web/src/pages/admin/Branches.tsx
+web/src/pages/admin/Company.tsx
+web/src/pages/admin/CostCentres.tsx
+web/src/pages/admin/Currency.tsx
+web/src/pages/admin/Delegations.tsx
+web/src/pages/admin/Departments.tsx
+web/src/pages/admin/FinancialYear.tsx
+web/src/pages/admin/LoginActivity.tsx
+web/src/pages/admin/Numbering.tsx
+web/src/pages/admin/OrganisationExplorer.tsx
+web/src/pages/admin/PermissionExplorer.tsx
+web/src/pages/admin/Plants.tsx
+web/src/pages/admin/Roles.tsx
+web/src/pages/admin/Sessions.tsx
+web/src/pages/admin/Sod.tsx
+web/src/pages/admin/Users.tsx
+web/src/pages/admin/Warehouses.tsx
+web/src/pages/auth/Login.tsx
+web/src/pages/inventory/BinMap.tsx
+web/src/pages/inventory/Structure.tsx
+web/src/pages/inventory/Warehouses.tsx
+web/src/pages/workflow/Designer.tsx
+web/src/pages/workflow/Inbox.tsx
+web/src/pages/workflow/Matrix.tsx
+web/src/pages/workflow/Monitor.tsx
+web/src/types/inventory.ts
+web/vite.config.ts

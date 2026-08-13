@@ -10,8 +10,8 @@ import { useToast } from '@/components/ui/Toast'
 import { InvStatusBadge, useCanSeeValue } from '@/components/inventory/InvShell'
 import { formatCompact, formatDate, formatQty } from '@/lib/format'
 import { cn } from '@/lib/cn'
-import { useCollection } from '@/store/data'
-import { binSlots as seedBins, warehouseSummaries } from '@/mock/inventory'
+import { useWarehouses } from '@/hooks/useOrganisation'
+import { useZones, useBins, useBlockBin, useUnblockBin, useUpdateBin } from '@/hooks/useInventory'
 import type { BinSlot } from '@/types/inventory'
 
 /** Colour by how full a bin is, with blocked and counting states overriding. */
@@ -28,16 +28,55 @@ export function BinMapPage() {
   const toast = useToast()
   const navigate = useNavigate()
   const canSeeValue = useCanSeeValue()
-  const seed = useMemo(() => seedBins, [])
-  const { rows: bins, update } = useCollection<BinSlot>('inv:bin', seed)
 
-  const [warehouse, setWarehouse] = useState('RM-01')
+  const [warehouseUid, setWarehouseUid] = useState<string>('')
   const [detail, setDetail] = useState<BinSlot | null>(null)
   const [blockTarget, setBlockTarget] = useState<BinSlot | null>(null)
   const [reason, setReason] = useState('')
 
-  const wh = warehouseSummaries.find((w) => w.code === warehouse)
-  const list = bins.filter((b) => b.warehouseCode === warehouse)
+  // 1. Fetch live warehouses (first load only selects the first bin-managed one)
+  const { data: whRes } = useWarehouses({ page_size: 200 })
+  const warehouses = whRes?.data ?? []
+  const binManaged = warehouses.filter((w) => w.is_bin_managed && w.is_active)
+  
+  if (!warehouseUid && binManaged.length > 0) {
+    setWarehouseUid(binManaged[0].uid)
+  }
+
+  const selectedWh = warehouses.find((w) => w.uid === warehouseUid)
+
+  // 2. Fetch live zones and bins for the selected warehouse
+  const { data: zonesRes, isLoading: loadingZones } = useZones(warehouseUid || undefined)
+  const { data: binsRes, isLoading: loadingBins } = useBins(warehouseUid || undefined, { page_size: 5000 })
+  const blockBin = useBlockBin()
+  const unblockBin = useUnblockBin()
+  const updateBin = useUpdateBin()
+
+  // 3. Map API data to the UI's BinSlot shape
+  const liveZones = zonesRes ?? []
+  const zoneMap = new Map(liveZones.map((z) => [z.uid, z.name]))
+  
+  const list: BinSlot[] = (binsRes?.data ?? []).map((b) => ({
+    uid: b.uid,
+    warehouseCode: selectedWh?.code ?? '—',
+    zone: b.zone_uid ? (zoneMap.get(b.zone_uid) ?? 'Unknown') : 'No zone',
+    code: b.code,
+    binType: b.bin_type,
+    status: b.status,
+    contents: 'Empty', // Placeholder for operational metric
+    quantity: 0, // Placeholder
+    utilisationPct: 0, // Placeholder
+    itemCode: null,
+    batchNo: null,
+    maxWeightKg: b.max_weight_kg,
+    pickSequence: b.pick_sequence,
+    mixingAllowed: b.mixing_allowed,
+    fixedItem: null,
+    blockReason: b.block_reason,
+    lastCountedOn: null,
+    version: b.version, // Keep version for mutations
+  }))
+
   const zones = [...new Set(list.map((b) => b.zone))]
 
   const stats = {
@@ -67,16 +106,16 @@ export function BinMapPage() {
         <Select
           sizeVariant="sm"
           containerClassName="w-64"
-          value={warehouse}
-          onChange={(e) => setWarehouse(e.target.value)}
-          options={warehouseSummaries.filter((w) => w.isBinManaged).map((w) => ({ value: w.code, label: `${w.code} — ${w.name}` }))}
+          value={warehouseUid}
+          onChange={(e) => setWarehouseUid(e.target.value)}
+          options={binManaged.map((w) => ({ value: w.uid, label: `${w.code} — ${w.name}` }))}
         />
         <p className="text-xs text-fg-muted">
           <span className="font-medium text-fg">{stats.occupied}</span>/{stats.total} bins in use ·{' '}
           <span className="font-medium text-fg">{stats.empty}</span> empty ·{' '}
           <span className={cn('font-medium', stats.blocked ? 'text-danger' : 'text-fg')}>{stats.blocked}</span> blocked · average
           fill <span className="font-medium text-fg tabular">{stats.avg.toFixed(0)}%</span>
-          {canSeeValue && wh ? <> · <span className="font-medium text-fg tabular">₹{formatCompact(wh.stockValue)}</span> held here</> : null}
+          {canSeeValue && selectedWh ? <> · <span className="font-medium text-fg tabular">₹{formatCompact(0)}</span> held here</> : null}
         </p>
       </div>
 
@@ -140,12 +179,18 @@ export function BinMapPage() {
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    update(detail.uid, { status: detail.status === 'UNDER_COUNT' ? 'AVAILABLE' : 'UNDER_COUNT' })
-                    toast.success(
-                      detail.status === 'UNDER_COUNT' ? 'Count finished' : 'Marked for counting',
-                      detail.status === 'UNDER_COUNT' ? `${detail.code} accepts movements again.` : `${detail.code} is frozen for counting — nothing can be picked from or put into it.`,
-                    )
+                    const nextStatus = detail.status === 'UNDER_COUNT' ? 'AVAILABLE' : 'UNDER_COUNT'
+                    updateBin.mutate({ uid: detail.uid, body: { version: detail.version as number, status: nextStatus } }, {
+                      onSuccess: () => {
+                        toast.success(
+                          detail.status === 'UNDER_COUNT' ? 'Count finished' : 'Marked for counting',
+                          detail.status === 'UNDER_COUNT' ? `${detail.code} accepts movements again.` : `${detail.code} is frozen for counting — nothing can be picked from or put into it.`,
+                        )
+                        setDetail(null)
+                      }
+                    })
                   }}
+                  disabled={updateBin.isPending}
                 >
                   {detail.status === 'UNDER_COUNT' ? 'Finish count' : 'Count this bin'}
                 </Button>
@@ -154,14 +199,18 @@ export function BinMapPage() {
                   size="sm"
                   onClick={() => {
                     if (detail.status === 'BLOCKED') {
-                      update(detail.uid, { status: 'AVAILABLE', blockReason: undefined })
-                      toast.success('Unblocked', `${detail.code} accepts put-away again.`)
-                      setDetail(null)
+                      unblockBin.mutate({ uid: detail.uid, version: detail.version as number }, {
+                        onSuccess: () => {
+                          toast.success('Unblocked', `${detail.code} accepts put-away again.`)
+                          setDetail(null)
+                        }
+                      })
                     } else {
                       setBlockTarget(detail)
                       setReason('')
                     }
                   }}
+                  disabled={unblockBin.isPending}
                 >
                   {detail.status === 'BLOCKED' ? 'Unblock' : 'Block bin'}
                 </Button>
@@ -221,16 +270,20 @@ export function BinMapPage() {
             <Button variant="outline" onClick={() => setBlockTarget(null)}>Cancel</Button>
             <Button
               variant="danger"
+              disabled={blockBin.isPending}
               onClick={() => {
                 if (!blockTarget) return
                 if (!reason.trim()) {
                   toast.error('Reason required', 'A blocked bin without a reason is a puzzle for the next shift.')
                   return
                 }
-                update(blockTarget.uid, { status: 'BLOCKED', blockReason: reason.trim() })
-                toast.success('Bin blocked', `${blockTarget.code} accepts no put-away and no picking until it is unblocked.`)
-                setBlockTarget(null)
-                setDetail(null)
+                blockBin.mutate({ uid: blockTarget.uid, version: blockTarget.version as number, reason: reason.trim() }, {
+                  onSuccess: () => {
+                    toast.success('Bin blocked', `${blockTarget.code} accepts no put-away and no picking until it is unblocked.`)
+                    setBlockTarget(null)
+                    setDetail(null)
+                  }
+                })
               }}
             >
               Block bin

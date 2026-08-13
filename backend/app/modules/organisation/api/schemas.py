@@ -17,6 +17,7 @@ from app.core.enums import (
     WarehouseType,
 )
 from app.core.schema import ApiModel, InModel
+from app.core.validators import EmailStr, PhoneStr, PincodeStr
 
 
 class VersionedUpdate(InModel):
@@ -32,40 +33,40 @@ class DeactivateRequest(InModel):
 
 # ─────────────────────────── Company ─────────────────────────────────────────
 class CompanyCreate(InModel):
-    code: str = Field(..., min_length=1, max_length=20)
+    code: str | None = Field(default=None, max_length=20)
     legal_name: str = Field(..., min_length=1, max_length=200)
     trade_name: str | None = Field(default=None, max_length=200)
-    entity_type: str | None = None
+    entity_type: str | None = Field(default=None, max_length=30)
     cin: str | None = Field(default=None, max_length=30)
     pan: str | None = Field(default=None, max_length=10)
     tan: str | None = Field(default=None, max_length=15)
     base_currency_code: str = Field(default="INR", min_length=3, max_length=3)
     fy_start_month: int = Field(default=4, ge=1, le=12)
-    timezone: str = "Asia/Kolkata"
-    locale: str = "en-IN"
+    timezone: str = Field(default="Asia/Kolkata", max_length=50)
+    locale: str = Field(default="en-IN", max_length=10)
     gst_state_code: str | None = Field(default=None, min_length=2, max_length=2)
-    address_line1: str | None = None
+    address_line1: str | None = Field(default=None, max_length=200)
     city_id: int | None = None
     state_id: int | None = None
     country_id: int | None = None
-    pincode: str | None = Field(default=None, max_length=10)
-    phone: str | None = None
-    email: str | None = None
-    website: str | None = None
+    pincode: PincodeStr | None = Field(default=None, max_length=10)
+    phone: PhoneStr | None = Field(default=None, max_length=30)
+    email: EmailStr | None = Field(default=None, max_length=150)
+    website: str | None = Field(default=None, max_length=150)
 
 
 class CompanyUpdate(VersionedUpdate):
     legal_name: str | None = Field(default=None, max_length=200)
     trade_name: str | None = Field(default=None, max_length=200)
-    cin: str | None = None
-    pan: str | None = None
-    tan: str | None = None
+    cin: str | None = Field(default=None, max_length=30)
+    pan: str | None = Field(default=None, max_length=10)
+    tan: str | None = Field(default=None, max_length=15)
     gst_state_code: str | None = Field(default=None, min_length=2, max_length=2)
-    address_line1: str | None = None
-    pincode: str | None = None
-    phone: str | None = None
-    email: str | None = None
-    website: str | None = None
+    address_line1: str | None = Field(default=None, max_length=200)
+    pincode: PincodeStr | None = Field(default=None, max_length=10)
+    phone: PhoneStr | None = Field(default=None, max_length=30)
+    email: EmailStr | None = Field(default=None, max_length=150)
+    website: str | None = Field(default=None, max_length=150)
 
 
 class CompanyOut(ApiModel):
@@ -90,7 +91,7 @@ class CompanyOut(ApiModel):
 class RegistrationCreate(InModel):
     registration_type: str = Field(..., max_length=40)
     registration_no: str = Field(..., max_length=50)
-    issuing_authority: str | None = None
+    issuing_authority: str | None = Field(default=None, max_length=200)
     gst_state_code: str | None = Field(default=None, min_length=2, max_length=2)
     valid_from: date | None = None
     valid_to: date | None = None
@@ -109,19 +110,20 @@ class RegistrationOut(ApiModel):
 
 # ─────────────────────────── Branch ──────────────────────────────────────────
 class BranchCreate(InModel):
-    code: str = Field(..., min_length=1, max_length=20)
+    # Auto-generated (read-only in the UI) when omitted — see codegen.next_code.
+    code: str | None = Field(default=None, max_length=20)
     name: str = Field(..., min_length=1, max_length=150)
     branch_type: BranchType = BranchType.FACTORY
     gstin: str | None = Field(default=None, max_length=15)
     has_separate_gstin: bool = False
     gst_state_code: str | None = Field(default=None, min_length=2, max_length=2)
-    address_line1: str | None = None
+    address_line1: str | None = Field(default=None, max_length=200)
     city_id: int | None = None
     state_id: int | None = None
-    pincode: str | None = None
-    phone: str | None = None
-    email: str | None = None
-    contact_person: str | None = None
+    pincode: PincodeStr | None = Field(default=None, max_length=10)
+    phone: PhoneStr | None = Field(default=None, max_length=30)
+    email: EmailStr | None = Field(default=None, max_length=150)
+    contact_person: str | None = Field(default=None, max_length=150)
 
 
 class BranchUpdate(VersionedUpdate):
@@ -130,11 +132,11 @@ class BranchUpdate(VersionedUpdate):
     gstin: str | None = Field(default=None, max_length=15)
     has_separate_gstin: bool | None = None
     gst_state_code: str | None = Field(default=None, min_length=2, max_length=2)
-    address_line1: str | None = None
-    pincode: str | None = None
-    phone: str | None = None
-    email: str | None = None
-    contact_person: str | None = None
+    address_line1: str | None = Field(default=None, max_length=200)
+    pincode: PincodeStr | None = Field(default=None, max_length=10)
+    phone: PhoneStr | None = Field(default=None, max_length=30)
+    email: EmailStr | None = Field(default=None, max_length=150)
+    contact_person: str | None = Field(default=None, max_length=150)
 
 
 class BranchOut(ApiModel):
@@ -146,6 +148,11 @@ class BranchOut(ApiModel):
     gstin: str | None
     has_separate_gstin: bool
     gst_state_code: str | None
+    address_line1: str | None
+    pincode: str | None
+    phone: str | None
+    email: str | None
+    contact_person: str | None
     is_active: bool
     version: int
     created_at: datetime
@@ -155,20 +162,20 @@ class BranchOut(ApiModel):
 # ─────────────────────────── Plant ───────────────────────────────────────────
 class PlantCreate(InModel):
     branch_uid: str
-    code: str = Field(..., min_length=1, max_length=20)
+    code: str | None = Field(default=None, max_length=20)
     name: str = Field(..., min_length=1, max_length=150)
-    factory_licence_no: str | None = None
+    factory_licence_no: str | None = Field(default=None, max_length=50)
     factory_licence_valid_to: date | None = None
-    pollution_consent_no: str | None = None
-    installed_capacity_per_day: float | None = None
+    pollution_consent_no: str | None = Field(default=None, max_length=50)
+    installed_capacity_per_day: float | None = Field(default=None, ge=0)
 
 
 class PlantUpdate(VersionedUpdate):
     name: str | None = Field(default=None, max_length=150)
-    factory_licence_no: str | None = None
+    factory_licence_no: str | None = Field(default=None, max_length=50)
     factory_licence_valid_to: date | None = None
-    pollution_consent_no: str | None = None
-    installed_capacity_per_day: float | None = None
+    pollution_consent_no: str | None = Field(default=None, max_length=50)
+    installed_capacity_per_day: float | None = Field(default=None, ge=0)
 
 
 class PlantOut(ApiModel):
@@ -176,8 +183,12 @@ class PlantOut(ApiModel):
     code: str
     name: str
     branch_id: int | None = Field(exclude=True)
+    branch_uid: str | None
+    branch_code: str | None
+    branch_name: str | None
     factory_licence_no: str | None
     factory_licence_valid_to: date | None
+    pollution_consent_no: str | None
     installed_capacity_per_day: float | None
     is_active: bool
     version: int
@@ -185,7 +196,7 @@ class PlantOut(ApiModel):
 
 # ─────────────────────────── Warehouse ───────────────────────────────────────
 class WarehouseCreate(InModel):
-    code: str = Field(..., min_length=1, max_length=20)
+    code: str | None = Field(default=None, max_length=20)
     name: str = Field(..., min_length=1, max_length=150)
     branch_uid: str
     plant_uid: str | None = None
@@ -209,6 +220,12 @@ class WarehouseOut(ApiModel):
     uid: str
     code: str
     name: str
+    branch_uid: str | None
+    branch_code: str | None
+    branch_name: str | None
+    plant_uid: str | None
+    plant_code: str | None
+    plant_name: str | None
     warehouse_type: str
     is_bin_managed: bool
     is_batch_mandatory: bool
@@ -220,7 +237,7 @@ class WarehouseOut(ApiModel):
 
 # ─────────────────────────── Department ──────────────────────────────────────
 class DepartmentCreate(InModel):
-    code: str = Field(..., min_length=1, max_length=20)
+    code: str | None = Field(default=None, max_length=20)
     name: str = Field(..., min_length=1, max_length=150)
     department_type: DepartmentType = DepartmentType.PRODUCTION
     parent_uid: str | None = None
@@ -239,6 +256,9 @@ class DepartmentOut(ApiModel):
     name: str
     department_type: str
     parent_id: int | None = Field(exclude=True)
+    parent_uid: str | None
+    parent_code: str | None
+    parent_name: str | None
     level: int
     is_active: bool
     version: int
@@ -246,7 +266,7 @@ class DepartmentOut(ApiModel):
 
 # ─────────────────────────── Cost centre ─────────────────────────────────────
 class CostCentreCreate(InModel):
-    code: str = Field(..., min_length=1, max_length=20)
+    code: str | None = Field(default=None, max_length=20)
     name: str = Field(..., min_length=1, max_length=150)
     cost_centre_type: CostCentreType = CostCentreType.PRODUCTION
     parent_uid: str | None = None
@@ -268,6 +288,9 @@ class CostCentreOut(ApiModel):
     name: str
     cost_centre_type: str
     parent_id: int | None = Field(exclude=True)
+    parent_uid: str | None
+    parent_code: str | None
+    parent_name: str | None
     level: int
     is_postable: bool
     is_active: bool
@@ -276,7 +299,7 @@ class CostCentreOut(ApiModel):
 
 # ─────────────────────────── Financial year ──────────────────────────────────
 class FinancialYearCreate(InModel):
-    code: str = Field(..., min_length=1, max_length=20)
+    code: str = Field(..., min_length=1, max_length=20)  # user-defined, e.g. FY25-26
     start_date: date
     end_date: date
     is_current: bool = False
@@ -329,3 +352,59 @@ class ExchangeRateOut(ApiModel):
     effective_date: date
     source: str | None
     version: int
+
+
+# ─────────────────────────── Organisation structure (read model) ─────────────
+class StructureWarehouse(ApiModel):
+    uid: str
+    code: str
+    name: str
+    warehouse_type: str
+    is_active: bool
+
+
+class StructurePlant(ApiModel):
+    uid: str
+    code: str
+    name: str
+    is_active: bool
+    installed_capacity_per_day: float | None = None
+    warehouses: list[StructureWarehouse] = Field(default_factory=list)
+
+
+class StructureBranch(ApiModel):
+    uid: str
+    code: str
+    name: str
+    branch_type: str
+    is_active: bool
+    plants: list[StructurePlant] = Field(default_factory=list)
+    warehouses: list[StructureWarehouse] = Field(default_factory=list)
+
+
+class StructureUnit(ApiModel):
+    """A department or cost centre — flat with a parent reference for the tree."""
+
+    uid: str
+    code: str
+    name: str
+    type: str
+    level: int
+    is_active: bool
+    parent_uid: str | None = None
+
+
+class StructureCompany(ApiModel):
+    uid: str
+    code: str
+    legal_name: str
+    trade_name: str | None = None
+    gst_state_code: str | None = None
+
+
+class OrgStructureOut(ApiModel):
+    company: StructureCompany | None = None
+    branches: list[StructureBranch] = Field(default_factory=list)
+    departments: list[StructureUnit] = Field(default_factory=list)
+    cost_centres: list[StructureUnit] = Field(default_factory=list)
+    counts: dict[str, int] = Field(default_factory=dict)
