@@ -42,10 +42,23 @@ _MODULES: dict[str, dict[str, tuple[str, ...]]] = {
         "WORKFLOW": ("VIEW", "DESIGN", "ACTIVATE"),  # workflow monitor + designer
         "NUMBERING": ("VIEW", "EDIT", "OVERRIDE"),  # document numbering engine
     },
-    # Inventory & Stores — Zone/Bin storage structure (Vol 4 Ch 1).
+    # Inventory & Stores — Zone/Bin storage structure (Vol 4 Ch 1) + stock (Ch 2-3).
     "INVENTORY": {
         "ZONE": _CRUD,
         "BIN": ("VIEW", "CREATE", "EDIT", "DEACTIVATE", "RESTORE", "GENERATE", "BLOCK"),
+        "STOCK": ("VIEW", "VALUE"),  # VALUE gates the sensitive value columns (V4-STK §2.11)
+        "RECEIPT": ("VIEW", "CREATE", "POST"),
+        "ISSUE": ("VIEW", "POST"),
+        "RETURN": ("VIEW", "POST"),
+        "ADJUSTMENT": ("VIEW", "POST"),
+        "TRANSFER": ("VIEW", "POST"),
+        "PUTAWAY": ("VIEW", "POST"),  # bin-to-bin put-away of received stock
+        "SCRAP": ("VIEW", "POST"),
+        "CYCLE_COUNT": ("VIEW", "CREATE", "COUNT", "APPROVE"),  # physical inventory
+    },
+    # Master data (Vol 1 Ch 7 / Vol 4 prerequisite).
+    "MASTERS": {
+        "ITEM": _CRUD,
     },
 }
 

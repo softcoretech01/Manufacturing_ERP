@@ -118,17 +118,20 @@ async def main() -> None:
         print(f"Plants: {p1.code}, {p2.code}")
 
         wh_svc = svc.WarehouseService(s, ctx)
+        # (name, type, plant, bin-managed) — the Raw Material Store carries a full
+        # zone/bin structure (see sp_generate_bins), so it is bin-managed.
         warehouses = [
-            ("Raw Material Store", "RAW_MATERIAL", p1.uid),
-            ("Finished Goods Store", "FINISHED_GOODS", p1.uid),
-            ("WIP Store", "WIP", p2.uid),
-            ("Packing Material Store", "PACKING_MATERIAL", p2.uid),
+            ("Raw Material Store", "RAW_MATERIAL", p1.uid, True),
+            ("Finished Goods Store", "FINISHED_GOODS", p1.uid, False),
+            ("WIP Store", "WIP", p2.uid, False),
+            ("Packing Material Store", "PACKING_MATERIAL", p2.uid, False),
         ]
-        for name, wtype, plant_uid in warehouses:
+        for name, wtype, plant_uid, bin_managed in warehouses:
             w = await wh_svc.create(
                 sch.WarehouseCreate(
                     name=name, branch_uid=factory.uid, plant_uid=plant_uid,
                     warehouse_type=wtype, is_batch_mandatory=(wtype == "RAW_MATERIAL"),
+                    is_bin_managed=bin_managed,
                 )
             )
             print(f"  Warehouse: {w.code} — {w.name}")

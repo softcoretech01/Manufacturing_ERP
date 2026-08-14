@@ -77,6 +77,17 @@ export function useBins(warehouseUid: string | undefined, params?: BinListParams
   })
 }
 
+/** All bins in a warehouse (paged through the 200 cap) — for the bin map grid. */
+export function useAllBins(warehouseUid: string | undefined) {
+  const c = useCompany()
+  return useQuery<inv.Bin[]>({
+    // Prefix ['inv', _, 'bins', …] so block/unblock/count invalidations refetch it too.
+    queryKey: ['inv', c, 'bins', warehouseUid ?? '', 'all'] as const,
+    queryFn: () => inv.bins.listAll(warehouseUid as string),
+    enabled: !!c && !!warehouseUid,
+  })
+}
+
 export function useCreateBin() {
   const invalidate = useInvalidate('bins')
   return useMutation({ mutationFn: (body: Record<string, unknown>) => inv.bins.create(body), onSuccess: invalidate })
