@@ -15,7 +15,6 @@ import { useRowEdit } from '@/components/crud/RowEdit'
 import { DetailBlock, ProcStatusBadge } from '@/components/procurement/ProcShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatCurrency, formatDate } from '@/lib/format'
-import { api } from '@/lib/api'
 import {
   GST_PCT,
   invitedVendorsAwaitingQuote,

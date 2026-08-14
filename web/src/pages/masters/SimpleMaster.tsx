@@ -16,7 +16,6 @@ import { formatDate, formatDateTime } from '@/lib/format'
 import { newUid, useCollection } from '@/store/data'
 import { SIMPLE_MASTER_BY_ROUTE } from '@/mock/masterRegistry'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
 import type { MasterField, MasterStatus, SimpleMasterDef, SimpleMasterRow } from '@/types/masters'
 
 /* ── Codes that use a live API instead of mock data ─────────── */
@@ -67,6 +66,7 @@ function simpleRowToApiPayload(form: FormState, def: SimpleMasterDef): any {
 }
 
 /* ── API method map per master code ─────────────────────────── */
+const api: any = {};
 const API_METHODS: Record<string, {
   getAll: () => Promise<any[]>
   create: (data: any) => Promise<any>

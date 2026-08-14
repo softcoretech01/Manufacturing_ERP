@@ -13,7 +13,6 @@ import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatAmount, formatDate } from '@/lib/format'
 import { toolLifePct, toolNeedsAttention } from '@/lib/engFlow'
 import { machines } from '@/mock/masters'
-import { api } from '@/lib/api'
 import type { Routing, Tool, ToolType } from '@/types/engineering'
 
 const TOOL_TYPES: ToolType[] = ['DIE', 'PUNCH', 'MOULD', 'FIXTURE', 'JIG', 'WHEEL', 'GAUGE']

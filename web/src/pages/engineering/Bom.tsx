@@ -14,7 +14,6 @@ import { DetailBlock, EngStatusBadge } from '@/components/engineering/EngShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatAmount, formatDate } from '@/lib/format'
 import { bomProblems, isLiveBom, nextDocNo, wouldCreateCycle } from '@/lib/engFlow'
-import { api } from '@/lib/api'
 import { items as masterItems } from '@/mock/masters'
 import type { Bom, BomLine, BomType, EngProduct } from '@/types/engineering'
 
@@ -745,7 +744,7 @@ export function BomPage() {
             ]}
           />
           {!form.isDefault && (
-            <Input maxLength={255}
+            <Input
               label="Alternate for"
               containerClassName="sm:col-span-3"
               value={form.alternateFor}
@@ -756,7 +755,7 @@ export function BomPage() {
             />
           )}
           {(revisingFrom || editing) && (
-            <Textarea maxLength={1000}
+            <Textarea
               label="Reason for this revision"
               required={!!revisingFrom}
               containerClassName="sm:col-span-3"

@@ -11,7 +11,6 @@ import { EngStatusBadge, LevelIndent } from '@/components/engineering/EngShell'
 import { exportRows, type ExportColumn, type ExportFormat } from '@/lib/export'
 import { formatAmount, formatQty } from '@/lib/format'
 import { defaultBomFor, explodeBom, netRequirements, whereUsed, type ExplodedLine, type WhereUsedRow } from '@/lib/engFlow'
-import { api } from '@/lib/api'
 import type { Bom, EngProduct } from '@/types/engineering'
 import type { Item } from '@/types/inventory'
 

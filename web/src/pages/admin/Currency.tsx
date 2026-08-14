@@ -12,35 +12,7 @@ import { Input, Select } from '@/components/ui/Input'
 import { useToast } from '@/components/ui/Toast'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDate } from '@/lib/format'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
-import type { Currency, ExchangeRate } from '@/types'
 
-export function CurrencyPage() {
-  const toast = useToast()
-  const queryClient = useQueryClient()
-
-  const { data: currencies = [] } = useQuery({
-    queryKey: ['currencies'],
-    queryFn: api.getCurrencies,
-  })
-
-  const { data: exchangeRates = [] } = useQuery({
-    queryKey: ['exchangeRates'],
-    queryFn: api.getExchangeRates,
-  })
-
-  const createRateMutation = useMutation({
-    mutationFn: api.createExchangeRate,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['exchangeRates'] })
-      toast.success('Rate added')
-      setOpen(false)
-    },
-    onError: (err: any) => {
-      toast.error('Failed to add rate', err.message)
-    },
-  })
 import { ProblemError } from '@/api/client'
 import { useSession } from '@/api/session'
 import type { Currency, ExchangeRate } from '@/api/organisation'
@@ -72,13 +44,7 @@ export function CurrencyPage() {
   const [tab, setTab] = useState('rates')
   const [open, setOpen] = useState(false)
 
-  // Form State
-  const [fromCurrency, setFromCurrency] = useState('USD')
-  const [toCurrency, setToCurrency] = useState('INR')
-  const [rateType, setRateType] = useState('AVERAGE')
-  const [rate, setRate] = useState('')
-  const [effectiveDate, setEffectiveDate] = useState('')
-  const [source, setSource] = useState('')
+
 
   const currencyColumns: Column<Currency>[] = [
     { key: 'code', header: 'Code', sortable: true, width: '90px', render: (c) => <span className="font-mono text-xs font-medium">{c.code}</span> },
@@ -90,21 +56,7 @@ export function CurrencyPage() {
   ]
 
   const rateColumns: Column<ExchangeRate>[] = [
-    { key: 'pair', header: 'Pair', accessor: (r) => `${r.fromCurrency}/${r.toCurrency}`, width: '110px', render: (r) => <span className="font-mono text-xs font-medium">{r.fromCurrency} → {r.toCurrency}</span> },
-    {
-      key: 'rateType',
-      header: 'Rate type',
-      sortable: true,
-      width: '120px',
-      render: (r) => (
-        <Badge tone={r.rateType === 'CUSTOMS' ? 'warning' : 'neutral'} size="sm" dot={false}>
-          {r.rateType.toLowerCase()}
-        </Badge>
-      ),
-    },
-    { key: 'rate', header: 'Rate', align: 'right', sortable: true, width: '130px', render: (r) => <span className="font-mono text-xs">{r.rate.toFixed(4)}</span> },
-    { key: 'effectiveDate', header: 'Effective', sortable: true, width: '130px', render: (r) => formatDate(r.effectiveDate) },
-    { key: 'source', header: 'Source', render: (r) => <span className="text-xs text-fg-muted">{r.source}</span> },
+
     { key: 'pair', header: 'Pair', accessor: (r) => `${r.from_currency_code}/${r.to_currency_code}`, width: '130px', render: (r) => <span className="font-mono text-xs font-medium">{r.from_currency_code} → {r.to_currency_code}</span> },
     { key: 'rate_type', header: 'Rate type', sortable: true, width: '120px', render: (r) => <Badge tone={r.rate_type === 'CUSTOMS' ? 'warning' : 'neutral'} size="sm" dot={false}>{r.rate_type.toLowerCase()}</Badge> },
     { key: 'rate', header: 'Rate', align: 'right', sortable: true, width: '150px', render: (r) => <span className="font-mono text-xs">{Number(r.rate).toFixed(6)}</span> },
@@ -136,20 +88,7 @@ export function CurrencyPage() {
     }
   }
 
-  const handleAddRate = () => {
-    if (!fromCurrency || !toCurrency || !rateType || !rate || !effectiveDate) {
-      toast.error('Validation error', 'Please fill all required fields')
-      return
-    }
-    createRateMutation.mutate({
-      fromCurrency,
-      toCurrency,
-      rateType,
-      rate: parseFloat(rate),
-      effectiveDate,
-      source,
-    })
-  }
+
 
   return (
     <div>
@@ -217,24 +156,7 @@ export function CurrencyPage() {
         </Card>
       )}
 
-      <Modal open={open} onClose={() => setOpen(false)} title="Add exchange rate"
-        footer={<><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button variant="primary" onClick={handleAddRate} loading={createRateMutation.isPending}>Add rate</Button></>}>
-        <div className="space-y-3.5">
-          <div className="grid grid-cols-2 gap-3">
-            <Select label="From currency" required value={fromCurrency} onChange={e => setFromCurrency(e.target.value)} options={currencies.map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` }))} />
-            <Select label="To currency" required value={toCurrency} onChange={e => setToCurrency(e.target.value)} options={currencies.map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` }))} />
-          </div>
-          <Select label="Rate type" required value={rateType} onChange={e => setRateType(e.target.value)}
-            options={[{ value: 'AVERAGE', label: 'Average — general transactions' }, { value: 'BUYING', label: 'Buying — bank buying rate' }, { value: 'SELLING', label: 'Selling — bank selling rate' }, { value: 'CUSTOMS', label: 'Customs — CBIC notified rate for import duty' }]} />
-          <Input label="Rate" type="number" step="0.00000001" required placeholder="88.42000000" hint="Stored to 8 decimal places." value={rate} onChange={e => setRate(e.target.value)} />
-          <Input label="Effective date" type="date" required value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)} />
-          <Input label="Source" placeholder="RBI reference / HDFC Bank / CBIC notification" value={source} onChange={e => setSource(e.target.value)} />
-          <Alert tone="info">
-            Rate lookup resolves to the latest rate on or before the document date. If none exists, the
-            transaction is blocked with a clear message.
-          </Alert>
-        </div>
-      </Modal>
+
       <AddRateModal open={open} onClose={() => setOpen(false)} currencies={currencyList} baseCode={baseCode} />
     </div>
   )

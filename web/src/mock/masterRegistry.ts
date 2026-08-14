@@ -1,5 +1,4 @@
 import { daysAgo } from './data'
-import { api } from '@/lib/api'
 import type { MasterStatus, SimpleMasterDef, SimpleMasterRow } from '@/types/masters'
 
 /**
@@ -551,12 +550,7 @@ export const SIMPLE_MASTERS: SimpleMasterDef[] = [
     requiresApproval: false,
     autoCode: true,
     codePrefix: 'SH',
-    api: {
-      getAll: api.getShifts,
-      create: api.createShift,
-      update: api.updateShift,
-      delete: api.deleteShift,
-    },
+
     fields: [
       { key: 'startTime', label: 'Start', type: 'text', required: true, inList: true, width: '90px' },
       { key: 'endTime', label: 'End', type: 'text', required: true, inList: true, width: '90px' },
