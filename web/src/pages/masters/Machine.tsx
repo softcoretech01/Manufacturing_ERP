@@ -11,7 +11,6 @@ import { Alert, PageHeader, ProgressBar } from '@/components/ui/Misc'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { useToast } from '@/components/ui/Toast'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
-import { api } from '@/lib/api'
 import {
   GovernanceCard,
   LifecycleTrail,

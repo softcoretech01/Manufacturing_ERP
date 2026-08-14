@@ -10,7 +10,6 @@ import { Alert, PageHeader } from '@/components/ui/Misc'
 import { Tabs } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
 import { DetailBlock, EngStatusBadge } from '@/components/engineering/EngShell'
-import { api } from '@/lib/api'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDate } from '@/lib/format'
 import { useEngineeringCollection } from '@/store/engData'
@@ -414,7 +413,7 @@ export function EngDocumentsPage() {
       >
         <div className="grid gap-3.5 sm:grid-cols-2">
           <Input maxLength={255} label="Document code" disabled value={form.code ?? ''} placeholder="Auto-generated" />
-          <Input maxLength={255} label="Title" required value={form.title ?? ''} maxLength={150} error={errors.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          <Input label="Title" required value={form.title ?? ''} maxLength={150} error={errors.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
           <Select label="Type" value={form.docType ?? ''} onChange={(e) => setForm({ ...form, docType: e.target.value as DocType })} options={DOC_TYPES.map((t) => ({ value: t, label: DOC_TYPE_LABEL[t] }))} />
           <Select
             label="Product"
@@ -424,9 +423,9 @@ export function EngDocumentsPage() {
             onChange={(e) => setForm({ ...form, productCode: e.target.value })}
             options={[{ value: '', label: 'Select a product…' }, ...products.map((p) => ({ value: p.code, label: `${p.code} — ${p.name}` }))]}
           />
-          <Input maxLength={255} label="File name" required value={form.fileName ?? ''} maxLength={255} error={errors.fileName} placeholder="DRG-FG-600-GRN-R1.pdf" onChange={(e) => setForm({ ...form, fileName: e.target.value })} />
+          <Input label="File name" required value={form.fileName ?? ''} maxLength={255} error={errors.fileName} placeholder="DRG-FG-600-GRN-R1.pdf" onChange={(e) => setForm({ ...form, fileName: e.target.value })} />
           <Input maxLength={255} label="Size (KB)" type="number" value={form.sizeKb ?? ''} onChange={(e) => setForm({ ...form, sizeKb: e.target.value })} />
-          <Textarea maxLength={1000} label="Remarks" containerClassName="sm:col-span-2" maxLength={1000} rows={2} value={form.remarks ?? ''} onChange={(e) => setForm({ ...form, remarks: e.target.value })} />
+          <Textarea label="Remarks" containerClassName="sm:col-span-2" maxLength={1000} rows={2} value={form.remarks ?? ''} onChange={(e) => setForm({ ...form, remarks: e.target.value })} />
         </div>
 
         {revisingFrom && (

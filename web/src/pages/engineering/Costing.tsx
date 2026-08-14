@@ -11,7 +11,6 @@ import { ChartTip } from '@/components/engineering/EngShell'
 import { exportRows, type ExportColumn, type ExportFormat } from '@/lib/export'
 import { formatAmount, formatDate } from '@/lib/format'
 import { NO_SIMULATION, rollUpCost, type CostContext, type MaterialCostLine, type Simulation } from '@/lib/engFlow'
-import { api } from '@/lib/api'
 import type { Bom, EngProduct, EngWorkCentre, Routing, Tool } from '@/types/engineering'
 import type { Item } from '@/types/master'
 

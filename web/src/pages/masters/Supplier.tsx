@@ -26,7 +26,6 @@ import { Input, Select, Switch, Textarea } from '@/components/ui/Input'
 import { AddressFormModal, ContactFormModal, BankAccountFormModal, ComplianceDocFormModal } from './SupplierForms'
 import { useToast } from '@/components/ui/Toast'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
-import { api } from '@/lib/api'
 import {
   GovernanceCard,
   LifecycleTrail,

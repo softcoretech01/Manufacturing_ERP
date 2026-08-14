@@ -10,7 +10,6 @@ import { Alert, PageHeader } from '@/components/ui/Misc'
 import { useToast } from '@/components/ui/Toast'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatAmount } from '@/lib/format'
-import { api } from '@/lib/api'
 import { machines } from '@/mock/masters'
 import type { EngWorkCentre, Routing } from '@/types/engineering'
 

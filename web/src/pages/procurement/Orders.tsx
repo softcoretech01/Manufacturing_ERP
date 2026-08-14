@@ -13,8 +13,6 @@ import { useToast } from '@/components/ui/Toast'
 import { ApprovalTrail, DelayChip, DetailBlock, FillBar, ProcStatusBadge } from '@/components/procurement/ProcShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/format'
-import { api } from '@/lib/api'
-
 import type { PurchaseRequisition, PurchaseOrder, Rfq, SupplierQuotation } from '@/types/procurement'
 import { nextDocNo, orderableRequisitions, poLinesFromQuotation } from '@/lib/procFlow'
 import { cn } from '@/lib/cn'

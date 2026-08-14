@@ -14,7 +14,6 @@ import { DetailBlock, EngStatusBadge } from '@/components/engineering/EngShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatAmount, formatDate } from '@/lib/format'
 import { routingProblems, routingTime } from '@/lib/engFlow'
-import { api } from '@/lib/api'
 import type { EngProduct, EngWorkCentre, Operation, Routing, RoutingOperation, Tool } from '@/types/engineering'
 
 /**
@@ -731,7 +730,7 @@ export function RoutingPage() {
             onChange={(e) => setForm({ ...form, costingLotSize: e.target.value })}
           />
           {(revisingFrom || editing) && (
-            <Textarea maxLength={1000}
+            <Textarea
               label="Reason for this revision"
               required={!!revisingFrom}
               containerClassName="sm:col-span-4"

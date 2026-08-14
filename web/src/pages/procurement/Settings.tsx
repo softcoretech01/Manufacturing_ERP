@@ -12,7 +12,6 @@ import { Alert, PageHeader, ProgressBar } from '@/components/ui/Misc'
 import { Tabs } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
-import { api } from '@/lib/api'
 import type { EvalWeight, ProcParameter, ProcReasonCode } from '@/types/procurement'
 import { cn } from '@/lib/utils'
 

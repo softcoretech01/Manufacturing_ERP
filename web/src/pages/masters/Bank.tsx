@@ -10,7 +10,6 @@ import { Drawer, Modal } from '@/components/ui/Modal'
 import { PageHeader } from '@/components/ui/Misc'
 import { Input, Select, Switch } from '@/components/ui/Input'
 import { useToast } from '@/components/ui/Toast'
-import { api } from '@/lib/api'
 import { formatDate } from '@/lib/format'
 import type { Bank } from '@/types/masters'
 

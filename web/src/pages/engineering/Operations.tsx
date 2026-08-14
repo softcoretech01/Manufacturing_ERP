@@ -10,7 +10,6 @@ import { Alert, PageHeader } from '@/components/ui/Misc'
 import { useToast } from '@/components/ui/Toast'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatAmount } from '@/lib/format'
-import { api } from '@/lib/api'
 import type { EngWorkCentre, Operation, Routing } from '@/types/engineering'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'

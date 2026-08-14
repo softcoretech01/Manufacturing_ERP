@@ -13,7 +13,6 @@ import { Input, Select, Switch, Textarea } from '@/components/ui/Input'
 import { useToast } from '@/components/ui/Toast'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
 import {
   GovernanceCard,
   LifecycleTrail,

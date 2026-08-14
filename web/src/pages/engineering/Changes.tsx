@@ -22,7 +22,6 @@ import {
   nextDocNo,
 } from '@/lib/engFlow'
 import { newUid } from '@/store/data'
-import { api } from '@/lib/api'
 import { useEffect } from 'react'
 import type { Item } from '@/types/master'
 import type { Bom, ChangeAction, ChangeLine, EngChange, EngProduct, EngWorkCentre, Routing, Tool } from '@/types/engineering'
@@ -757,7 +756,7 @@ export function ChangesPage() {
               { value: 'ECN', label: 'ECN — notice, straight to approval' },
             ]}
           />
-          <Input maxLength={255} label="Title" required containerClassName="sm:col-span-3" value={form.title} error={errors.title} maxLength={200} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          <Input label="Title" required containerClassName="sm:col-span-3" value={form.title} error={errors.title} maxLength={200} onChange={(e) => setForm({ ...form, title: e.target.value })} />
           <Select
             label="Product"
             required
@@ -769,7 +768,7 @@ export function ChangesPage() {
           />
           <Select label="Category" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value as EngChange['category'] })} options={CATEGORIES.map((c) => ({ value: c, label: CHANGE_CATEGORY_LABEL[c] }))} />
           <Select label="Priority" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value as EngChange['priority'] })} options={PRIORITIES.map((p) => ({ value: p, label: p.charAt(0) + p.slice(1).toLowerCase() }))} />
-          <Textarea maxLength={1000}
+          <Textarea
             label="Reason for the change"
             required
             containerClassName="sm:col-span-3"
@@ -781,7 +780,7 @@ export function ChangesPage() {
             onChange={(e) => setForm({ ...form, reason: e.target.value })}
           />
           <Input maxLength={255} label="Effective from" type="date" required value={form.effectiveFrom} error={errors.effectiveFrom} onChange={(e) => setForm({ ...form, effectiveFrom: e.target.value })} />
-          <Textarea maxLength={1000}
+          <Textarea
             label="Engineering assessment"
             containerClassName="sm:col-span-4"
             rows={2}

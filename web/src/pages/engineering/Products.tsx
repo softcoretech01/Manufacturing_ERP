@@ -11,7 +11,6 @@ import { Alert, PageHeader } from '@/components/ui/Misc'
 import { Tabs } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
 import { DetailBlock, EngStatusBadge, LifecycleBadge, LifecycleRail } from '@/components/engineering/EngShell'
-import { api } from '@/lib/api'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatAmount, formatDate } from '@/lib/format'
 import {
