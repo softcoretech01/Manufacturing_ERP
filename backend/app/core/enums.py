@@ -269,6 +269,43 @@ class ValuationMethod(StrEnum):
     STANDARD = "STANDARD"
 
 
+class ItemType(StrEnum):
+    RAW_MATERIAL = "RAW_MATERIAL"
+    FINISHED_GOODS = "FINISHED_GOODS"
+    WIP = "WIP"
+    CONSUMABLE = "CONSUMABLE"
+    PACKING = "PACKING"
+    SPARE = "SPARE"
+
+
+class StockStatus(StrEnum):
+    AVAILABLE = "AVAILABLE"
+    QUARANTINE = "QUARANTINE"
+    BLOCKED = "BLOCKED"
+    REJECTED = "REJECTED"
+    IN_TRANSIT = "IN_TRANSIT"
+    AT_SUBCONTRACTOR = "AT_SUBCONTRACTOR"
+    EXPIRED = "EXPIRED"
+    SAMPLE = "SAMPLE"
+
+
+class MovementDirection(StrEnum):
+    IN = "IN"
+    OUT = "OUT"
+
+
+class CountType(StrEnum):
+    CYCLE = "CYCLE"
+    FULL = "FULL"
+
+
+class CountStatus(StrEnum):
+    COUNTING = "COUNTING"      # created, blind entry in progress
+    COUNTED = "COUNTED"        # submitted, variances visible, awaiting approval
+    POSTED = "POSTED"          # approved, reconciling movements posted, immutable
+    CANCELLED = "CANCELLED"
+
+
 class RateType(StrEnum):
     BUYING = "BUYING"
     SELLING = "SELLING"

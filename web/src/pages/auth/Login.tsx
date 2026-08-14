@@ -297,7 +297,7 @@ function Credentials({
     } catch (err) {
       setError(
         err instanceof ProblemError
-          ? err.problem.detail || 'Incorrect login id or password.'
+          ? (Array.isArray(err.problem.detail) ? err.problem.detail.map((d: any) => d.msg).join(', ') : err.problem.detail) || 'Incorrect login id or password.'
           : 'Cannot reach the backend. Check it is running and VITE_API_BASE_URL is correct.',
       )
     } finally {

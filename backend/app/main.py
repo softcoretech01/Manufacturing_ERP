@@ -22,10 +22,15 @@ from app.core.errors import (
 from app.core.logging import configure_logging
 from app.core.middleware import CorrelationIdMiddleware
 from app.core.security import ensure_dev_keys
-from app.models import Base  # noqa: F401  (registers metadata)
+from app.core.base import Base  # noqa: F401
 from app.modules.iam.api.management_router import router as iam_mgmt_router
 from app.modules.iam.api.router import router as iam_router
 from app.modules.inventory.api.routers import router as inventory_router
+from app.modules.inventory.api.analysis_router import router as analysis_router
+from app.modules.inventory.api.count_router import router as count_router
+from app.modules.inventory.api.stock_router import router as stock_router
+from app.modules.inventory.api.txn_router import router as txn_router
+from app.modules.masters.api.router import router as masters_router
 from app.modules.numbering.api.router import router as numbering_router
 from app.modules.organisation.api.routers import router as org_router
 from app.modules.workflow.api.routers import router as workflow_router
@@ -70,6 +75,11 @@ def create_app() -> FastAPI:
     app.include_router(iam_mgmt_router, prefix=api)
     app.include_router(org_router, prefix=api)
     app.include_router(inventory_router, prefix=api)
+    app.include_router(stock_router, prefix=api)
+    app.include_router(txn_router, prefix=api)
+    app.include_router(count_router, prefix=api)
+    app.include_router(analysis_router, prefix=api)
+    app.include_router(masters_router, prefix=api)
     app.include_router(workflow_router, prefix=api)
     app.include_router(numbering_router, prefix=api)
 

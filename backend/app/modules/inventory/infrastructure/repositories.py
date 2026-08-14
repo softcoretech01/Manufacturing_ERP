@@ -35,14 +35,19 @@ class ZoneRepository(BaseRepository[InvZone]):
             .select_from(InvBin)
             .where(InvBin.zone_id == zone_id, InvBin.deleted_at.is_(None))
         )
-        return int((await self.session.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one())
+        result = await self.session.execute(
+            select(func.count()).select_from(stmt.subquery())
+        )
+        return int(result.scalar_one())
 
 
 class BinRepository(BaseRepository[InvBin]):
     model = InvBin
 
     def base_query(self, *, include_deleted: bool = False):
-        return super().base_query(include_deleted=include_deleted).options(selectinload(InvBin.zone))
+        return super().base_query(include_deleted=include_deleted).options(
+            selectinload(InvBin.zone)
+        )
 
     async def code_exists(
         self, code: str, *, warehouse_id: int, exclude_uid: str | None = None
@@ -65,4 +70,7 @@ class BinRepository(BaseRepository[InvBin]):
                 InvBin.deleted_at.is_(None),
             )
         )
-        return int((await self.session.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one())
+        result = await self.session.execute(
+            select(func.count()).select_from(stmt.subquery())
+        )
+        return int(result.scalar_one())

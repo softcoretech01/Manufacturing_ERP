@@ -80,6 +80,22 @@ export const bins = {
       warehouse: warehouseUid,
       ...(params as Record<string, string | number | undefined>),
     }),
+  /** Every bin in a warehouse, paged through the server's page-size cap (200).
+   *  The bin map needs the full grid — empty bins included — so it can't rely on
+   *  a single oversized page. */
+  listAll: async (warehouseUid: string): Promise<Bin[]> => {
+    const out: Bin[] = []
+    for (let page = 1; ; page++) {
+      const res = await api.get<Page<Bin>>('/inventory/bins', {
+        warehouse: warehouseUid,
+        page,
+        page_size: 200,
+      })
+      out.push(...res.data)
+      if (res.data.length === 0 || out.length >= res.meta.total) break
+    }
+    return out
+  },
   get: (uid: string) => api.get<Bin>(`/inventory/bins/${uid}`),
   create: (body: Record<string, unknown>) => api.post<Bin>('/inventory/bins', body),
   update: (uid: string, body: Record<string, unknown>) => api.patch<Bin>(`/inventory/bins/${uid}`, body),

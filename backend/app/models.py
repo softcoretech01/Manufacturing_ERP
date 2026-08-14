@@ -24,8 +24,13 @@ from app.modules.iam.infrastructure.models import (  # noqa: F401
 )
 from app.modules.inventory.infrastructure.models import (  # noqa: F401
     InvBin,
+    InvStockBalance,
+    InvStockCount,
+    InvStockCountLine,
+    InvStockLedger,
     InvZone,
 )
+from app.modules.masters.infrastructure.models import MstItem  # noqa: F401
 from app.modules.organisation.infrastructure.models import (  # noqa: F401
     MstCurrency,
     MstExchangeRate,

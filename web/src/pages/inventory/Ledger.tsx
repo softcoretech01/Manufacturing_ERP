@@ -1,190 +1,98 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Badge } from '@/components/ui/Badge'
-import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import { DataTable, type Column } from '@/components/ui/DataTable'
+import { Card, CardBody } from '@/components/ui/Card'
+import { Alert, PageHeader } from '@/components/ui/Misc'
 import { Select } from '@/components/ui/Input'
-import { PageHeader } from '@/components/ui/Misc'
 import { useToast } from '@/components/ui/Toast'
-import { ItemCell, LocationCell, QtyCell, useCanSeeValue, withValueColumns } from '@/components/inventory/InvShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
-import { formatCurrency, formatDate, formatDateTime, formatQty } from '@/lib/format'
-import { cn } from '@/lib/cn'
-import { ledger, stockPositions, warehouseSummaries } from '@/mock/inventory'
-import type { LedgerEntry } from '@/types/inventory'
+import { formatQty, formatCurrency, formatDate } from '@/lib/format'
+import { ProblemError } from '@/api/client'
+import { useSession } from '@/api/session'
+import { useItems, useStockLedger } from '@/hooks/useStock'
+import { useWarehouses } from '@/hooks/useOrganisation'
+import type { LedgerRow } from '@/api/stock'
 
-const DIRECTION_META: Record<string, { tone: 'success' | 'danger' | 'neutral' | 'brand'; label: string }> = {
-  IN: { tone: 'success', label: 'In' },
-  OUT: { tone: 'danger', label: 'Out' },
-  STATUS: { tone: 'neutral', label: 'Status / move' },
-  VALUE: { tone: 'brand', label: 'Value only' },
-}
-
+/** Stock ledger / bin card (SRS S-STK-03). One item, chronological, with the
+ *  running balance stored on each row (never recomputed) — what an auditor asks for. */
 export function StockLedgerPage() {
   const toast = useToast()
-  const canSeeValue = useCanSeeValue()
+  const companyUid = useSession((s) => s.companyUid)
+  const [params, setParams] = useSearchParams()
 
-  const [item, setItem] = useState('RM-SS304-050')
-  const [warehouse, setWarehouse] = useState('all')
-  const [type, setType] = useState('all')
+  const itemsQ = useItems({ active_only: false })
+  const allItems = itemsQ.data ?? []
+  const [itemUid, setItemUid] = useState(params.get('item') ?? '')
+  const [warehouse, setWarehouse] = useState('')
 
-  const rows = useMemo(
-    () =>
-      ledger
-        .filter((l) => (item === 'all' ? true : l.itemCode === item))
-        .filter((l) => (warehouse === 'all' ? true : l.warehouseCode === warehouse))
-        .filter((l) => (type === 'all' ? true : l.direction === type))
-        .slice()
-        .sort((a, b) => a.postedAt.localeCompare(b.postedAt)),
-    [item, warehouse, type],
-  )
+  // Default to the first item once the list loads.
+  useEffect(() => {
+    if (!itemUid && allItems.length) setItemUid(allItems[0].uid)
+  }, [itemUid, allItems])
 
-  const summary = useMemo(() => {
-    const inQty = rows.filter((r) => r.direction === 'IN').reduce((s, r) => s + r.quantity, 0)
-    const outQty = rows.filter((r) => r.direction === 'OUT').reduce((s, r) => s + r.quantity, 0)
-    const closing = rows.length ? rows[rows.length - 1].runningQty : 0
-    const opening = rows.length ? rows[0].runningQty - (rows[0].direction === 'IN' ? rows[0].quantity : -rows[0].quantity) : 0
-    return { inQty, outQty, closing, opening, moves: rows.length }
-  }, [rows])
+  const whQ = useWarehouses()
+  const warehouses = whQ.data?.data ?? []
+  const { data, isLoading, error } = useStockLedger(itemUid || undefined, warehouse || undefined)
+  const rows = data?.rows ?? []
+  const totals = data?.totals
 
-  const columns: Column<LedgerEntry>[] = [
-    { key: 'businessDate', header: 'Date', sortable: true, width: '7rem', accessor: (l) => l.businessDate, render: (l) => (
-      <div>
-        <p className="text-xs text-fg">{formatDate(l.businessDate)}</p>
-        <p className="text-2xs text-fg-subtle">{formatDateTime(l.postedAt).slice(-5)}</p>
-      </div>
-    ) },
-    { key: 'docNo', header: 'Document', sortable: true, width: '12rem', render: (l) => (
-      <div>
-        <p className="font-mono text-2xs font-medium text-brand-600">{l.docNo}</p>
-        <p className="text-2xs text-fg-subtle">{l.docType.replace(/_/g, ' ').toLowerCase()}</p>
-      </div>
-    ) },
-    { key: 'movementType', header: 'Movement', sortable: true, width: '13rem', render: (l) => (
-      <div>
-        <p className="text-xs text-fg">
-          <span className="font-mono text-2xs text-fg-muted">{l.movementType}</span> {l.movementName}
-        </p>
-        {l.reason && <p className="text-2xs italic text-fg-subtle">{l.reason}</p>}
-      </div>
-    ) },
-    { key: 'itemCode', header: 'Item', sortable: true, defaultHidden: item !== 'all', render: (l) => <ItemCell code={l.itemCode} name={l.itemName} /> },
-    { key: 'warehouseCode', header: 'Location', width: '10rem', render: (l) => <LocationCell warehouse={l.warehouseCode} bin={l.bin} batch={l.batchNo} /> },
-    { key: 'in', header: 'In', align: 'right', accessor: (l) => (l.direction === 'IN' ? l.quantity : 0), render: (l) => (l.direction === 'IN' ? <QtyCell qty={l.quantity} tone="success" /> : <span className="text-fg-subtle">—</span>) },
-    { key: 'out', header: 'Out', align: 'right', accessor: (l) => (l.direction === 'OUT' ? l.quantity : 0), render: (l) => (l.direction === 'OUT' ? <QtyCell qty={l.quantity} tone="danger" /> : <span className="text-fg-subtle">—</span>) },
-    { key: 'runningQty', header: 'Balance', align: 'right', sortable: true, render: (l) => <span className="font-medium tabular">{formatQty(l.runningQty)}</span> },
-    { key: 'postedBy', header: 'Posted by', sortable: true, defaultHidden: true },
-  ]
-
-  const valueColumns: Column<LedgerEntry>[] = [
-    { key: 'rate', header: 'Rate', align: 'right', render: (l) => (l.rate ? formatCurrency(l.rate) : '—') },
-    { key: 'value', header: 'Value', align: 'right', sortable: true, render: (l) => (l.value ? formatCurrency(l.value) : '—') },
-  ]
-
-  const cols = withValueColumns(canSeeValue, columns, valueColumns)
-
-  function doExport(format: ExportFormat) {
-    try {
-      const n = exportRows(format, 'stock-ledger', 'Stock ledger / bin card', columnsFromTable(cols), rows)
-      toast.success('Export ready', `${n} ledger rows written as ${format === 'xlsx' ? 'Excel' : format.toUpperCase()}.`)
-    } catch (e) {
-      toast.error('Export failed', e instanceof Error ? e.message : 'Unknown error.')
-    }
+  function pickItem(uid: string) {
+    setItemUid(uid)
+    setParams(uid ? { item: uid } : {})
   }
 
-  const selectedItem = stockPositions.find((p) => p.itemCode === item)
-
-  const filterPanel = (
-    <div className="flex flex-wrap items-center gap-2">
-      <Select
-        sizeVariant="sm"
-        containerClassName="w-56"
-        value={item}
-        onChange={(e) => setItem(e.target.value)}
-        options={[{ value: 'all', label: 'All items' }, ...stockPositions.map((p) => ({ value: p.itemCode, label: `${p.itemCode} — ${p.itemName}` }))]}
-      />
-      <Select
-        sizeVariant="sm"
-        containerClassName="w-40"
-        value={warehouse}
-        onChange={(e) => setWarehouse(e.target.value)}
-        options={[{ value: 'all', label: 'All locations' }, ...warehouseSummaries.map((w) => ({ value: w.code, label: w.code }))]}
-      />
-      <Select
-        sizeVariant="sm"
-        containerClassName="w-36"
-        value={type}
-        onChange={(e) => setType(e.target.value)}
-        options={[
-          { value: 'all', label: 'All movements' },
-          { value: 'IN', label: 'Receipts only' },
-          { value: 'OUT', label: 'Issues only' },
-          { value: 'STATUS', label: 'Moves & status' },
-        ]}
-      />
-    </div>
-  )
+  const columns: Column<LedgerRow>[] = [
+    { key: 'business_date', header: 'Date', sortable: true, width: '110px', sticky: true, accessor: (r) => r.business_date, render: (r) => formatDate(r.business_date) },
+    { key: 'document_no', header: 'Document', width: '180px', render: (r) => <span className="font-mono text-2xs text-brand-600">{r.document_no ?? '—'}</span> },
+    { key: 'movement_type', header: 'Type', width: '90px', render: (r) => <Badge tone={r.direction === 'IN' ? 'success' : 'danger'} size="sm" dot={false}>{r.movement_type}</Badge> },
+    { key: 'in', header: 'In', align: 'right', width: '110px', render: (r) => (r.direction === 'IN' ? <span className="tabular text-xs text-success">{formatQty(r.quantity)}</span> : <span className="text-2xs text-fg-subtle">—</span>) },
+    { key: 'out', header: 'Out', align: 'right', width: '110px', render: (r) => (r.direction === 'OUT' ? <span className="tabular text-xs text-danger">{formatQty(r.quantity)}</span> : <span className="text-2xs text-fg-subtle">—</span>) },
+    { key: 'balance', header: 'Balance', align: 'right', width: '120px', render: (r) => <span className="tabular text-xs font-medium">{formatQty(r.balance_qty_after)}</span> },
+    { key: 'rate', header: 'Rate', align: 'right', width: '110px', render: (r) => <span className="tabular text-2xs text-fg-muted">{formatCurrency(r.balance_rate_after)}</span> },
+    { key: 'batch', header: 'Batch / status', width: '160px', render: (r) => <span className="text-2xs text-fg-muted">{r.batch_no || r.stock_status.toLowerCase()}</span> },
+  ]
 
   return (
     <div>
       <PageHeader
-        title="Stock ledger & bin card"
-        breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Inventory', to: '/inventory' }, { label: 'Stock ledger' }]}
-        badge={<Badge tone="neutral" size="sm" dot={false}>Append-only</Badge>}
+        title="Stock ledger / bin card"
+        description="Every movement for one item, chronological, with the running balance that was computed under the lock that produced it."
+        breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Inventory' }, { label: 'Stock ledger' }]}
       />
 
-      <p className="mb-3 text-xs text-fg-muted">
-        <span className="font-medium text-fg">{summary.moves}</span> movement{summary.moves === 1 ? '' : 's'}
-        {selectedItem ? <> for <span className="font-medium text-fg">{selectedItem.itemName}</span></> : ' across all items'} · opening{' '}
-        <span className="font-medium text-fg tabular">{formatQty(summary.opening)}</span> · received{' '}
-        <span className="font-medium text-success tabular">{formatQty(summary.inQty)}</span> · issued{' '}
-        <span className="font-medium text-danger tabular">{formatQty(summary.outQty)}</span> · closing{' '}
-        <span className="font-medium text-fg tabular">{formatQty(summary.closing)}</span>
-        {selectedItem ? ` ${selectedItem.uom}` : ''}
-      </p>
+      {!companyUid && <Alert tone="warning" title="Not signed in to the backend">Sign in first so the app has an API session.</Alert>}
+      {error && <Alert tone="danger" title="Could not load the ledger">{error instanceof ProblemError ? error.problem.detail : 'Is the backend running?'}</Alert>}
+
+      <Card className="mb-4">
+        <CardBody className="flex flex-wrap items-end gap-3">
+          <Select label="Item" containerClassName="w-80" value={itemUid} onChange={(e) => pickItem(e.target.value)}
+            options={allItems.map((i) => ({ value: i.uid, label: `${i.code} — ${i.name}` }))} />
+          <Select label="Warehouse" containerClassName="w-56" value={warehouse} onChange={(e) => setWarehouse(e.target.value)}
+            options={[{ value: '', label: 'All warehouses' }, ...warehouses.map((w) => ({ value: w.uid, label: `${w.code} — ${w.name}` }))]} />
+        </CardBody>
+      </Card>
 
       <DataTable
         rows={rows}
-        columns={cols}
-        rowKey={(l) => l.uid}
-        pageSize={50}
-        searchPlaceholder="Search document, batch, movement or reason…"
-        onExport={doExport}
-        filterPanel={filterPanel}
-        filterChips={[
-          ...(item !== 'all' ? [{ key: 'i', label: 'Item', value: item, onRemove: () => setItem('all') }] : []),
-          ...(warehouse !== 'all' ? [{ key: 'w', label: 'Location', value: warehouse, onRemove: () => setWarehouse('all') }] : []),
-          ...(type !== 'all' ? [{ key: 't', label: 'Direction', value: DIRECTION_META[type]?.label ?? type, onRemove: () => setType('all') }] : []),
-        ]}
-        onClearFilters={() => {
-          setItem('all')
-          setWarehouse('all')
-          setType('all')
-        }}
+        columns={columns}
+        rowKey={(r) => r.uid}
+        loading={isLoading}
+        searchPlaceholder="Document, batch…"
+        onExport={(f: ExportFormat) => { const n = exportRows(f, 'stock-ledger', 'Stock ledger', columnsFromTable(columns), rows); toast.success('Export ready', `${n} rows written.`) }}
         emptyTitle="No movements"
-        emptyDescription="Nothing has moved for this item and location in the selected period."
-        rowClassName={(l) => cn(l.direction === 'OUT' && 'bg-danger/[0.02]')}
+        emptyDescription="This item has no ledger entries yet."
       />
 
-      <Card className="mt-4">
-        <CardHeader
-          title="Why this screen never has an edit button"
-          description="The ledger is the system of record for both quantity and value"
-        />
-        <CardBody className="grid gap-3 text-xs leading-relaxed text-fg-muted sm:grid-cols-3">
-          <p>
-            <span className="font-medium text-fg">Append-only.</span> No row is ever updated or deleted. A correction is a new,
-            opposite entry that references the original, so the history of a mistake survives the correction.
-          </p>
-          <p>
-            <span className="font-medium text-fg">Balance carried on the row.</span> Each entry stores the balance at that exact
-            location after the movement, computed under the same lock that wrote it — never recalculated later by a report.
-          </p>
-          <p>
-            <span className="font-medium text-fg">The auditor's screen.</span> Filtered to one item and one location this is the
-            bin card: opening, every movement with its document, and closing, reconciling to the stock enquiry.
-          </p>
-        </CardBody>
-      </Card>
+      {totals && data && (
+        <p className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-2xs text-fg-subtle">
+          <span>received <strong className="text-fg-muted">{formatQty(totals.received)}</strong></span>
+          <span>issued <strong className="text-fg-muted">{formatQty(totals.issued)}</strong></span>
+          <span>closing <strong className="text-fg-muted">{formatQty(totals.closing_qty)} {data.item.uom}</strong></span>
+          <span>moving avg <strong className="text-fg-muted">{formatCurrency(totals.closing_rate)}</strong></span>
+          <span>closing value <strong className="text-fg-muted">{formatCurrency(totals.closing_value)}</strong></span>
+        </p>
+      )}
     </div>
   )
 }
