@@ -25,7 +25,7 @@ CODE_PREFIX = {
     "sys_plant": "PL",
     "sys_warehouse": "WH",
     "sys_department": "DP",
-    "sys_cost_centre": "CC",
+    "mst_cost_centre": "CC",
     "inv_zone": "ZN",
 }
 

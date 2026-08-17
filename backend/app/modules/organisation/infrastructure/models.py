@@ -291,7 +291,7 @@ class SysDepartment(CompanyEntity):
 
 # ─────────────────────────── Cost centre ─────────────────────────────────────
 class SysCostCentre(CompanyEntity):
-    __tablename__ = "sys_cost_centre"
+    __tablename__ = "mst_cost_centre"
     __table_args__ = (UniqueConstraint("company_id", "code", "deleted_key", name="uk_cc_code"),)
 
     code: Mapped[str] = mapped_column(String(20), nullable=False)

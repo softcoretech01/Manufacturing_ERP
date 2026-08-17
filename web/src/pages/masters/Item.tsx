@@ -35,6 +35,7 @@ import {
 import { formatCurrency, formatQty } from '@/lib/format'
 
 import type { Item, ItemType } from '@/types/masters'
+import * as api from '@/api/masters'
 
 const TYPE_META: Record<ItemType, { label: string; tone: 'brand' | 'progress' | 'success' | 'warning' | 'neutral' | 'pending' | 'danger' }> = {
   RAW_MATERIAL: { label: 'Raw material', tone: 'warning' },
@@ -624,7 +625,10 @@ export function ItemMasterPage() {
       header: 'Type',
       sortable: true,
       width: '150px',
-      render: (i) => <Badge tone={TYPE_META[i.itemType].tone} size="sm" dot={false}>{TYPE_META[i.itemType].label}</Badge>,
+      render: (i) => {
+        const meta = TYPE_META[i.itemType] || { label: i.itemType || 'Unknown', tone: 'neutral' };
+        return <Badge tone={meta.tone as any} size="sm" dot={false}>{meta.label}</Badge>;
+      },
     },
     { key: 'category', header: 'Category', width: '150px', sortable: true, render: (i) => <span className="truncate text-xs text-fg-muted">{i.category}</span> },
     { key: 'baseUom', header: 'UOM', width: '80px', render: (i) => <span className="font-mono text-2xs">{i.baseUom}</span> },

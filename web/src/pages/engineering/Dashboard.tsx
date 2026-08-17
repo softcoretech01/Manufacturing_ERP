@@ -43,6 +43,7 @@ import {
 } from '@/mock/engineering'
 import { items as masterItems } from '@/mock/masters'
 import type { Bom, EngChange, EngDocument, EngProduct, EngWorkCentre, Routing, Tool } from '@/types/engineering'
+import { engineeringApi as api } from '@/api/engineering'
 
 /**
  * Product engineering dashboard (Ch 21).

@@ -58,6 +58,7 @@ export function PlantsPage() {
   const deactivatePlant = useDeactivatePlant()
   const restorePlant = useRestorePlant()
 
+  const saving = createPlant.isPending || updatePlant.isPending
   const rows = data?.data ?? []
   const branches = (branchData?.data ?? []).filter((b) => b.is_active)
 
@@ -177,6 +178,15 @@ export function PlantsPage() {
       render: (p) => <Badge tone={p.is_active ? 'success' : 'neutral'} size="sm">{p.is_active ? 'Active' : 'Inactive'}</Badge>,
     },
   ]
+
+  function doExport(format: ExportFormat) {
+    try {
+      const n = exportRows(format, 'plants', 'Plants', columnsFromTable(columns), rows)
+      toast.success('Export ready', `${n} rows saved as ${format === 'xlsx' ? 'Excel' : format.toUpperCase()}.`)
+    } catch (e) {
+      toast.error('Export failed', e instanceof Error ? e.message : 'Unknown error.')
+    }
+  }
 
   return (
     <div>

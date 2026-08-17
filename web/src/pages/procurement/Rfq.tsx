@@ -14,7 +14,7 @@ import { ApprovalTrail, DetailBlock, ProcStatusBadge } from '@/components/procur
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/format'
 import { useCollection } from '@/store/data'
-import { negotiations, quotations as seedQuotations } from '@/mock/procurement'
+import { negotiations, quotations as seedQuotations, rfqs as seedRfqs, requisitions as seedRequisitions } from '@/mock/procurement'
 import type { PurchaseRequisition, Rfq, SupplierQuotation } from '@/types/procurement'
 import { nextDocNo, rfqLinesFromPr, sourceableRequisitions, VENDORS } from '@/lib/procFlow'
 import { cn } from '@/lib/cn'
@@ -35,53 +35,11 @@ export function RfqPage() {
   const qSeed = useMemo(() => seedQuotations, [])
   const { rows: quotations } = useCollection<SupplierQuotation>('proc:sq', qSeed)
 
-  const [rows, setRows] = useState<Rfq[]>([])
-  const [prs, setPrs] = useState<PurchaseRequisition[]>([])
-  
-  useEffect(() => {
-    api.getRfqs().then(setRows).catch((e: Error) => toast.error('Failed to load RFQs', e.message))
-    api.getPurchaseRequisitions().then(setPrs).catch((e: Error) => toast.error('Failed to load PRs', e.message))
-  }, [toast])
+  const rfqSeed = useMemo(() => seedRfqs, [])
+  const { rows, create, update, remove } = useCollection<Rfq>('proc:rfqs', rfqSeed)
 
-  const create = async (row: Rfq) => {
-    try {
-      const created = await api.createRfq(row)
-      setRows((prev) => [created, ...prev])
-    } catch (err: any) {
-      toast.error('Error', err.message)
-    }
-  }
-
-  const update = async (uid: string, patch: Partial<Rfq>) => {
-    try {
-      const existing = rows.find(r => r.uid === uid)
-      if (!existing) return
-      const updated = await api.updateRfq(uid, { ...existing, ...patch })
-      setRows((prev) => prev.map((r) => (r.uid === uid ? updated : r)))
-    } catch (err: any) {
-      toast.error('Error', err.message)
-    }
-  }
-
-  const remove = async (uid: string) => {
-    try {
-      await api.deleteRfq(uid)
-      setRows((prev) => prev.filter(r => r.uid !== uid))
-    } catch (err: any) {
-      toast.error('Error', err.message)
-    }
-  }
-  
-  const updatePr = async (uid: string, patch: Partial<PurchaseRequisition>) => {
-    try {
-      const existing = prs.find(r => r.uid === uid)
-      if (!existing) return
-      const updated = await api.updatePurchaseRequisition(uid, { ...existing, ...patch })
-      setPrs((prev) => prev.map((r) => (r.uid === uid ? updated : r)))
-    } catch (err: any) {
-      toast.error('Error', err.message)
-    }
-  }
+  const prSeed = useMemo(() => seedRequisitions, [])
+  const { rows: prs, update: updatePr } = useCollection<PurchaseRequisition>('proc:reqs', prSeed)
 
   /** Approved requisitions that have not been sourced yet. */
   const sourceable = sourceableRequisitions(prs, rows)

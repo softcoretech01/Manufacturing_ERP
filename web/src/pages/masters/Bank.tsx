@@ -12,6 +12,7 @@ import { Input, Select, Switch } from '@/components/ui/Input'
 import { useToast } from '@/components/ui/Toast'
 import { formatDate } from '@/lib/format'
 import type { Bank } from '@/types/masters'
+import * as api from '@/api/masters'
 
 export function BankMasterPage() {
   const queryClient = useQueryClient()

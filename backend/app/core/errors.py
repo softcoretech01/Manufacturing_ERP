@@ -217,6 +217,7 @@ async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSON
 
 async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
     from app.core.logging import get_logger
+    import traceback
 
     get_logger(__name__).exception(
         "unhandled_exception", path=str(request.url.path), correlation_id=_correlation_id(request)
@@ -230,6 +231,7 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
             "detail": "An unexpected error occurred. Quote the correlation id to support.",
             "instance": str(request.url.path),
             "correlation_id": _correlation_id(request),
+            "traceback": traceback.format_exc(),
         },
         media_type="application/problem+json",
     )

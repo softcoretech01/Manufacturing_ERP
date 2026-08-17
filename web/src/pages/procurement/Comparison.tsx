@@ -10,6 +10,8 @@ import { Alert, PageHeader } from '@/components/ui/Misc'
 import { useToast } from '@/components/ui/Toast'
 import { exportRows, type ExportFormat } from '@/lib/export'
 import { formatCurrency, formatDate } from '@/lib/format'
+import { useCollection } from '@/store/data'
+import { quotations as seedQuotations, rfqs as seedRfqs } from '@/mock/procurement'
 import { comparableRfqs, MIN_QUOTES_TO_COMPARE, scoreQuotations, type ScoredQuotation } from '@/lib/procFlow'
 import type { Rfq, SupplierQuotation } from '@/types/procurement'
 import { cn } from '@/lib/cn'
@@ -38,24 +40,11 @@ interface Criterion {
 export function ComparisonPage() {
   const toast = useToast()
   const navigate = useNavigate()
-  const [quotations, setQuotations] = useState<SupplierQuotation[]>([])
-  const [rfqs, setRfqs] = useState<Rfq[]>([])
-
-  useEffect(() => {
-    async function load() {
-      try {
-        const [qData, rData] = await Promise.all([
-          api.getQuotations(),
-          api.getRfqs()
-        ])
-        setQuotations(qData)
-        setRfqs(rData)
-      } catch (err) {
-        toast.error('Error', 'Failed to load data')
-      }
-    }
-    load()
-  }, [])
+  const qSeed = useMemo(() => seedQuotations, [])
+  const { rows: quotations, update: updateQuotation } = useCollection<SupplierQuotation>('proc:sq', qSeed)
+  
+  const rfqSeed = useMemo(() => seedRfqs, [])
+  const { rows: rfqs, update: updateRfq } = useCollection<Rfq>('proc:rfqs', rfqSeed)
 
   const ready = comparableRfqs(rfqs, quotations)
   const [rfqNo, setRfqNo] = useState('')
@@ -96,30 +85,18 @@ export function ComparisonPage() {
     }
 
     try {
-      const updates = onTable.map((q) => {
-        const existing = quotations.find((eq) => eq.uid === q.uid)
-        return api.updateQuotation(q.uid.toString(), {
-          ...existing,
+      onTable.forEach((q) => {
+        updateQuotation(q.uid.toString(), {
           status: q.uid === awarding.quotation.uid ? 'AWARDED' : 'REGRETTED',
           rank: scored.find((s) => s.quotation.uid === q.uid)?.rank ?? 0,
           totalScore: Math.round(scored.find((s) => s.quotation.uid === q.uid)?.totalScore ?? 0),
         })
       })
-      await Promise.all(updates)
 
-      const activeExisting = rfqs.find((r) => r.uid === active.uid)
-      await api.updateRfq(active.uid.toString(), { 
-        ...activeExisting, 
+      updateRfq(active.uid.toString(), { 
         status: 'COMPLETED', 
         awardedTo: awarding.quotation.supplierName 
       })
-
-      const [qData, rData] = await Promise.all([
-        api.getQuotations(),
-        api.getRfqs()
-      ])
-      setQuotations(qData)
-      setRfqs(rData)
 
       toast.success('Vendor selected', `${awarding.quotation.supplierName} selected on ${active.docNo}. You can raise the purchase order now.`)
       setAwarding(null)

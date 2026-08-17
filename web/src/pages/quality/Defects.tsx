@@ -1,4 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
+import { defectsApi } from '@/api/defects'
+import { inspectionsApi } from '@/api/inspections'
+import { api } from '@/api/client'
 import { Plus, Trash2 } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Button } from '@/components/ui/Button'
@@ -29,8 +32,47 @@ import type { CauseCategory, DefectSeverity, DefectType } from '@/types/quality'
 
 export function DefectsPage() {
   const toast = useToast()
-  const { defects, inspections } = useQualityData()
-  const { rows, create, update, remove } = defects
+  const [inspectionsRows, setInspectionsRows] = useState<any[]>([])
+  const [rows, setRows] = useState<DefectType[]>([])
+  const [severities, setSeverities] = useState<{value: string, label: string}[]>([])
+  const [causes, setCauses] = useState<{value: string, label: string}[]>([])
+
+  const fetchLookups = async () => {
+    try {
+      const [sevData, causeData] = await Promise.all([
+        api.get<any[]>('/quality/lookups/severities'),
+        api.get<any[]>('/quality/lookups/causes')
+      ])
+      setSeverities(sevData.map(d => ({ value: d.name, label: d.name.charAt(0) + d.name.slice(1).toLowerCase() })))
+      setCauses(causeData.map(d => ({ value: d.name, label: d.name })))
+    } catch (e) {
+      console.error('Failed to fetch lookups')
+    }
+  }
+
+  const fetchDefects = async () => {
+    try {
+      const data = await defectsApi.getAll()
+      setRows(data || [])
+    } catch (e) {
+      toast.error('Error', 'Failed to fetch defects')
+    }
+  }
+
+  const fetchInspections = async () => {
+    try {
+      const data = await inspectionsApi.getAll()
+      setInspectionsRows(data || [])
+    } catch (e) {
+      console.error('Failed to fetch inspections')
+    }
+  }
+
+  useEffect(() => {
+    fetchDefects()
+    fetchLookups()
+    fetchInspections()
+  }, [])
 
   const [tab, setTab] = useState('pareto')
   const [formOpen, setFormOpen] = useState(false)
@@ -39,8 +81,8 @@ export function DefectsPage() {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [confirmDelete, setConfirmDelete] = useState<DefectType | null>(null)
 
-  const pareto = useMemo(() => paretoOf(inspections.rows), [inspections.rows])
-  const usageOf = (code: string) => inspections.rows.reduce((n, i) => n + i.defects.filter((d) => d.defectCode === code).length, 0)
+  const pareto = useMemo(() => paretoOf(inspectionsRows), [inspectionsRows])
+  const usageOf = (code: string) => inspectionsRows.reduce((n, i) => n + (i.defects || []).filter((d: any) => d.defectCode === code).length, 0)
 
   /** Cost carried by each defect, from its own rates times what was found. */
   const costed = useMemo(
@@ -60,7 +102,7 @@ export function DefectsPage() {
     { key: 'name', header: 'Defect', sortable: true },
     { key: 'severity', header: 'Severity', sortable: true, width: '6.5rem', render: (d) => <SeverityBadge severity={d.severity} /> },
     { key: 'category', header: 'Category', sortable: true, width: '11rem' },
-    { key: 'defaultCause', header: 'Usual cause', sortable: true, width: '9rem', accessor: (d) => CAUSE_LABEL[d.defaultCause], render: (d) => <span className="text-xs text-fg-muted">{CAUSE_LABEL[d.defaultCause]}</span> },
+    { key: 'defaultCause', header: 'Usual cause', sortable: true, width: '9rem', accessor: (d) => causes.find(c => c.value === d.defaultCause)?.label || CAUSE_LABEL[d.defaultCause] || d.defaultCause, render: (d) => <span className="text-xs text-fg-muted">{causes.find(c => c.value === d.defaultCause)?.label || CAUSE_LABEL[d.defaultCause] || d.defaultCause}</span> },
     { key: 'scrapCostPerUnit', header: 'Scrap ₹/unit', align: 'right', sortable: true, width: '9rem', accessor: (d) => d.scrapCostPerUnit, render: (d) => (d.scrapCostPerUnit ? formatAmount(d.scrapCostPerUnit) : <span className="text-2xs text-fg-subtle">—</span>) },
     { key: 'reworkCostPerUnit', header: 'Rework ₹/unit', align: 'right', sortable: true, width: '9.5rem', accessor: (d) => d.reworkCostPerUnit, render: (d) => (d.reworkCostPerUnit ? formatAmount(d.reworkCostPerUnit) : <span className="text-2xs text-fg-subtle">—</span>) },
     { key: 'usage', header: 'Found', align: 'right', width: '6rem', accessor: (d) => usageOf(d.code), render: (d) => <span className="text-xs tabular text-fg-muted">{usageOf(d.code)}</span> },
@@ -80,8 +122,13 @@ export function DefectsPage() {
 
   function openCreate() {
     setEditing(null)
-    setForm({ code: '', name: '', severity: 'MAJOR', category: '', defaultCause: 'MACHINE', scrapCostPerUnit: '0', reworkCostPerUnit: '0', isActive: true })
+    setForm({ code: 'Loading...', name: '', severity: 'MAJOR', category: '', defaultCause: 'MACHINE', scrapCostPerUnit: '0', reworkCostPerUnit: '0', isActive: true })
     setErrors({}); setFormOpen(true)
+    defectsApi.getNextCode().then((res) => {
+      setForm(prev => ({ ...prev, code: res.code }))
+    }).catch(() => {
+      setForm(prev => ({ ...prev, code: 'Auto-generated' }))
+    })
   }
   function openEdit(d: DefectType) {
     setEditing(d)
@@ -89,20 +136,31 @@ export function DefectsPage() {
     setErrors({}); setFormOpen(true)
   }
 
-  function save() {
+  async function save() {
     const e: Record<string, string> = {}
     const code = form.code.trim().toUpperCase()
-    if (!code) e.code = 'A code is required.'
-    else if (rows.some((d) => d.code === code && d.uid !== editing?.uid)) e.code = `${code} is already in the catalogue.`
+    if (editing && !code) e.code = 'A code is required.'
+    else if (editing && rows.some((d) => d.code === code && d.id !== editing?.id)) e.code = `${code} is already in the catalogue.`
     if (!form.name.trim()) e.name = 'A name is required.'
     if (!form.category.trim()) e.category = 'A category groups the defect on the Pareto.'
     setErrors(e)
     if (Object.keys(e).length) return
 
-    const patch = { code, name: form.name.trim(), severity: form.severity, category: form.category.trim(), defaultCause: form.defaultCause, scrapCostPerUnit: Number(form.scrapCostPerUnit) || 0, reworkCostPerUnit: Number(form.reworkCostPerUnit) || 0, isActive: form.isActive }
-    if (editing) { update(editing.uid, { ...patch, version: editing.version + 1 }); toast.success('Defect updated', `${code} saved.`) }
-    else { create({ ...patch, uid: newUid('dft'), version: 1 } as DefectType); toast.success('Defect added', `${code} can now be recorded on an inspection.`) }
-    setFormOpen(false)
+    const patch: any = { name: form.name.trim(), severity: form.severity, category: form.category.trim(), defaultCause: form.defaultCause, scrapCostPerUnit: Number(form.scrapCostPerUnit) || 0, reworkCostPerUnit: Number(form.reworkCostPerUnit) || 0, isActive: form.isActive }
+    if (editing) patch.code = code
+    try {
+      if (editing) { 
+        await defectsApi.update(editing.id as number, patch); 
+        toast.success('Defect updated', `${code} saved.`) 
+      } else { 
+        await defectsApi.create(patch); 
+        toast.success('Defect added', `${code} can now be recorded on an inspection.`) 
+      }
+      await fetchDefects();
+      setFormOpen(false)
+    } catch (err) {
+      toast.error('Error', 'Failed to save defect');
+    }
   }
 
   const vitalFew = costed.filter((p) => p.isVital)
@@ -177,7 +235,7 @@ export function DefectsPage() {
         <DataTable
           rows={rows}
           columns={catalogueColumns}
-          rowKey={(d) => d.uid}
+          rowKey={(d) => d.id as number}
           searchPlaceholder="Search code, defect or category…"
           onExport={(f: ExportFormat) => { const n = exportRows(f, 'defect-catalogue', 'Defect catalogue', columnsFromTable(catalogueColumns), rows); toast.success('Export ready', `${n} rows written.`) }}
           onRowClick={openEdit}
@@ -186,7 +244,7 @@ export function DefectsPage() {
           rowActions={(d) => (
             <>
               <MenuItem label="Edit" onClick={() => openEdit(d)} />
-              <MenuItem label={d.isActive ? 'Deactivate' : 'Activate'} onClick={() => { update(d.uid, { isActive: !d.isActive, version: d.version + 1 }); toast.success(d.isActive ? 'Deactivated' : 'Activated', `${d.code} is now ${d.isActive ? 'hidden from' : 'available on'} the inspection screen.`) }} />
+              <MenuItem label={d.isActive ? 'Deactivate' : 'Activate'} onClick={() => { defectsApi.update(d.id as number, { isActive: !d.isActive }).then(() => { fetchDefects(); toast.success(d.isActive ? 'Deactivated' : 'Activated', `${d.code} is now ${d.isActive ? 'hidden from' : 'available on'} the inspection screen.`) }) }} />
               <MenuItem label={usageOf(d.code) ? `Delete — blocked (found ${usageOf(d.code)} times)` : 'Delete'} icon={<Trash2 />} danger separatorBefore disabled={usageOf(d.code) > 0} onClick={() => setConfirmDelete(d)} />
             </>
           )}
@@ -197,11 +255,11 @@ export function DefectsPage() {
         footer={<><Button variant="ghost" onClick={() => setFormOpen(false)}>Cancel</Button><Button variant="primary" onClick={save}>{editing ? 'Save changes' : 'Add defect'}</Button></>}
       >
         <div className="grid gap-3.5 sm:grid-cols-2">
-          <Input label="Code" required value={form.code} error={errors.code} placeholder="DF-019" onChange={(e) => setForm({ ...form, code: e.target.value })} />
-          <Input label="Name" required value={form.name} error={errors.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <Select label="Severity" value={form.severity} onChange={(e) => setForm({ ...form, severity: e.target.value as DefectSeverity })} options={(['CRITICAL', 'MAJOR', 'MINOR'] as const).map((s) => ({ value: s, label: s.charAt(0) + s.slice(1).toLowerCase() }))} hint="A critical defect rejects the lot regardless of the accept number." />
-          <Input label="Category" required value={form.category} error={errors.category} placeholder="Cosmetic, Function, Welding…" onChange={(e) => setForm({ ...form, category: e.target.value })} />
-          <Select label="Usual cause" value={form.defaultCause} onChange={(e) => setForm({ ...form, defaultCause: e.target.value as CauseCategory })} options={CAUSE_CATEGORIES.map((c) => ({ value: c, label: CAUSE_LABEL[c] }))} />
+          <Input label="Code" disabled value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
+          <Input label="Name" required maxLength={150} value={form.name} error={errors.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <Select label="Severity" value={form.severity} onChange={(e) => setForm({ ...form, severity: e.target.value as DefectSeverity })} options={severities.length ? severities : (['CRITICAL', 'MAJOR', 'MINOR'] as const).map((s) => ({ value: s, label: s.charAt(0) + s.slice(1).toLowerCase() }))} hint="A critical defect rejects the lot regardless of the accept number." />
+          <Input label="Category" required maxLength={100} value={form.category} error={errors.category} placeholder="Cosmetic, Function, Welding…" onChange={(e) => setForm({ ...form, category: e.target.value })} />
+          <Select label="Usual cause" value={form.defaultCause} onChange={(e) => setForm({ ...form, defaultCause: e.target.value as CauseCategory })} options={causes.length ? causes : CAUSE_CATEGORIES.map((c) => ({ value: c, label: CAUSE_LABEL[c] }))} />
           <div className="flex items-end pb-1"><Switch checked={form.isActive} onChange={(v) => setForm({ ...form, isActive: v })} label="Active" /></div>
           <Input label="Scrap cost per unit (₹)" type="number" value={form.scrapCostPerUnit} hint="What is lost when this defect scraps the piece." onChange={(e) => setForm({ ...form, scrapCostPerUnit: e.target.value })} />
           <Input label="Rework cost per unit (₹)" type="number" value={form.reworkCostPerUnit} hint="What it costs to put right." onChange={(e) => setForm({ ...form, reworkCostPerUnit: e.target.value })} />
@@ -210,7 +268,7 @@ export function DefectsPage() {
       </Modal>
 
       <Modal open={!!confirmDelete} onClose={() => setConfirmDelete(null)} title="Delete defect type" size="sm"
-        footer={<><Button variant="ghost" onClick={() => setConfirmDelete(null)}>Cancel</Button><Button variant="danger" onClick={() => { if (confirmDelete) { remove(confirmDelete.uid); toast.success('Deleted', `${confirmDelete.code} was soft-deleted.`) } setConfirmDelete(null) }}>Delete</Button></>}
+        footer={<><Button variant="ghost" onClick={() => setConfirmDelete(null)}>Cancel</Button><Button variant="danger" onClick={() => { if (confirmDelete) { defectsApi.remove(confirmDelete.id).then(() => { fetchDefects(); toast.success('Deleted', `${confirmDelete.code} was soft-deleted.`) }).catch(e => toast.error('Error', e.message)) } setConfirmDelete(null) }}>Delete</Button></>}
       >
         <p className="text-sm text-fg-muted">{confirmDelete?.code} will be marked deleted, not physically removed. It has never been recorded on an inspection.</p>
       </Modal>

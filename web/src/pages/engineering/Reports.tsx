@@ -20,6 +20,8 @@ import {
   whereUsed,
 } from '@/lib/engFlow'
 import type { Bom, EngChange, EngDocument, EngProduct, EngWorkCentre, Operation, Routing, Tool } from '@/types/engineering'
+import { engineeringApi as api } from '@/api/engineering'
+import { getItems } from '@/api/masters'
 
 /**
  * Engineering reports (Ch 20).
@@ -63,7 +65,7 @@ export function EngReportsPage() {
       api.getTools(),
       api.getEngChanges(),
       api.getEngDocuments(),
-      api.getItems(),
+      getItems(),
     ])
       .then(([p, b, r, w, o, t, c, d, i]) => {
         setProducts(p)

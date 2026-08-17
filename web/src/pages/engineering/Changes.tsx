@@ -25,6 +25,8 @@ import { newUid } from '@/store/data'
 import { useEffect } from 'react'
 import type { Item } from '@/types/master'
 import type { Bom, ChangeAction, ChangeLine, EngChange, EngProduct, EngWorkCentre, Routing, Tool } from '@/types/engineering'
+import { engineeringApi as api } from '@/api/engineering'
+import { getItems } from '@/api/masters'
 
 /**
  * Engineering change management (Ch 17).
@@ -111,7 +113,7 @@ export function ChangesPage() {
         api.getRoutings().catch(() => []),
         api.getEngWorkCentres().catch(() => []),
         api.getEngTools().catch(() => []),
-        api.getItems().catch(() => [])
+        getItems().catch(() => [])
       ])
       setRows(chgs)
       setBoms(bs)

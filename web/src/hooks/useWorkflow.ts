@@ -12,6 +12,10 @@ function useCompany() {
   return useSession((s) => s.companyUid)
 }
 
+function useToken() {
+  return useSession((s) => s.accessToken)
+}
+
 /* ─────────────────────────── Approval matrix ─────────────────────────── */
 export function useRuleDocumentTypes() {
   const c = useCompany()
@@ -95,20 +99,22 @@ export function useSimulate() {
 /* ─────────────────────────── Inbox / runtime ─────────────────────────── */
 export function useInbox(includeDone = false) {
   const c = useCompany()
+  const token = useToken()
   return useQuery({
     queryKey: ['wf', c, 'inbox', includeDone] as const,
     queryFn: () => wf.approvals.inbox(includeDone),
-    enabled: !!c,
+    enabled: !!c && !!token,
     refetchInterval: 30_000,
   })
 }
 
 export function useInboxCount() {
   const c = useCompany()
+  const token = useToken()
   return useQuery({
     queryKey: ['wf', c, 'inbox-count'] as const,
     queryFn: () => wf.approvals.inboxCount(),
-    enabled: !!c,
+    enabled: !!c && !!token,
     refetchInterval: 30_000,
   })
 }
@@ -135,20 +141,22 @@ export function useDecide() {
 
 export function useInstances(status?: string, overdue?: boolean) {
   const c = useCompany()
+  const token = useToken()
   return useQuery({
     queryKey: ['wf', c, 'instances', status ?? 'all', overdue ?? false] as const,
     queryFn: () => wf.workflowInstances.list(status, overdue),
-    enabled: !!c,
+    enabled: !!c && !!token,
     refetchInterval: 30_000,
   })
 }
 
 export function useInstanceDetail(uid: string | undefined) {
   const c = useCompany()
+  const token = useToken()
   return useQuery({
     queryKey: ['wf', c, 'instance', uid ?? ''] as const,
     queryFn: () => wf.workflowInstances.get(uid as string),
-    enabled: !!c && !!uid,
+    enabled: !!c && !!token && !!uid,
   })
 }
 

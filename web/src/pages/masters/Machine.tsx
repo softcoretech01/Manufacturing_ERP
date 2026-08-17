@@ -23,6 +23,7 @@ import {
 import { formatDate } from '@/lib/format'
 // mock import removed
 import type { Machine } from '@/types/masters'
+import * as api from '@/api/masters'
 
 const STATE_TONE = {
   RUNNING: 'success',

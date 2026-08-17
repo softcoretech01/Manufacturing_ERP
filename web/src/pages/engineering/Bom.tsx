@@ -14,7 +14,8 @@ import { DetailBlock, EngStatusBadge } from '@/components/engineering/EngShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatAmount, formatDate } from '@/lib/format'
 import { bomProblems, isLiveBom, nextDocNo, wouldCreateCycle } from '@/lib/engFlow'
-import { items as masterItems } from '@/mock/masters'
+import { engineeringApi as api } from '@/api/engineering'
+import { getItems } from '@/api/masters'
 import type { Bom, BomLine, BomType, EngProduct } from '@/types/engineering'
 
 /**
@@ -75,17 +76,20 @@ export function BomPage() {
   
   const [rows, setRows] = useState<Bom[]>([])
   const [products, setProducts] = useState<EngProduct[]>([])
+  const [masterItems, setMasterItems] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
     async function load() {
       try {
-        const [bomData, productData] = await Promise.all([
+        const [bomData, productData, itemsData] = await Promise.all([
           api.getBoms(),
-          api.getEngProducts()
+          api.getEngProducts(),
+          getItems(),
         ])
         setRows(bomData)
         setProducts(productData)
+        setMasterItems(itemsData)
       } catch (err) {
         console.error('Failed to load data:', err)
         toast.error('Failed to load', 'Could not load data from the server.')
@@ -294,8 +298,8 @@ export function BomPage() {
       uom: product?.baseUom ?? 'NOS',
       effectiveFrom: form.effectiveFrom,
       isDefault: form.isDefault,
-      alternateFor: form.alternateFor.trim(),
-      changeReason: form.changeReason.trim(),
+      alternateFor: (form.alternateFor || '').trim(),
+      changeReason: (form.changeReason || '').trim(),
       lines: buildLines(),
       status: (submit ? 'PENDING_APPROVAL' : 'DRAFT') as Bom['status'],
     }
@@ -761,7 +765,7 @@ export function BomPage() {
               containerClassName="sm:col-span-3"
               rows={2}
               maxLength={1000}
-              value={form.changeReason}
+              value={form.changeReason ?? ''}
               error={errors.changeReason}
               onChange={(e) => setForm({ ...form, changeReason: e.target.value })}
             />
@@ -807,7 +811,7 @@ export function BomPage() {
                         {masterItems
                           .filter((it) => it.code !== form.productCode)
                           .map((it) => (
-                            <option key={it.uid} value={it.code}>
+                            <option key={it.id || it.code} value={it.code}>
                               {it.code} — {it.name}
                             </option>
                           ))}

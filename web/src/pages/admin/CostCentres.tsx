@@ -89,6 +89,70 @@ export function CostCentresPage() {
     }
   }
 
+  const columns: Column<CostCentre>[] = [
+    { key: 'code', header: 'Code', sortable: true, width: '90px', render: (c) => <span className="font-mono text-xs font-medium">{c.code}</span> },
+    { key: 'name', header: 'Cost centre', sortable: true },
+    { key: 'parent_code', header: 'Parent', sortable: true, width: '160px', accessor: (c) => c.parent_uid ?? '', render: (c) => c.parent_uid ? <span className="text-xs text-fg-muted">Sub-group</span> : <span className="text-xs text-fg-subtle">top level</span> },
+    { key: 'cost_centre_type', header: 'Type', sortable: true, width: '150px', render: (c) => <Badge tone="neutral" size="sm" dot={false}>{c.cost_centre_type.replace(/_/g, ' ').toLowerCase()}</Badge> },
+    { key: 'is_postable', header: 'Postable', align: 'center', width: '90px', accessor: (c) => (c.is_postable ? 1 : 0), render: (c) => (c.is_postable ? <Badge tone="brand" size="sm" dot={false}>yes</Badge> : <span className="text-fg-subtle">group</span>) },
+    {
+      key: 'is_active',
+      header: 'Status',
+      width: '100px',
+      accessor: (c) => (c.is_active ? 'Active' : 'Inactive'),
+      render: (c) => <Badge tone={c.is_active ? 'success' : 'neutral'} size="sm">{c.is_active ? 'Active' : 'Inactive'}</Badge>,
+    },
+  ]
+
+  function doExport(format: ExportFormat) {
+    try {
+      const n = exportRows(format, 'cost-centres', 'Cost centres', columnsFromTable(columns), rows)
+      toast.success('Export ready', `${n} rows saved as ${format === 'xlsx' ? 'Excel' : format.toUpperCase()}.`)
+    } catch (e) {
+      toast.error('Export failed', e instanceof Error ? e.message : 'Unknown error.')
+    }
+  }
+
+  function toggleActive(c: CostCentre) {
+    if (c.is_active) {
+      deactivateCc.mutate({ uid: c.uid, version: c.version, reason: 'Manual deactivation' }, {
+        onSuccess: () => toast.success('Cost centre deactivated', `${c.code} deactivated.`),
+        onError: (err) => handleError(err, 'Failed to deactivate')
+      })
+    } else {
+      restoreCc.mutate({ uid: c.uid }, {
+        onSuccess: () => toast.success('Cost centre restored', `${c.code} is active again.`),
+        onError: (err) => handleError(err, 'Failed to restore')
+      })
+    }
+  }
+
+  function save() {
+    const e: Record<string, string> = {}
+    if (!form.name.trim()) e.name = 'Name is required.'
+    if (Object.keys(e).length > 0) { setErrors(e); return }
+    
+    setErrors({})
+    const payload = {
+      name: form.name.trim(),
+      cost_centre_type: form.cost_centre_type,
+      parent_uid: form.parent_uid || null,
+      is_postable: form.is_postable
+    }
+
+    if (editing) {
+      updateCc.mutate({ uid: editing.uid, ...payload }, {
+        onSuccess: () => { toast.success('Cost centre updated', form.name); setFormOpen(false) },
+        onError: (err) => handleError(err, 'Failed to update')
+      })
+    } else {
+      createCc.mutate({ code: form.code, ...payload }, {
+        onSuccess: () => { toast.success('Cost centre added', form.name); setFormOpen(false) },
+        onError: (err) => handleError(err, 'Failed to create')
+      })
+    }
+  }
+
   const saving = createCc.isPending || updateCc.isPending
 
   return (

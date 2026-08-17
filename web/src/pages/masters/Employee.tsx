@@ -24,6 +24,7 @@ import {
 import { formatDate } from '@/lib/format'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { Employee } from '@/types/masters'
+import * as api from '@/api/masters'
 
 const SKILL_TONE = { TRAINEE: 'neutral', OPERATOR: 'progress', SKILLED: 'success', EXPERT: 'brand' } as const
 
