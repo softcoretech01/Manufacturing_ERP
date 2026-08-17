@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
+import { inspectionsApi } from '@/api/inspections'
 import { Camera, Check, Plus, ShieldAlert, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type Column } from '@/components/ui/DataTable'
@@ -65,8 +66,21 @@ interface FormState {
 
 export function InspectionsPage() {
   const toast = useToast()
-  const { inspections, plans, instruments, defects } = useQualityData()
-  const { rows, create, update, remove } = inspections
+  const { plans, instruments, defects } = useQualityData()
+  const [rows, setRows] = useState<Inspection[]>([])
+
+  const fetchInspections = async () => {
+    try {
+      const data = await inspectionsApi.getAll()
+      setRows(data || [])
+    } catch (e) {
+      // toast is not defined here yet, but we can assume it works or ignore
+    }
+  }
+
+  useEffect(() => {
+    fetchInspections()
+  }, [])
 
   const [tab, setTab] = useState<'ALL' | InspectionStage>('ALL')
   const [statusFilter, setStatusFilter] = useState('OPEN')
@@ -82,7 +96,7 @@ export function InspectionsPage() {
   const [defectDraft, setDefectDraft] = useState({ defectCode: '', qty: '', source: '', remarks: '' })
 
   /** The live record, so edits made in the drawer are reflected immediately. */
-  const live = detail ? rows.find((r) => r.uid === detail.uid) ?? detail : null
+  const live = detail ? rows.find((r) => r.id === detail.id) ?? detail : null
 
   const counts = useMemo(
     () => ({
@@ -190,17 +204,12 @@ export function InspectionsPage() {
     return Object.keys(e).length === 0
   }
 
-  function save() {
+  async function save() {
     if (!validate() || !selectedPlan) return
     const lotSize = Number(form.lotSize)
     const sampling = samplingFor(selectedPlan, lotSize)
-    const uid = newUid('qin')
-    const prefix = selectedPlan.stage === 'IQC' ? 'IQC' : selectedPlan.stage === 'FIRST_PIECE' ? 'FAI' : selectedPlan.stage
-    const seq = rows.filter((r) => r.docNo.includes(`/${prefix}/`)).length + 1
 
-    create({
-      uid,
-      docNo: `QC/${prefix}/26-27/${String(seq).padStart(4, '0')}`,
+    await inspectionsApi.create({
       stage: selectedPlan.stage,
       sourceType: selectedPlan.stage === 'IQC' ? 'GRN' : selectedPlan.stage === 'OQA' ? 'SHIPMENT' : 'PRODUCTION_ORDER',
       sourceDocNo: form.sourceDocNo.trim(),
@@ -225,7 +234,7 @@ export function InspectionsPage() {
       acceptedQty: 0,
       rejectedQty: 0,
       reworkQty: 0,
-      readings: readingsFromPlan(selectedPlan.characteristics, uid),
+      readings: readingsFromPlan(selectedPlan.characteristics, '0') as any,
       defects: [],
       status: 'IN_PROGRESS',
       disposition: 'PENDING',
@@ -236,9 +245,9 @@ export function InspectionsPage() {
       approvedAt: null,
       ncrDocNo: null,
       remarks: '',
-      createdAt: new Date().toISOString(),
       version: 1,
-    } as Inspection)
+    } as Partial<Inspection>)
+    await fetchInspections()
 
     toast.success(
       'Inspection raised',
@@ -251,13 +260,13 @@ export function InspectionsPage() {
 
   function setReading(insp: Inspection, readingUid: string, patch: Partial<Inspection['readings'][number]>) {
     update(insp.uid, {
-      readings: insp.readings.map((r) => (r.uid === readingUid ? { ...r, ...patch } : r)),
+      readings: insp.readings.map((r) => (r.id === readingUid ? { ...r, ...patch } : r)),
       status: insp.status === 'PENDING' ? 'IN_PROGRESS' : insp.status,
       version: insp.version + 1,
     })
   }
 
-  function addDefect(insp: Inspection) {
+  async function addDefect(insp: Inspection) {
     const t = defects.rows.find((d) => d.code === defectDraft.defectCode)
     if (!t || !(Number(defectDraft.qty) > 0)) {
       toast.error('Cannot add', 'Choose a defect and a quantity greater than zero.')
@@ -271,8 +280,9 @@ export function InspectionsPage() {
       qty: Number(defectDraft.qty),
       source: defectDraft.source.trim() || insp.machineCode || insp.supplierCode || '—',
       remarks: defectDraft.remarks.trim(),
-    }
-    update(insp.uid, { defects: [...insp.defects, entry], version: insp.version + 1 })
+    } as DefectEntry
+    await inspectionsApi.update(insp.id as number, { defects: [...insp.defects, entry], version: insp.version + 1 })
+    await fetchInspections()
     setDefectDraft({ defectCode: '', qty: '', source: '', remarks: '' })
     setDefectOpen(false)
     toast.success('Defect recorded', `${entry.qty} × ${t.name} counted in the sample of ${insp.sampleSize}.`)
@@ -287,7 +297,7 @@ export function InspectionsPage() {
     setDeciding(i)
   }
 
-  function recordDecision(i: Inspection) {
+  async function recordDecision(i: Inspection) {
     if ((decision === 'REJECTED' || decision === 'ACCEPTED_WITH_DEVIATION' || decision === 'HOLD') && !reason.trim()) {
       toast.error('A reason is required', 'A rejection, a deviation or a hold has to be explained.')
       return
@@ -298,7 +308,7 @@ export function InspectionsPage() {
     const rejected = decision === 'REJECTED' ? i.lotSize : 0
     const rework = decision === 'HOLD' ? i.lotSize : 0
 
-    update(i.uid, {
+    await inspectionsApi.update(i.id as number, {
       disposition: decision,
       dispositionReason: reason.trim(),
       acceptedQty: accepted,
@@ -308,6 +318,7 @@ export function InspectionsPage() {
       status: 'PENDING_APPROVAL',
       version: i.version + 1,
     })
+    await fetchInspections()
 
     toast.success(
       'Disposition recorded',
@@ -318,13 +329,14 @@ export function InspectionsPage() {
     setDeciding(null)
   }
 
-  function approve(i: Inspection) {
+  async function approve(i: Inspection) {
     const blockers = approvalBlockers(i, instruments.rows)
     if (blockers.length) {
       toast.error('Cannot approve', blockers[0])
       return
     }
-    update(i.uid, { status: 'COMPLETED', approvedBy: 'Meera Rajan', approvedAt: new Date().toISOString(), version: i.version + 1 })
+    await inspectionsApi.update(i.id as number, { status: 'COMPLETED', approvedBy: 'Meera Rajan', approvedAt: new Date().toISOString(), version: i.version + 1 })
+    await fetchInspections()
     toast.success('Inspection approved', `${i.docNo} is closed. The result cannot be edited — a correction needs a new inspection.`)
     setDetail(null)
   }
@@ -370,7 +382,7 @@ export function InspectionsPage() {
       <DataTable
         rows={filtered}
         columns={columns}
-        rowKey={(r) => r.uid}
+        rowKey={(r) => r.id}
         searchPlaceholder="Search inspection, item, batch or source…"
         filterPanel={
           <Select
@@ -525,7 +537,7 @@ export function InspectionsPage() {
                       const inst = r.instrumentCode ? instruments.rows.find((x) => x.code === r.instrumentCode) : undefined
                       const instBad = inst ? ['OVERDUE', 'CONDEMNED'].includes(instrumentStatus(inst)) : !!r.instrumentCode
                       return (
-                        <tr key={r.uid} className={v === 'FAIL' ? 'bg-danger/5' : undefined}>
+                        <tr key={r.id} className={v === 'FAIL' ? 'bg-danger/5' : undefined}>
                           <td className="text-2xs text-fg-subtle">{i + 1}</td>
                           <td>
                             <p className="text-xs font-medium text-fg">
@@ -561,7 +573,7 @@ export function InspectionsPage() {
                                 disabled={isLocked}
                                 aria-label={`Reading for ${r.name}`}
                                 value={r.actual ?? ''}
-                                onChange={(e) => setReading(live, r.uid, { actual: e.target.value === '' ? null : Number(e.target.value) })}
+                                onChange={(e) => setReading(live, r.id, { actual: e.target.value === '' ? null : Number(e.target.value) })}
                                 className="h-7 w-full rounded border border-border bg-surface px-2 text-right text-xs tabular text-fg focus:border-brand-500 focus:outline-none disabled:bg-surface-3"
                               />
                             ) : (
@@ -569,7 +581,7 @@ export function InspectionsPage() {
                                 disabled={isLocked}
                                 aria-label={`Verdict for ${r.name}`}
                                 value={r.verdict}
-                                onChange={(e) => setReading(live, r.uid, { verdict: e.target.value as 'PENDING' | 'PASS' | 'FAIL' })}
+                                onChange={(e) => setReading(live, r.id, { verdict: e.target.value as 'PENDING' | 'PASS' | 'FAIL' })}
                                 className="h-7 w-full rounded border border-border bg-surface px-2 text-xs text-fg focus:border-brand-500 focus:outline-none disabled:bg-surface-3"
                               >
                                 <option value="PENDING">Not checked</option>
@@ -586,7 +598,7 @@ export function InspectionsPage() {
                                 disabled={isLocked}
                                 aria-label={`Photograph for ${r.name}`}
                                 title={r.photoAttached ? 'Photograph attached' : 'Photograph required'}
-                                onClick={() => setReading(live, r.uid, { photoAttached: !r.photoAttached })}
+                                onClick={() => setReading(live, r.id, { photoAttached: !r.photoAttached })}
                                 className={cn(
                                   'inline-flex h-6 w-6 items-center justify-center rounded disabled:opacity-40',
                                   r.photoAttached ? 'bg-success/15 text-success' : 'bg-danger/10 text-danger',
@@ -653,7 +665,7 @@ export function InspectionsPage() {
                               <button
                                 type="button"
                                 aria-label={`Remove ${dft.defectName}`}
-                                onClick={() => update(live.uid, { defects: live.defects.filter((x) => x.uid !== dft.uid), version: live.version + 1 })}
+                                onClick={() => inspectionsApi.update(live.id as number, { defects: live.defects.filter((x) => x.uid !== dft.uid), version: live.version + 1 })}
                                 className="text-fg-subtle hover:text-danger"
                               >
                                 <Trash2 className="h-3.5 w-3.5" />

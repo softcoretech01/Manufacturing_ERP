@@ -1,0 +1,77 @@
+import pymysql
+
+conn = pymysql.connect(
+    host='187.127.131.38',
+    port=3308,
+    user='root',
+    password='Ener9y_Demo@2026',
+    database='ERP_Quality',
+    client_flag=pymysql.constants.CLIENT.MULTI_STATEMENTS
+)
+
+cursor = conn.cursor()
+
+cursor.execute("DROP PROCEDURE IF EXISTS SpManageDefectType;")
+
+sp_sql = """
+CREATE PROCEDURE SpManageDefectType(
+    IN p_Action VARCHAR(20),
+    IN p_Id INT,
+    IN p_Code VARCHAR(50),
+    IN p_Name VARCHAR(150),
+    IN p_Severity VARCHAR(20),
+    IN p_Category VARCHAR(100),
+    IN p_DefaultCause VARCHAR(50),
+    IN p_ScrapCostPerUnit DECIMAL(15,3),
+    IN p_ReworkCostPerUnit DECIMAL(15,3),
+    IN p_IsActive BOOLEAN,
+    IN p_User VARCHAR(100)
+)
+BEGIN
+    DECLARE v_NextId INT;
+    DECLARE v_GeneratedCode VARCHAR(50);
+
+    IF p_Action = 'CREATE' THEN
+        SELECT COALESCE(MAX(Id), 0) + 1 INTO v_NextId FROM DefectType;
+        SET v_GeneratedCode = CONCAT('DF-', LPAD(v_NextId, 3, '0'));
+
+        INSERT INTO DefectType (
+            Code, Name, Severity, Category, DefaultCause, ScrapCostPerUnit, ReworkCostPerUnit, IsActive,
+            CreatedBy, CreatedDate, ModifiedBy, ModifiedDate
+        ) VALUES (
+            v_GeneratedCode, p_Name, p_Severity, p_Category, p_DefaultCause, p_ScrapCostPerUnit, p_ReworkCostPerUnit, p_IsActive,
+            p_User, NOW(), p_User, NOW()
+        );
+        SET p_Id = LAST_INSERT_ID();
+        SELECT p_Id AS Id;
+
+    ELSEIF p_Action = 'UPDATE' THEN
+        UPDATE DefectType SET
+            Name = COALESCE(p_Name, Name),
+            Severity = COALESCE(p_Severity, Severity),
+            Category = COALESCE(p_Category, Category),
+            DefaultCause = COALESCE(p_DefaultCause, DefaultCause),
+            ScrapCostPerUnit = COALESCE(p_ScrapCostPerUnit, ScrapCostPerUnit),
+            ReworkCostPerUnit = COALESCE(p_ReworkCostPerUnit, ReworkCostPerUnit),
+            IsActive = COALESCE(p_IsActive, IsActive),
+            ModifiedBy = p_User,
+            ModifiedDate = NOW(),
+            Version = Version + 1
+        WHERE Id = p_Id AND DeletedAt IS NULL;
+
+    ELSEIF p_Action = 'DELETE' THEN
+        UPDATE DefectType SET 
+            DeletedAt = NOW(), 
+            ModifiedBy = p_User, 
+            ModifiedDate = NOW(),
+            Version = Version + 1 
+        WHERE Id = p_Id AND DeletedAt IS NULL;
+    END IF;
+END
+"""
+
+cursor.execute(sp_sql)
+conn.commit()
+cursor.close()
+conn.close()
+print("Success")

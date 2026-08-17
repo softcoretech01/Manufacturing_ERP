@@ -13,6 +13,8 @@ import { formatAmount, formatQty } from '@/lib/format'
 import { defaultBomFor, explodeBom, netRequirements, whereUsed, type ExplodedLine, type WhereUsedRow } from '@/lib/engFlow'
 import type { Bom, EngProduct } from '@/types/engineering'
 import type { Item } from '@/types/inventory'
+import { engineeringApi as api } from '@/api/engineering'
+import { getItems } from '@/api/masters'
 
 /**
  * BOM explosion and where-used (Ch 7 and Ch 20).
@@ -44,7 +46,7 @@ export function BomExplorerPage() {
         const [bomData, productData, itemData] = await Promise.all([
           api.getBoms(),
           api.getEngProducts(),
-          api.getItems()
+          getItems()
         ])
         setBoms(bomData)
         setProducts(productData)

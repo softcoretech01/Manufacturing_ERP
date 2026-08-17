@@ -11,6 +11,7 @@ import { useToast } from '@/components/ui/Toast'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatAmount } from '@/lib/format'
 import type { EngWorkCentre, Operation, Routing } from '@/types/engineering'
+import { engineeringApi as api } from '@/api/engineering'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'
 

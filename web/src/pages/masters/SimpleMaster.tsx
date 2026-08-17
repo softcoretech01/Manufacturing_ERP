@@ -17,6 +17,7 @@ import { newUid, useCollection } from '@/store/data'
 import { SIMPLE_MASTER_BY_ROUTE } from '@/mock/masterRegistry'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { MasterField, MasterStatus, SimpleMasterDef, SimpleMasterRow } from '@/types/masters'
+import * as api from '@/api/masters'
 
 /* ── Codes that use a live API instead of mock data ─────────── */
 const API_BACKED_MASTERS = new Set(['BOTTLE_MODEL', 'BOTTLE_CAPACITY', 'BOTTLE_COLOUR', 'LID_TYPE', 'PACKAGING', 'STEEL_GRADE', 'STEEL_THICKNESS', 'SHIFT', 'HOLIDAY_CALENDAR', 'QUALITY_PARAM', 'DEFECT', 'HSN', 'TAX', 'PAYMENT_TERMS', 'UOM', 'REASON_CODE', 'COUNTRY', 'STATE', 'CITY'])
@@ -66,7 +67,6 @@ function simpleRowToApiPayload(form: FormState, def: SimpleMasterDef): any {
 }
 
 /* ── API method map per master code ─────────────────────────── */
-const api: any = {};
 const API_METHODS: Record<string, {
   getAll: () => Promise<any[]>
   create: (data: any) => Promise<any>

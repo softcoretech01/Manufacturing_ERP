@@ -38,7 +38,9 @@ export type CharacteristicType = 'MEASURED' | 'ATTRIBUTE' | 'DOCUMENT'
  * exists and is valid or does not.
  */
 export interface PlanCharacteristic {
-  uid: string
+  id: number
+  planId: number
+  uid?: string // for mock compatibility
   seq: number
   name: string
   type: CharacteristicType
@@ -58,8 +60,10 @@ export interface PlanCharacteristic {
 }
 
 export interface InspectionPlan {
-  uid: string
-  docNo: string
+  id: number
+  planCode: string
+  uid?: string // for mock compatibility
+  docNo?: string // for mock compatibility
   name: string
   stage: InspectionStage
   /** Item or product this plan governs. */
@@ -173,7 +177,8 @@ export interface Inspection {
 /* ─────────────────────── Defect catalogue ─────────────────────── */
 
 export interface DefectType {
-  uid: string
+  id?: number
+  uid?: string
   code: string
   name: string
   severity: DefectSeverity

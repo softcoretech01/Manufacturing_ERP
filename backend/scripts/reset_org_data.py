@@ -37,7 +37,7 @@ from app.modules.organisation.infrastructure.models import SysCompany
 _CHILD_TABLES = [
     "sys_accounting_period",
     "sys_financial_year",
-    "sys_cost_centre",
+    "mst_cost_centre",
     "sys_department",
     "sys_warehouse",
     "sys_plant",

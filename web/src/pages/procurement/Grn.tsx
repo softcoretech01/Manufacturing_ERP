@@ -14,43 +14,26 @@ import { ApprovalTrail, DelayChip, DetailBlock, ProcStatusBadge } from '@/compon
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/format'
 import { useEffect } from 'react'
-import { newUid } from '@/store/data'
-import { purchaseOrders as seedOrders } from '@/mock/procurement'
+import { useCollection, newUid } from '@/store/data'
+import { grns as seedGrns, inspections as seedIqcs, purchaseOrders as seedOrders } from '@/mock/procurement'
+import { plants as seedPlants, warehouses as seedWarehouses } from '@/mock/data'
 import { receivableOrders } from '@/lib/procFlow'
 import type { Grn, IncomingInspection, PurchaseOrder } from '@/types/procurement'
 import { cn } from '@/lib/cn'
 
 export function GrnPage() {
   const toast = useToast()
-  const [grns, setGrns] = useState<Grn[]>([])
-  const [inspections, setInspections] = useState<IncomingInspection[]>([])
-  
-  const [orders, setOrders] = useState<PurchaseOrder[]>([])
-  const [warehouses, setWarehouses] = useState<any[]>([])
-  const [plants, setPlants] = useState<any[]>([])
-  
-  const loadData = async () => {
-    try {
-      const [g, i, po, w, p] = await Promise.all([
-        api.getGrns(),
-        api.getIqcs(),
-        api.getPurchaseOrders(),
-        api.getWarehouses(),
-        api.getPlants()
-      ])
-      setGrns(g)
-      setInspections(i)
-      setOrders(po)
-      setWarehouses(w)
-      setPlants(p)
-    } catch (e) {
-      toast.error('Error', 'Failed to load GRN data')
-    }
-  }
+  const gSeed = useMemo(() => seedGrns, [])
+  const { rows: grns, create: createGrn, update: updateGrn, remove: deleteGrn } = useCollection<Grn>('proc:grns', gSeed)
 
-  useEffect(() => {
-    loadData()
-  }, [])
+  const iSeed = useMemo(() => seedIqcs, [])
+  const { rows: inspections, update: updateIqc } = useCollection<IncomingInspection>('proc:iqc', iSeed)
+
+  const oSeed = useMemo(() => seedOrders, [])
+  const { rows: orders } = useCollection<PurchaseOrder>('proc:po', oSeed)
+
+  const warehouses = seedWarehouses
+  const plants = seedPlants
 
   /** Only an approved order can be received against. */
   const receivable = receivableOrders(orders)
@@ -167,13 +150,13 @@ export function GrnPage() {
 
     try {
       if (editing) {
-        await api.updateGrn(editing.uid, { ...editing, ...patch })
-        toast.success('Updated', `${editing.docNo} has been updated.`)
+        updateGrn(editing.uid, { ...editing, ...patch })
+        toast.success('GRN updated', `${editing.docNo} saved successfully.`)
       } else {
-        const next = grns.length + 1
-        const docNo = `GRN/26-27/00${339 + next}`
-        const v = Number(form.invoiceValue) || 0
-        await api.createGrn({
+        const po = orders.find((o) => o.docNo === form.poNo)
+        const docNo = `GRN/26-27/${(grns.length + 1).toString().padStart(4, '0')}`
+        
+        createGrn({
           docNo,
           docDate: new Date().toISOString().slice(0, 10),
           status: 'PENDING_APPROVAL',
@@ -181,11 +164,11 @@ export function GrnPage() {
           supplierUid: 'sup-new',
           supplierName: form.supplierName,
           warehouse: form.warehouse,
-          gateEntryNo: `GE/26-27/${1190 + next}`,
+          gateEntryNo: `GE/26-27/${1190 + grns.length + 1}`,
           gateEntryAt: new Date().toISOString(),
           invoiceNo: form.invoiceNo,
           invoiceDate: form.invoiceDate,
-          invoiceValue: v,
+          invoiceValue: Number(form.invoiceValue),
           vehicleNo: form.vehicleNo,
           lrNo: '—',
           receivedBy: form.receivedBy.trim(),
@@ -193,18 +176,18 @@ export function GrnPage() {
           totalReceived: 0,
           totalAccepted: 0,
           totalRejected: 0,
-          grnValue: v,
+          grnValue: Number(form.invoiceValue),
           delayDays: 0,
           version: 1,
           attachments: 0,
           comments: 0,
           approvals: [{ level: 1, role: 'Stores In-charge', approver: 'M. Lakshmi', status: 'PENDING', actedAt: null, remarks: null }],
           lines: [],
-        } as unknown as Grn)
+          uid: newUid(),
+        } as Grn)
         toast.success('Receipt created', `${docNo} raised against ${form.poNo}.`)
       }
       setFormOpen(false)
-      loadData()
     } catch (e) {
       toast.error('Error', 'Failed to save GRN')
     }
@@ -280,9 +263,8 @@ export function GrnPage() {
                   disabled={g.status !== 'PENDING_APPROVAL'}
                   onClick={async () => {
                     try {
-                      await api.updateGrn(g.uid, { ...g, status: 'APPROVED', approvals: g.approvals.map((a) => (a.status === 'PENDING' ? { ...a, status: 'APPROVED' as const, actedAt: new Date().toISOString() } : a)) })
-                      toast.success('Approved', `${g.docNo} approved — stock posted to ${g.warehouse}.`)
-                      loadData()
+                      updateGrn(g.uid, { ...g, status: 'APPROVED', approvals: g.approvals.map((a) => (a.status === 'PENDING' ? { ...a, status: 'APPROVED' as const, actedAt: new Date().toISOString() } : a)) })
+                      toast.success('GRN approved', `${g.docNo} has been approved and moved to QC.`)
                     } catch (e) {
                       toast.error('Error', 'Failed to approve receipt')
                     }
@@ -301,9 +283,8 @@ export function GrnPage() {
                   disabled={g.status === 'CANCELLED'}
                   onClick={async () => {
                     try {
-                      await api.updateGrn(g.uid, { ...g, status: 'CANCELLED', remarks: 'Cancelled by stores with a reason code.' })
-                      toast.success('Cancelled', `${g.docNo} cancelled; stock posting reversed.`)
-                      loadData()
+                      updateGrn(g.uid, { ...g, status: 'CANCELLED', remarks: 'Cancelled by stores with a reason code.' })
+                      toast.success('GRN cancelled', `${g.docNo} has been cancelled.`)
                     } catch (e) {
                       toast.error('Error', 'Failed to cancel receipt')
                     }
@@ -331,9 +312,8 @@ export function GrnPage() {
                 disabled={i.status !== 'PENDING' && i.status !== 'IN_PROGRESS'}
                 onClick={async () => {
                   try {
-                    await api.updateIqc(i.uid, { ...i, status: 'ACCEPTED', acceptedQty: i.lotQty, rejectedQty: 0 })
-                    toast.success('Accepted', `${i.docNo} — ${i.lotQty.toLocaleString('en-IN')} units released to stores.`)
-                    loadData()
+                    updateIqc(i.uid, { ...i, status: 'ACCEPTED', acceptedQty: i.lotQty, rejectedQty: 0 })
+                    toast.success('Lot accepted', `${i.docNo} marked as accepted.`)
                   } catch (e) {
                     toast.error('Error', 'Failed to accept lot')
                   }
@@ -345,9 +325,8 @@ export function GrnPage() {
                 disabled={i.status !== 'PENDING' && i.status !== 'IN_PROGRESS'}
                 onClick={async () => {
                   try {
-                    await api.updateIqc(i.uid, { ...i, status: 'REJECTED', acceptedQty: 0, rejectedQty: i.lotQty, ncrNo: `NCR/26-27/00${Math.floor(40 + Math.random() * 9)}` })
-                    toast.success('Rejected', `${i.docNo} rejected; an NCR has been raised and the supplier notified.`)
-                    loadData()
+                    updateIqc(i.uid, { ...i, status: 'REJECTED', acceptedQty: 0, rejectedQty: i.lotQty, ncrNo: `NCR/26-27/00${Math.floor(40 + Math.random() * 9)}` })
+                    toast.success('Lot rejected', `${i.docNo} rejected and NCR raised.`)
                   } catch (e) {
                     toast.error('Error', 'Failed to reject lot')
                   }
@@ -359,9 +338,8 @@ export function GrnPage() {
                 disabled={i.status === 'ACCEPTED'}
                 onClick={async () => {
                   try {
-                    await api.updateIqc(i.uid, { ...i, status: 'DEVIATION_ACCEPTED', deviationApprovedBy: 'V. Ramanathan' })
-                    toast.warning('Deviation accepted', 'Requires plant-head approval and is reported in the monthly quality review.')
-                    loadData()
+                    updateIqc(i.uid, { ...i, status: 'DEVIATION_ACCEPTED', deviationApprovedBy: 'V. Ramanathan' })
+                    toast.success('Deviation accepted', `${i.docNo} accepted with deviation.`)
                   } catch (e) {
                     toast.error('Error', 'Failed to accept deviation')
                   }
@@ -390,9 +368,8 @@ export function GrnPage() {
                     size="sm"
                     onClick={async () => {
                       try {
-                        await api.updateGrn(detail.uid, { ...detail, status: 'APPROVED' })
+                        updateGrn(detail.uid, { ...detail, status: 'APPROVED' })
                         toast.success('Approved', `${detail.docNo} approved.`)
-                        loadData()
                         setDetail(null)
                       } catch (e) {
                         toast.error('Error', 'Failed to approve receipt')
@@ -666,9 +643,8 @@ export function GrnPage() {
               onClick={async () => {
                 if (confirmDelete) {
                   try {
-                    await api.deleteGrn(confirmDelete.uid)
-                    toast.success('Deleted', `${confirmDelete.docNo} deleted.`)
-                    loadData()
+                    deleteGrn(confirmDelete.uid)
+                    toast.success('GRN deleted', `${confirmDelete.docNo} has been removed.`)
                   } catch (e) {
                     toast.error('Error', 'Failed to delete receipt')
                   }

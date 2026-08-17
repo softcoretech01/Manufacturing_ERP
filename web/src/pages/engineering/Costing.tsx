@@ -13,6 +13,8 @@ import { formatAmount, formatDate } from '@/lib/format'
 import { NO_SIMULATION, rollUpCost, type CostContext, type MaterialCostLine, type Simulation } from '@/lib/engFlow'
 import type { Bom, EngProduct, EngWorkCentre, Routing, Tool } from '@/types/engineering'
 import type { Item } from '@/types/master'
+import { engineeringApi as api } from '@/api/engineering'
+import { getItems } from '@/api/masters'
 
 /**
  * Cost roll-up and simulation (Ch 16).
@@ -67,7 +69,7 @@ export function CostingPage() {
         api.getRoutings().catch(() => []),
         api.getEngWorkCentres().catch(() => []),
         api.getEngTools().catch(() => []),
-        api.getItems().catch(() => []),
+        getItems().catch(() => []),
       ])
       setProducts(ps)
       setBoms(bs)

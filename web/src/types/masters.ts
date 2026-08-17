@@ -386,6 +386,8 @@ export interface Transporter {
   name: string
   status: MasterStatus
   effectiveFrom: string
+}
+
 export interface Item extends MasterBase {
   itemType: ItemType
   category: string

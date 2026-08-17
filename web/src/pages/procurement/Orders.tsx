@@ -13,6 +13,8 @@ import { useToast } from '@/components/ui/Toast'
 import { ApprovalTrail, DelayChip, DetailBlock, FillBar, ProcStatusBadge } from '@/components/procurement/ProcShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/format'
+import { useCollection } from '@/store/data'
+import { purchaseOrders as seedPo, requisitions as seedReq, rfqs as seedRfq, quotations as seedQuo } from '@/mock/procurement'
 import type { PurchaseRequisition, PurchaseOrder, Rfq, SupplierQuotation } from '@/types/procurement'
 import { nextDocNo, orderableRequisitions, poLinesFromQuotation } from '@/lib/procFlow'
 import { cn } from '@/lib/cn'
@@ -38,63 +40,19 @@ const CANCEL_REASONS = [
 
 export function OrdersPage() {
   const toast = useToast()
-  const [rows, setRows] = useState<PurchaseOrder[]>([])
-  const [prs, setPrs] = useState<PurchaseRequisition[]>([])
-  const [rfqs, setRfqs] = useState<Rfq[]>([])
-  const [quotations, setQuotations] = useState<SupplierQuotation[]>([])
+  const poSeed = useMemo(() => seedPo, [])
+  const { rows, create: createPo, update, remove } = useCollection<PurchaseOrder>('proc:po', poSeed)
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const [poData, prData, rfqData, qData] = await Promise.all([
-          api.getPurchaseOrders(),
-          api.getRequisitions(),
-          api.getRfqs(),
-          api.getQuotations(),
-        ])
-        setRows(poData)
-        setPrs(prData)
-        setRfqs(rfqData)
-        setQuotations(qData)
-      } catch (e) {
-        toast.error('Error', 'Failed to load purchase orders')
-      }
-    }
-    load()
-  }, [])
+  const reqSeed = useMemo(() => seedReq, [])
+  const { rows: prs } = useCollection<PurchaseRequisition>('proc:reqs', reqSeed)
 
-  async function update(uid: string, patch: Partial<PurchaseOrder>) {
-    try {
-      const existing = rows.find(r => r.uid.toString() === uid.toString())
-      if (!existing) return
-      await api.updatePurchaseOrder(uid, { ...existing, ...patch })
-      const latest = await api.getPurchaseOrders()
-      setRows(latest)
-    } catch (e) {
-      toast.error('Error', 'Failed to update purchase order')
-    }
-  }
+  const rfqSeed = useMemo(() => seedRfq, [])
+  const { rows: rfqs } = useCollection<Rfq>('proc:rfqs', rfqSeed)
 
-  async function remove(uid: string) {
-    try {
-      await api.deletePurchaseOrder(uid)
-      const latest = await api.getPurchaseOrders()
-      setRows(latest)
-    } catch (e) {
-      toast.error('Error', 'Failed to delete purchase order')
-    }
-  }
+  const quoSeed = useMemo(() => seedQuo, [])
+  const { rows: quotations, update: updateQuotation } = useCollection<SupplierQuotation>('proc:sq', quoSeed)
 
-  async function updateQuotation(uid: string, patch: Partial<SupplierQuotation>) {
-    try {
-      const existing = quotations.find(q => q.uid.toString() === uid.toString())
-      if (!existing) return
-      await api.updateQuotation(uid, { ...existing, ...patch })
-      setQuotations(await api.getQuotations())
-    } catch (e) {
-      toast.error('Error', 'Failed to update quotation')
-    }
-  }
+  // updateQuotation is now provided by useCollection
 
   /** Requisitions whose RFQ has an awarded quotation and no order yet. */
   const orderable = orderableRequisitions(prs, rfqs, quotations, rows)
@@ -259,7 +217,7 @@ export function OrdersPage() {
       const award = match?.award
       const docNo = nextDocNo('PO', rows, 5)
       try {
-        await api.createPurchaseOrder({
+        createPo({
           docNo,
           docDate: new Date().toISOString().slice(0, 10),
           supplierUid: award?.supplierUid ?? 'sup-new',
@@ -282,9 +240,7 @@ export function OrdersPage() {
           amendments: [],
           ...patch,
         })
-        const latest = await api.getPurchaseOrders()
-        setRows(latest)
-        if (award) await updateQuotation(award.uid.toString(), { status: 'AWARDED' })
+        if (award) updateQuotation(award.uid.toString(), { status: 'AWARDED' })
         toast.success(
           submit ? 'Purchase order submitted' : 'Draft saved',
           award

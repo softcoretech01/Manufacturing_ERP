@@ -12,6 +12,8 @@ import { useToast } from '@/components/ui/Toast'
 import { ApprovalTrail, DetailBlock, PriorityBadge, ProcStatusBadge } from '@/components/procurement/ProcShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatCurrency, formatDate } from '@/lib/format'
+import { useCollection } from '@/store/data'
+import { requisitions as seedRequisitions } from '@/mock/procurement'
 import { items as masterItems } from '@/mock/masters'
 import type { PrLine, PurchaseRequisition } from '@/types/procurement'
 
@@ -50,44 +52,8 @@ const emptyForm: FormState = {
 
 export function RequisitionsPage() {
   const toast = useToast()
-  const [rows, setRows] = useState<PurchaseRequisition[]>([])
-  
-  useEffect(() => {
-    api.getPurchaseRequisitions().then((data) => {
-      setRows(data)
-    }).catch((err) => {
-      toast.error('Failed to load requisitions', err.message)
-    })
-  }, [toast])
-
-  const create = async (row: PurchaseRequisition) => {
-    try {
-      const created = await api.createPurchaseRequisition(row)
-      setRows((prev) => [created, ...prev])
-    } catch (err: any) {
-      toast.error('Error', err.message)
-    }
-  }
-
-  const update = async (uid: string, patch: Partial<PurchaseRequisition>) => {
-    try {
-      const existing = rows.find(r => r.uid === uid)
-      if (!existing) return
-      const updated = await api.updatePurchaseRequisition(uid, { ...existing, ...patch })
-      setRows((prev) => prev.map((r) => (r.uid === uid ? updated : r)))
-    } catch (err: any) {
-      toast.error('Error', err.message)
-    }
-  }
-
-  const remove = async (uid: string) => {
-    try {
-      await api.deletePurchaseRequisition(uid)
-      setRows((prev) => prev.filter(r => r.uid !== uid))
-    } catch (err: any) {
-      toast.error('Error', err.message)
-    }
-  }
+  const prSeed = useMemo(() => seedRequisitions, [])
+  const { rows, create, update, remove } = useCollection<PurchaseRequisition>('proc:reqs', prSeed)
 
   const [tab, setTab] = useState('all')
   const [detail, setDetail] = useState<PurchaseRequisition | null>(null)

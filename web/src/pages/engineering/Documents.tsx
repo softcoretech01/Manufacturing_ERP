@@ -16,6 +16,7 @@ import { useEngineeringCollection } from '@/store/engData'
 import { useCollection } from '@/store/data'
 import { products as seedProducts } from '@/mock/engineering'
 import type { DocType, EngDocument, EngProduct } from '@/types/engineering'
+import { engineeringApi as api } from '@/api/engineering'
 
 /**
  * Engineering document register (Ch 19).
