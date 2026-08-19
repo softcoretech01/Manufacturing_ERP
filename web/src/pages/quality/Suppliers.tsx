@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
@@ -9,7 +9,11 @@ import { MenuItem } from '@/components/ui/Menu'
 import { Input } from '@/components/ui/Input'
 import { Alert, PageHeader, ProgressBar } from '@/components/ui/Misc'
 import { useToast } from '@/components/ui/Toast'
-import { ChartTip, DetailBlock, GradeBadge, useQualityData } from '@/components/quality/QmsShell'
+import { ChartTip, DetailBlock, GradeBadge } from '@/components/quality/QmsShell'
+import { supplierQualityApi } from '@/api/supplierQuality'
+import { ncrsApi } from '@/api/ncrs'
+import { inspectionsApi } from '@/api/inspections'
+import type { Ncr, Inspection } from '@/types/quality'
 import { cn } from '@/lib/cn'
 import { exportRows, type ExportColumn, type ExportFormat } from '@/lib/export'
 import { formatAmount } from '@/lib/format'
@@ -27,19 +31,34 @@ import type { SupplierQualityRecord } from '@/types/quality'
 
 export function SupplierQualityPage() {
   const toast = useToast()
-  const { supplierQuality, ncrs, inspections } = useQualityData()
-  const { rows, update } = supplierQuality
+  const [rows, setRows] = useState<SupplierQualityRecord[]>([])
+  const [ncrs, setNcrs] = useState<Ncr[]>([])
+  const [inspections, setInspections] = useState<Inspection[]>([])
+  const [loading, setLoading] = useState(true)
 
   const [detail, setDetail] = useState<SupplierScore | null>(null)
   const [editing, setEditing] = useState<SupplierQualityRecord | null>(null)
+
+  useEffect(() => {
+    Promise.all([
+      supplierQualityApi.getAll(),
+      ncrsApi.getAll(),
+      inspectionsApi.getAll()
+    ]).then(([s, n, i]) => {
+      setRows(s)
+      setNcrs(n)
+      setInspections(i)
+      setLoading(false)
+    })
+  }, [])
   const [form, setForm] = useState({ lotsReceived: '', lotsAccepted: '', qtyReceived: '', qtyRejected: '', lotsWithValidDocs: '', ncrsRaised: '', ncrsClosedOnTime: '', capaResponseDays: '' })
 
   const scored = useMemo(() => rows.map(scoreSupplier).sort((a, b) => b.score - a.score), [rows])
   const blocked = scored.filter((s) => s.grade === 'BLOCKED' || s.grade === 'CONDITIONAL')
   const chart = scored.map((s) => ({ name: s.supplierCode, PPM: Math.round(s.ppm), score: s.score }))
 
-  const ncrsFor = (code: string) => ncrs.rows.filter((n) => n.supplierCode === code)
-  const inspectionsFor = (code: string) => inspections.rows.filter((i) => i.supplierCode === code)
+  const ncrsFor = (code: string) => ncrs.filter((n) => n.supplierCode === code)
+  const inspectionsFor = (code: string) => inspections.filter((i) => i.supplierCode === code)
 
   const columns: Column<SupplierScore>[] = [
     { key: 'supplierCode', header: 'Supplier', sortable: true, width: '10rem', render: (s) => <span className="font-mono text-xs font-medium text-brand-600">{s.supplierCode}</span> },
@@ -60,7 +79,7 @@ export function SupplierQualityPage() {
     setForm({ lotsReceived: String(r.lotsReceived), lotsAccepted: String(r.lotsAccepted), qtyReceived: String(r.qtyReceived), qtyRejected: String(r.qtyRejected), lotsWithValidDocs: String(r.lotsWithValidDocs), ncrsRaised: String(r.ncrsRaised), ncrsClosedOnTime: String(r.ncrsClosedOnTime), capaResponseDays: String(r.capaResponseDays) })
   }
 
-  function save() {
+  async function save() {
     if (!editing) return
     const lotsReceived = Number(form.lotsReceived) || 0
     const lotsAccepted = Math.min(lotsReceived, Number(form.lotsAccepted) || 0)
@@ -71,13 +90,28 @@ export function SupplierQualityPage() {
       ncrsRaised: Number(form.ncrsRaised) || 0,
       ncrsClosedOnTime: Math.min(Number(form.ncrsRaised) || 0, Number(form.ncrsClosedOnTime) || 0),
       capaResponseDays: Number(form.capaResponseDays) || 0,
-      version: editing.version + 1,
+      period: editing.period,
+      supplierCode: editing.supplierCode,
+      supplierName: editing.supplierName,
     }
-    update(editing.uid, patch)
-    const next = scoreSupplier({ ...editing, ...patch })
-    toast.success('Scorecard updated', `${editing.supplierName} now scores ${next.score.toFixed(0)} and grades ${next.grade.toLowerCase()}.`)
-    setEditing(null)
+    
+    try {
+      const updated = await supplierQualityApi.update(editing.supplierCode, patch)
+      setRows(rows.map(r => r.supplierCode === updated.supplierCode ? updated : r))
+      
+      const next = scoreSupplier({ ...editing, ...updated })
+      toast.success('Scorecard updated', `${editing.supplierName} now scores ${next.score.toFixed(0)} and grades ${next.grade.toLowerCase()}.`)
+      
+      if (detail && detail.supplierCode === editing.supplierCode) {
+        setDetail(next)
+      }
+      setEditing(null)
+    } catch (e: any) {
+      toast.error('Failed to update scorecard', e.message)
+    }
   }
+
+  if (loading) return <div className="p-8 text-center text-fg-subtle">Loading supplier scorecards...</div>
 
   return (
     <div>

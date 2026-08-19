@@ -7,12 +7,13 @@ import { MenuItem } from '@/components/ui/Menu'
 import { PageHeader } from '@/components/ui/Misc'
 import { Tabs } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
-import { useCrud } from '@/components/crud/CrudKit'
+import { useLiveCrud } from '@/components/crud/CrudKit'
+import { vehicleApi } from '@/api/vehicleApi'
+import { useEffect } from 'react'
 import { DispatchStatusBadge, ExpiryCell, VEHICLE_TYPE_LABEL } from '@/components/dispatch/DispatchShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDate } from '@/lib/format'
 import { cn } from '@/lib/cn'
-import { vehicles as seedVehicles } from '@/mock/dispatch'
 import type { Vehicle, VehicleType } from '@/types/dispatch'
 
 const TABS = [
@@ -30,11 +31,22 @@ const TABS = [
  */
 export function VehiclesPage() {
   const toast = useToast()
-  const seed = useMemo(() => seedVehicles, [])
+  const [vehicles, setVehicles] = useState<Vehicle[]>([])
 
-  const crud = useCrud<Vehicle>({
-    key: 'dispatch:vehicle',
-    seed,
+  const fetchVehicles = async () => {
+    try {
+      const data = await vehicleApi.getAll()
+      setVehicles(data)
+    } catch (err) {
+      toast.error('Failed to load vehicles', err instanceof Error ? err.message : 'Unknown error')
+    }
+  }
+
+  useEffect(() => {
+    fetchVehicles()
+  }, [])
+
+  const crud = useLiveCrud<Vehicle>({
     entity: 'Vehicle',
     titleOf: (v) => `${v.vehicleNo} (${v.transporter})`,
     fields: [
@@ -49,7 +61,7 @@ export function VehiclesPage() {
       { name: 'transporter', label: 'Transporter', required: true },
       { name: 'route', label: 'Usual route', required: true },
       { name: 'driver', label: 'Driver', required: true },
-      { name: 'driverPhone', label: 'Driver phone', type: 'tel', required: true },
+      { name: 'driverPhone', label: 'Driver phone', type: 'tel', required: true, maxLength: 10, validate: (v) => !/^\d{10}$/.test(v) ? 'Phone number must be exactly 10 digits.' : undefined },
       { name: 'capacityKg', label: 'Capacity (kg)', type: 'number', required: true },
       { name: 'capacityCbm', label: 'Capacity (cbm)', type: 'number' },
       { name: 'insuranceExpiry', label: 'Insurance expires', type: 'date', required: true },
@@ -98,9 +110,7 @@ export function VehiclesPage() {
         : v.state !== 'AVAILABLE' && v.state !== 'MAINTENANCE'
           ? `${v.vehicleNo} is ${v.state.replace(/_/g, ' ').toLowerCase()}. Only an idle vehicle can be removed from the register.`
           : undefined,
-  })
-
-  const vehicles = crud.rows
+  }, vehicles, vehicleApi, fetchVehicles)
   const [tab, setTab] = useState('ALL')
 
   const daysTo = (d: string) => Math.round((new Date(d).getTime() - Date.now()) / 86_400_000)
@@ -210,7 +220,7 @@ export function VehiclesPage() {
               const expired = expiringSoon(v) < 0
               return (
                 <div
-                  key={v.uid}
+                  key={(v as any).id || v.uid}
                   className={cn(
                     'flex flex-wrap items-center justify-between gap-3 rounded border p-2.5',
                     expired ? 'border-danger/30 bg-danger/5' : 'border-warning/30 bg-warning/5',
@@ -238,7 +248,7 @@ export function VehiclesPage() {
       <DataTable
         rows={visible}
         columns={columns}
-        rowKey={(v) => v.uid}
+        rowKey={(v) => String((v as any).id || v.uid)}
         searchPlaceholder="Search vehicle, transporter, driver or route…"
         onExport={doExport}
         emptyTitle="No vehicles"
@@ -256,7 +266,7 @@ export function VehiclesPage() {
               label="Send for maintenance"
               disabled={v.state === 'MAINTENANCE' || !!v.currentShipmentNo}
               onClick={() => {
-                crud.update(v.uid, { state: 'MAINTENANCE' })
+                vehicleApi.update((v as any).id, { ...v, state: 'MAINTENANCE' }).then(() => fetchVehicles())
                 toast.success('Sent for maintenance', `${v.vehicleNo} is out of the allocation pool until it is marked available again.`)
               }}
             />
@@ -271,21 +281,21 @@ export function VehiclesPage() {
                   )
                   return
                 }
-                crud.update(v.uid, { state: 'AVAILABLE', currentShipmentNo: null })
+                vehicleApi.update((v as any).id, { ...v, state: 'AVAILABLE', currentShipmentNo: null }).then(() => fetchVehicles())
                 toast.success('Vehicle available', `${v.vehicleNo} is back in the allocation pool.`)
               }}
             />
             <MenuItem
               label="Record a service"
               onClick={() => {
-                crud.update(v.uid, { lastServiceOn: new Date().toISOString().slice(0, 10) })
+                vehicleApi.update((v as any).id, { ...v, lastServiceOn: new Date().toISOString().slice(0, 10) }).then(() => fetchVehicles())
                 toast.success('Service recorded', `${v.vehicleNo} serviced today.`)
               }}
             />
             <MenuItem
               label={v.isActive ? 'Deactivate' : 'Activate'}
               onClick={() => {
-                crud.update(v.uid, { isActive: !v.isActive })
+                vehicleApi.update((v as any).id, { ...v, isActive: !v.isActive }).then(() => fetchVehicles())
                 toast.success(v.isActive ? 'Vehicle deactivated' : 'Vehicle activated', `${v.vehicleNo} ${v.isActive ? 'will no longer be offered for allocation' : 'is available for allocation again'}.`)
               }}
             />

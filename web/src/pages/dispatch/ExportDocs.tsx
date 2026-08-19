@@ -9,13 +9,14 @@ import { MenuItem } from '@/components/ui/Menu'
 import { Input, Select } from '@/components/ui/Input'
 import { PageHeader, ProgressBar } from '@/components/ui/Misc'
 import { useToast } from '@/components/ui/Toast'
-import { useCrud } from '@/components/crud/CrudKit'
+import { useLiveCrud } from '@/components/crud/CrudKit'
+import { exportDocumentApi } from '@/api/exportDocumentApi'
+import { useEffect } from 'react'
 import { DispatchStatusBadge, EXPORT_DOC_LABEL } from '@/components/dispatch/DispatchShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDate } from '@/lib/format'
 import { cn } from '@/lib/cn'
-import { useCollection } from '@/store/data'
-import { exportDocuments as seedDocs, exportShipments as seedExports } from '@/mock/dispatch'
+import { exportShipmentApi } from '@/api/exportShipmentApi'
 import type { ExportDocument, ExportShipment } from '@/types/dispatch'
 
 const ISSUERS: Record<string, string> = {
@@ -37,12 +38,25 @@ const ISSUERS: Record<string, string> = {
 export function ExportDocsPage() {
   const toast = useToast()
   const navigate = useNavigate()
-  const seed = useMemo(() => seedDocs, [])
-  const exportSeed = useMemo(() => seedExports, [])
+  const [docsData, setDocsData] = useState<ExportDocument[]>([])
+  const [exportsData, setExportsData] = useState<ExportShipment[]>([])
 
-  const crud = useCrud<ExportDocument>({
+  const loadData = async () => {
+    try {
+      const data = await exportDocumentApi.getAll()
+      setDocsData(data)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  useEffect(() => {
+    loadData()
+    exportShipmentApi.getAll().then(setExportsData).catch(console.error)
+  }, [])
+
+  const crud = useLiveCrud<ExportDocument>({
     key: 'dispatch:export-doc',
-    seed,
     entity: 'Export document',
     titleOf: (d) => `${EXPORT_DOC_LABEL[d.docType]} for ${d.exportShipmentNo}`,
     fields: [
@@ -86,10 +100,23 @@ export function ExportDocsPage() {
       d.status === 'ACCEPTED' || d.status === 'SUBMITTED'
         ? `${EXPORT_DOC_LABEL[d.docType]} ${d.docNo} has been ${d.status.toLowerCase()} to customs or the buyer's bank. It cannot be deleted — supersede it with a corrected document instead.`
         : undefined,
-  })
+  }, docsData, exportDocumentApi, loadData)
 
   const docs = crud.rows
-  const { rows: exports } = useCollection<ExportShipment>('dispatch:export-shipment', exportSeed)
+  const exports = exportsData
+
+  const updateRow = async (id: number, patch: Partial<ExportDocument>) => {
+    try {
+      const row = docs.find((x: any) => x.id === id);
+      if (!row) return;
+      await exportDocumentApi.update(id, { ...row, ...patch });
+      loadData();
+    } catch (e) {
+      toast.error('Update failed', e instanceof Error ? e.message : 'Unknown error');
+      throw e;
+    }
+  }
+
 
   const [shipment, setShipment] = useState('all')
   const [issuing, setIssuing] = useState<ExportDocument | null>(null)
@@ -258,7 +285,7 @@ export function ExportDocsPage() {
       <DataTable
         rows={visible}
         columns={columns}
-        rowKey={(d) => d.uid}
+        rowKey={(d) => String((d as any).id || d.uid)}
         searchPlaceholder="Search document, number, shipment or issuer…"
         onExport={doExport}
         emptyTitle="No export documents"
@@ -292,7 +319,7 @@ export function ExportDocsPage() {
               label="Submit to customs"
               disabled={d.status !== 'ISSUED'}
               onClick={() => {
-                crud.update(d.uid, { status: 'SUBMITTED' })
+                updateRow((d as any).id, { status: 'SUBMITTED' })
                 toast.success('Submitted', `${EXPORT_DOC_LABEL[d.docType]} ${d.docNo} submitted. It is now on record with ${ISSUERS[d.docType]}.`)
               }}
             />
@@ -300,14 +327,14 @@ export function ExportDocsPage() {
               label="Mark accepted"
               disabled={d.status !== 'SUBMITTED'}
               onClick={() => {
-                crud.update(d.uid, { status: 'ACCEPTED' })
+                updateRow((d as any).id, { status: 'ACCEPTED' })
                 toast.success('Accepted', `${EXPORT_DOC_LABEL[d.docType]} accepted. Anything waiting on it is now unblocked.`)
               }}
             />
             <MenuItem
               label={d.isMandatory ? 'Mark not required' : 'Mark mandatory'}
               onClick={() => {
-                crud.update(d.uid, { isMandatory: !d.isMandatory })
+                updateRow((d as any).id, { isMandatory: !d.isMandatory })
                 toast.success(
                   d.isMandatory ? 'Marked not required' : 'Marked mandatory',
                   d.isMandatory
@@ -341,7 +368,7 @@ export function ExportDocsPage() {
                   toast.error('Issuer required', `Who issued it? For this document it is normally ${ISSUERS[issuing.docType]}.`)
                   return
                 }
-                crud.update(issuing.uid, {
+                updateRow((issuing as any).id, {
                   docNo: form.docNo.trim(),
                   issuedBy: form.issuedBy.trim(),
                   issuedOn: new Date().toISOString().slice(0, 10),

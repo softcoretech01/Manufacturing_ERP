@@ -10,13 +10,15 @@ import { Input, Select, Switch, Textarea } from '@/components/ui/Input'
 import { PageHeader } from '@/components/ui/Misc'
 import { Tabs } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
-import { useCrud } from '@/components/crud/CrudKit'
+import { useLiveCrud } from '@/components/crud/CrudKit'
+import { podApi } from '@/api/podApi'
+import { shipmentApi } from '@/api/shipmentApi'
+import { useEffect } from 'react'
 import { DispatchStatusBadge, PartyCell } from '@/components/dispatch/DispatchShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDate, formatQty } from '@/lib/format'
 import { cn } from '@/lib/cn'
-import { useCollection } from '@/store/data'
-import { pods as seedPods, shipments as seedShipments } from '@/mock/dispatch'
+
 import type { Pod, Shipment } from '@/types/dispatch'
 
 const TABS = [
@@ -35,12 +37,26 @@ const TABS = [
 export function PodPage() {
   const toast = useToast()
   const navigate = useNavigate()
-  const seed = useMemo(() => seedPods, [])
-  const shipmentSeed = useMemo(() => seedShipments, [])
+  const [shipments, setShipments] = useState<Shipment[]>([])
+  const [pods, setPods] = useState<Pod[]>([])
 
-  const crud = useCrud<Pod>({
-    key: 'dispatch:pod',
-    seed,
+  const loadData = async () => {
+    try {
+      const sData = await shipmentApi.getAll()
+      setShipments(sData)
+      const pData = await podApi.getAll()
+      setPods(pData)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+  useEffect(() => {
+    loadData()
+  }, [])
+
+  const crud = useLiveCrud<Pod>(
+    {
+      key: 'dispatch:pod',
     entity: 'Proof of delivery',
     titleOf: (p) => p.docNo,
     fields: [
@@ -89,11 +105,14 @@ export function PodPage() {
       p.status === 'RECEIVED' || p.status === 'SHORT' || p.status === 'DAMAGED'
         ? `${p.docNo} is a signed delivery record for ${p.customer}. It is the evidence behind the invoice and any claim — it cannot be deleted.`
         : undefined,
-  })
+    },
+    pods,
+    podApi,
+    loadData
+  )
 
-  const pods = crud.rows
-  const { rows: shipments, update: updateShipment } = useCollection<Shipment>('dispatch:shipment', shipmentSeed)
-
+  const _unused = crud.rows
+  
   const [tab, setTab] = useState('PENDING')
   const [capturing, setCapturing] = useState<Pod | null>(null)
   const [form, setForm] = useState({
@@ -221,7 +240,7 @@ export function PodPage() {
               const shp = shipments.find((s) => s.docNo === p.shipmentNo)
               const overdue = shp?.etaAt ? Math.round((Date.now() - new Date(shp.etaAt).getTime()) / 86_400_000) : 0
               return (
-                <div key={p.uid} className="flex flex-wrap items-center justify-between gap-3 rounded border border-warning/30 bg-warning/5 p-2.5">
+                <div key={String((p as any).id || p.uid)} className="flex flex-wrap items-center justify-between gap-3 rounded border border-warning/30 bg-warning/5 p-2.5">
                   <div className="min-w-0">
                     <p className="text-xs font-medium text-fg">
                       {p.shipmentNo} — {p.customer}
@@ -260,7 +279,7 @@ export function PodPage() {
       <DataTable
         rows={visible}
         columns={columns}
-        rowKey={(p) => p.uid}
+        rowKey={(p) => String((p as any).id || p.uid)}
         searchPlaceholder="Search POD, shipment, challan, customer or receiver…"
         onExport={doExport}
         emptyTitle="No delivery records"
@@ -304,9 +323,9 @@ export function PodPage() {
               label="Mark the delivery disputed"
               disabled={p.status === 'PENDING' || p.status === 'DISPUTED'}
               onClick={() => {
-                crud.update(p.uid, { status: 'DISPUTED' })
+                crud.update(String((p as any).id || p.uid), { status: 'DISPUTED' })
                 const shp = shipments.find((s) => s.docNo === p.shipmentNo)
-                if (shp) updateShipment(shp.uid, { podStatus: 'DISPUTED' })
+                if (shp) shipmentApi.update(String((shp as any).id || shp.uid), { ...shp, podStatus: 'DISPUTED' }).then(loadData)
                 toast.success('Marked disputed', `${p.docNo} is disputed. Sales and finance both see this before the invoice is chased.`)
               }}
             />
@@ -358,7 +377,7 @@ export function PodPage() {
                   return
                 }
                 const status: Pod['status'] = damaged > 0 ? 'DAMAGED' : short > 0 ? 'SHORT' : 'RECEIVED'
-                crud.update(capturing.uid, {
+                crud.update(String((capturing as any).id || capturing.uid), {
                   deliveredOn: new Date().toISOString().slice(0, 10),
                   deliveredAtTime: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false }),
                   receiverName: form.receiverName.trim(),
@@ -377,11 +396,12 @@ export function PodPage() {
                 })
                 const shp = shipments.find((s) => s.docNo === capturing.shipmentNo)
                 if (shp) {
-                  updateShipment(shp.uid, {
+                  shipmentApi.update(String((shp as any).id || shp.uid), {
+                    ...shp,
                     status: 'DELIVERED',
                     deliveredAt: new Date().toISOString(),
                     podStatus: status === 'RECEIVED' ? 'RECEIVED' : status,
-                  })
+                  }).then(loadData)
                 }
                 toast.success(
                   status === 'RECEIVED' ? 'Delivery confirmed clean' : status === 'SHORT' ? 'Short delivery recorded' : 'Damage recorded',

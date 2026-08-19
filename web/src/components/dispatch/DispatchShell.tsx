@@ -181,8 +181,9 @@ export function CountBar({
 }
 
 /** Weight in kg — the number the loading bay and the transporter argue about. */
-export function WeightCell({ kg, planned }: { kg: number; planned?: number }) {
-  const over = planned !== undefined && planned > 0 && kg > planned * 1.02
+export function WeightCell({ kg, planned }: { kg?: number | null; planned?: number | null }) {
+  if (kg == null) return <span className="text-xs text-fg-muted">-</span>
+  const over = planned != null && planned > 0 && kg > planned * 1.02
   return (
     <span className={cn('tabular text-xs', over ? 'font-medium text-warning' : 'text-fg')}>
       {kg.toLocaleString('en-IN', { minimumFractionDigits: kg % 1 ? 1 : 0, maximumFractionDigits: 2 })} kg
@@ -191,7 +192,8 @@ export function WeightCell({ kg, planned }: { kg: number; planned?: number }) {
 }
 
 /** Carton dimensions as L × W × H, kept on one line. */
-export function DimensionCell({ l, w, h }: { l: number; w: number; h: number }) {
+export function DimensionCell({ l, w, h }: { l?: number | null; w?: number | null; h?: number | null }) {
+  if (l == null || w == null || h == null) return <span className="text-xs text-fg-muted">-</span>
   return (
     <span className="font-mono text-2xs text-fg-muted">
       {l} × {w} × {h}

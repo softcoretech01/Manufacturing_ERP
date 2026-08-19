@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { CheckCircle2, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type Column } from '@/components/ui/DataTable'
@@ -15,6 +15,7 @@ import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDate } from '@/lib/format'
 import { CAPA_FLOW, CAUSE_CATEGORIES, CAUSE_LABEL, capaClosureDays, capaStepBlockers, overdueDays } from '@/lib/qmsFlow'
 import { newUid } from '@/store/data'
+import { capasApi } from '@/api/capas'
 import type { Capa, CauseCategory } from '@/types/quality'
 
 /**
@@ -34,8 +35,21 @@ const STATUS_LABEL: Record<Capa['status'], string> = {
 
 export function CapaPage() {
   const toast = useToast()
-  const { capas, ncrs } = useQualityData()
-  const { rows, create, update, remove } = capas
+  const { ncrs } = useQualityData()
+  const [rows, setRows] = useState<Capa[]>([])
+
+  const fetchCapas = async () => {
+    try {
+      const data = await capasApi.getAll()
+      setRows(data || [])
+    } catch (e) {
+      toast.error('Error', 'Failed to fetch CAPAs')
+    }
+  }
+
+  useEffect(() => {
+    fetchCapas()
+  }, [])
 
   const [tab, setTab] = useState('open')
   const [detail, setDetail] = useState<Capa | null>(null)
@@ -46,7 +60,7 @@ export function CapaPage() {
   const [confirmDelete, setConfirmDelete] = useState<Capa | null>(null)
   const [moving, setMoving] = useState<{ capa: Capa; to: Capa['status'] } | null>(null)
 
-  const live = detail ? rows.find((r) => r.uid === detail.uid) ?? detail : null
+  const live = detail ? rows.find((r) => (r as any).id === (detail as any).id) ?? detail : null
   const stats = capaClosureDays(rows)
 
   const counts = {
@@ -86,7 +100,7 @@ export function CapaPage() {
 
   function openEdit(c: Capa) {
     setEditing(c)
-    setForm({ title: c.title, ncrDocNo: c.ncrDocNo, itemCode: c.itemCode, rootCause: c.rootCause, causeCategory: c.causeCategory, owner: c.owner, dueOn: c.dueOn })
+    setForm({ title: c.title ?? '', ncrDocNo: c.ncrDocNo ?? '', itemCode: c.itemCode ?? '', rootCause: c.rootCause ?? '', causeCategory: c.causeCategory ?? 'METHOD', owner: c.owner ?? '', dueOn: c.dueOn ?? '' })
     setErrors({})
     setFormOpen(true)
   }
@@ -101,18 +115,23 @@ export function CapaPage() {
     return Object.keys(e).length === 0
   }
 
-  function save() {
+  async function save() {
     if (!validate()) return
     const patch = { title: form.title.trim(), ncrDocNo: form.ncrDocNo.trim(), itemCode: form.itemCode.trim(), rootCause: form.rootCause.trim(), causeCategory: form.causeCategory, owner: form.owner.trim(), dueOn: form.dueOn }
-    if (editing) {
-      update(editing.uid, { ...patch, version: editing.version + 1 })
-      toast.success('CAPA updated', `${editing.docNo} saved.`)
-    } else {
-      const docNo = `CAPA/26-27/${String(rows.length + 11).padStart(4, '0')}`
-      create({ ...patch, uid: newUid('cap'), docNo, correctiveAction: '', preventiveAction: '', raisedOn: new Date().toISOString().slice(0, 10), status: 'DRAFT', verificationMethod: '', verificationResult: '', verifiedBy: null, verifiedOn: null, closedOn: null, recurrenceChecked: false, effectivenessPct: null, version: 1 } as Capa)
-      toast.success('CAPA raised', `${docNo} created. Both a corrective and a preventive action are needed before work starts.`)
+    try {
+      if (editing) {
+        await capasApi.update((editing as any).id, { ...patch, version: editing.version + 1 })
+        toast.success('CAPA updated', `${editing.docNo} saved.`)
+      } else {
+        const nextCode = await capasApi.getNextCode()
+        await capasApi.create({ ...patch, docNo: nextCode.code, correctiveAction: '', preventiveAction: '', raisedOn: new Date().toISOString().slice(0, 10), status: 'DRAFT', verificationMethod: '', verificationResult: '', verifiedBy: null, verifiedOn: null, closedOn: null, recurrenceChecked: false, effectivenessPct: null, version: 1 } as any)
+        toast.success('CAPA raised', `${nextCode.code} created. Both a corrective and a preventive action are needed before work starts.`)
+      }
+      fetchCapas()
+      setFormOpen(false)
+    } catch (e: any) {
+      toast.error('Error', e.message || 'Failed to save CAPA')
     }
-    setFormOpen(false)
   }
 
   function moveStatus(c: Capa, to: Capa['status']) {
@@ -129,18 +148,22 @@ export function CapaPage() {
       patch.verifiedOn = new Date().toISOString().slice(0, 10)
       patch.effectivenessPct = 100
       // Closing the CAPA closes the NCR it came from — that is what an NCR waits for.
+      // Backend SP auto-closes linked NCR
       const parent = ncrs.rows.find((n) => n.docNo === c.ncrDocNo && n.status !== 'CLOSED')
       if (parent) {
-        ncrs.update(parent.uid, { status: 'CLOSED', closedOn: new Date().toISOString().slice(0, 10), version: parent.version + 1 })
-        toast.success('CAPA and NCR closed', `${c.docNo} closed, and ${parent.docNo} with it.`)
-        update(c.uid, patch)
+        capasApi.update((c as any).id, { ...patch, ncrDocNo: c.ncrDocNo }).then(() => {
+          fetchCapas()
+          toast.success('CAPA and NCR closed', `${c.docNo} closed, and ${parent.docNo} with it.`)
+        }).catch((e: any) => toast.error('Error', e.message))
         setMoving(null)
         setDetail(null)
         return
       }
     }
-    update(c.uid, patch)
-    toast.success(STATUS_LABEL[to], `${c.docNo} moved to ${STATUS_LABEL[to].toLowerCase()}.`)
+    capasApi.update((c as any).id, patch).then(() => {
+      fetchCapas()
+      toast.success(STATUS_LABEL[to], `${c.docNo} moved to ${STATUS_LABEL[to].toLowerCase()}.`)
+    }).catch((e: any) => toast.error('Error', e.message))
     setMoving(null)
     setDetail(null)
   }
@@ -172,7 +195,7 @@ export function CapaPage() {
       <DataTable
         rows={filtered}
         columns={columns}
-        rowKey={(c) => c.uid}
+        rowKey={(c) => String((c as any).id ?? c.uid)}
         searchPlaceholder="Search CAPA, title, owner or NCR…"
         onExport={(f: ExportFormat) => { const n = exportRows(f, 'capa-register', 'CAPA register', columnsFromTable(columns), filtered); toast.success('Export ready', `${n} rows written.`) }}
         onRowClick={setDetail}
@@ -243,18 +266,18 @@ export function CapaPage() {
             </DetailBlock>
 
             <DetailBlock title="Corrective action — fixes what happened">
-              <Textarea rows={3} value={live.correctiveAction} disabled={live.status === 'CLOSED'} placeholder="What is being done about the material, the batch or the customer already affected." onChange={(e) => update(live.uid, { correctiveAction: e.target.value, version: live.version + 1 })} />
+              <Textarea rows={3} value={live.correctiveAction} disabled={live.status === 'CLOSED'} placeholder="What is being done about the material, the batch or the customer already affected." onChange={(e) => capasApi.update((live as any).id, { correctiveAction: e.target.value }).then(() => fetchCapas())} />
             </DetailBlock>
 
             <DetailBlock title="Preventive action — stops it happening again">
-              <Textarea rows={3} value={live.preventiveAction} disabled={live.status === 'CLOSED'} placeholder="What changes in the process, the control or the system so this cause cannot produce the same failure." onChange={(e) => update(live.uid, { preventiveAction: e.target.value, version: live.version + 1 })} />
+              <Textarea rows={3} value={live.preventiveAction} disabled={live.status === 'CLOSED'} placeholder="What changes in the process, the control or the system so this cause cannot produce the same failure." onChange={(e) => capasApi.update((live as any).id, { preventiveAction: e.target.value }).then(() => fetchCapas())} />
             </DetailBlock>
 
             <DetailBlock title="Verification">
               <div className="space-y-2.5">
-                <Textarea rows={2} value={live.verificationMethod} disabled={live.status === 'CLOSED'} placeholder="How the fix will be proved to work — what will be measured, over how many lots." onChange={(e) => update(live.uid, { verificationMethod: e.target.value, version: live.version + 1 })} />
-                <Textarea rows={2} value={live.verificationResult} disabled={live.status === 'CLOSED'} placeholder="What the verification actually found." onChange={(e) => update(live.uid, { verificationResult: e.target.value, version: live.version + 1 })} />
-                <Switch checked={live.recurrenceChecked} disabled={live.status === 'CLOSED'} onChange={(v) => update(live.uid, { recurrenceChecked: v, version: live.version + 1 })} label="The defect has not recurred since the action was taken" />
+                <Textarea rows={2} value={live.verificationMethod} disabled={live.status === 'CLOSED'} placeholder="How the fix will be proved to work — what will be measured, over how many lots." onChange={(e) => capasApi.update((live as any).id, { verificationMethod: e.target.value }).then(() => fetchCapas())} />
+                <Textarea rows={2} value={live.verificationResult} disabled={live.status === 'CLOSED'} placeholder="What the verification actually found." onChange={(e) => capasApi.update((live as any).id, { verificationResult: e.target.value }).then(() => fetchCapas())} />
+                <Switch checked={live.recurrenceChecked} disabled={live.status === 'CLOSED'} onChange={(v) => capasApi.update((live as any).id, { recurrenceChecked: v }).then(() => fetchCapas())} label="The defect has not recurred since the action was taken" />
               </div>
             </DetailBlock>
 
@@ -319,7 +342,7 @@ export function CapaPage() {
         onClose={() => setConfirmDelete(null)}
         title="Delete CAPA"
         size="sm"
-        footer={<><Button variant="ghost" onClick={() => setConfirmDelete(null)}>Cancel</Button><Button variant="danger" onClick={() => { if (confirmDelete) { remove(confirmDelete.uid); toast.success('Deleted', `${confirmDelete.docNo} was soft-deleted.`) } setConfirmDelete(null) }}>Delete</Button></>}
+        footer={<><Button variant="ghost" onClick={() => setConfirmDelete(null)}>Cancel</Button><Button variant="danger" onClick={() => { if (confirmDelete) { capasApi.remove((confirmDelete as any).id).then(() => { fetchCapas(); toast.success('Deleted', `${confirmDelete.docNo} was soft-deleted.`) }).catch((e: any) => toast.error('Error', e.message)) } setConfirmDelete(null) }}>Delete</Button></>}
       >
         <p className="text-sm text-fg-muted">{confirmDelete?.docNo} will be marked deleted, not physically removed.</p>
       </Modal>

@@ -1,0 +1,30 @@
+USE ERP_Quality;
+
+CREATE TABLE IF NOT EXISTS Capa (
+    Id INT AUTO_INCREMENT PRIMARY KEY,
+    DocNo VARCHAR(50) NOT NULL UNIQUE,
+    Title VARCHAR(255) NOT NULL,
+    NcrDocNo VARCHAR(50),
+    ItemCode VARCHAR(50),
+    RootCause TEXT,
+    CauseCategory VARCHAR(50),
+    CorrectiveAction TEXT,
+    PreventiveAction TEXT,
+    Owner VARCHAR(100),
+    RaisedOn DATETIME,
+    DueOn DATETIME,
+    Status VARCHAR(50) NOT NULL DEFAULT 'DRAFT',
+    VerificationMethod TEXT,
+    VerificationResult TEXT,
+    VerifiedBy VARCHAR(100),
+    VerifiedOn DATETIME,
+    ClosedOn DATETIME,
+    RecurrenceChecked TINYINT(1) DEFAULT 0,
+    EffectivenessPct INT,
+    Version INT DEFAULT 1,
+    DeletedAt DATETIME,
+    CreatedBy VARCHAR(100),
+    CreatedDate DATETIME,
+    ModifiedBy VARCHAR(100),
+    ModifiedDate DATETIME
+);

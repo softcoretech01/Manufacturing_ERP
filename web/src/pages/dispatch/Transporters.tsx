@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
+import { transporterAnalyticsApi } from '@/api/transporterAnalyticsApi'
 import { useNavigate } from 'react-router-dom'
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Badge } from '@/components/ui/Badge'
@@ -18,7 +19,7 @@ import {
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatCurrency } from '@/lib/format'
 import { cn } from '@/lib/cn'
-import { regionDispatch, transporterScores } from '@/mock/dispatch'
+
 import type { RegionDispatch, TransporterScore } from '@/types/dispatch'
 
 const TABS = [
@@ -36,8 +37,13 @@ export function TransportersPage() {
   const navigate = useNavigate()
   const canSeeValue = useCanSeeFreight()
 
-  const scores = useMemo(() => transporterScores, [])
-  const regions = useMemo(() => regionDispatch, [])
+  const [scores, setScores] = useState<TransporterScore[]>([])
+  const [regions, setRegions] = useState<RegionDispatch[]>([])
+
+  useEffect(() => {
+    transporterAnalyticsApi.getScores().then(setScores).catch(console.error)
+    transporterAnalyticsApi.getRegions().then(setRegions).catch(console.error)
+  }, [])
   const [tab, setTab] = useState('TRANSPORTER')
 
   /**

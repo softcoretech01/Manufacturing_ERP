@@ -39,6 +39,23 @@ from app.routers.admin_plants import router as admin_plants_router
 from app.routers.shift import router as shift_router
 from app.routers.holiday_calendar import router as holiday_calendar_router
 from app.routers.quality_parameter import router as quality_parameter_router
+from app.routers.packing_order import router as packing_order_router
+from app.routers.pack_material import router as pack_material_router
+from app.routers.carton import router as carton_router
+from app.routers.pallet import router as pallet_router
+from app.routers.label import router as label_router
+from app.routers.vehicle import router as vehicle_router
+from app.routers.dispatch_plan import router as dispatch_plan_router
+from app.routers.pick_list import router as pick_list_router
+from app.routers.loading_sheet import router as loading_sheet_router
+from app.routers.shipment import router as shipment_router
+from app.routers.pod import router as pod_router
+from app.routers.sales_return import router as sales_return_router
+from app.routers.freight import router as freight_router
+from app.routers.transporter_analytics import router as transporter_analytics_router
+from app.routers.export_shipment import router as export_shipment_router
+from app.routers.export_document import router as export_document_router
+from app.routers.dispatch_dashboard import router as dispatch_dashboard_router
 from app.routers.defect import router as defect_router
 from app.routers.employee import router as employee_router
 from app.routers.hsn import router as hsn_router
@@ -62,7 +79,7 @@ from app.routers.dashboard import router as dashboard_router
 from app.routers.settings import router as settings_router
 from app.routers import engineering_boms, engineering_routings, engineering_products, engineering_documents, engineering_operations, engineering_workcentres, engineering_tools, engineering_changes
 from app.routers import admin_audit
-from app.routers import quality_plans, inspections, defects, quality_lookups, ncr
+from app.routers import quality_plans, inspections, defects, quality_lookups, ncr, capa, calibration, complaint, audit, supplier_quality
 import traceback
 from fastapi.responses import JSONResponse
 
@@ -202,6 +219,23 @@ def create_app() -> FastAPI:
     app.include_router(quotation_router, prefix="/api/v1")
     app.include_router(purchase_order_router, prefix="/api/v1")
     app.include_router(grn_router, prefix="/api/v1")
+    app.include_router(packing_order_router, prefix="/api/v1")
+    app.include_router(pack_material_router, prefix="/api/v1")
+    app.include_router(carton_router, prefix="/api/v1")
+    app.include_router(pallet_router, prefix="/api/v1")
+    app.include_router(label_router, prefix="/api/v1")
+    app.include_router(vehicle_router, prefix="/api/v1")
+    app.include_router(dispatch_plan_router, prefix="/api/v1")
+    app.include_router(pick_list_router, prefix="/api/v1")
+    app.include_router(loading_sheet_router, prefix="/api/v1")
+    app.include_router(shipment_router, prefix="/api/v1")
+    app.include_router(pod_router, prefix="/api/v1")
+    app.include_router(sales_return_router, prefix="/api/v1")
+    app.include_router(freight_router, prefix="/api/v1")
+    app.include_router(transporter_analytics_router, prefix="/api/v1")
+    app.include_router(export_shipment_router, prefix="/api/v1")
+    app.include_router(export_document_router, prefix="/api/v1")
+    app.include_router(dispatch_dashboard_router, prefix="/api/v1")
     app.include_router(analytics_router, prefix="/api/v1/procurement/analytics")
     app.include_router(dashboard_router, prefix="/api/v1/procurement/dashboard", tags=["procurement-dashboard"])
     app.include_router(settings_router, prefix="/api/v1/procurement/settings", tags=["procurement-settings"])
@@ -218,7 +252,14 @@ def create_app() -> FastAPI:
     app.include_router(inspections.router)
     app.include_router(defects.router)
     app.include_router(ncr.router)
+    app.include_router(capa.router)
+    app.include_router(calibration.router)
+    app.include_router(complaint.router)
+    app.include_router(audit.router)
+    app.include_router(supplier_quality.router)
     app.include_router(quality_lookups.router)
+    app.include_router(packing_order_router)
+    app.include_router(pack_material_router)
 
     @app.get("/health", tags=["Health"])
     async def health() -> dict[str, str]:
