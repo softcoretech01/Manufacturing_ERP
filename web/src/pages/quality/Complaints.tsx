@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { MessageSquareWarning, Plus } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Button } from '@/components/ui/Button'
@@ -17,6 +17,7 @@ import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDate } from '@/lib/format'
 import { CAUSE_CATEGORIES, CAUSE_LABEL, overdueDays, ppm } from '@/lib/qmsFlow'
 import { newUid } from '@/store/data'
+import { complaintsApi } from '@/api/complaints'
 import type { CauseCategory, Complaint, ComplaintResolution, ComplaintStatus, DefectSeverity } from '@/types/quality'
 
 /**
@@ -62,20 +63,20 @@ const OPEN_STATES: ComplaintStatus[] = ['LOGGED', 'UNDER_INVESTIGATION', 'ROOT_C
 /** What stops a complaint moving to the next state. */
 function stepBlockers(c: Complaint, to: ComplaintStatus): string[] {
   const out: string[] = []
-  if (to === 'UNDER_INVESTIGATION' && !c.owner.trim()) out.push('Name the person who will investigate.')
+  if (to === 'UNDER_INVESTIGATION' && !(c.owner ?? '').trim()) out.push('Name the person who will investigate.')
   if (to === 'ROOT_CAUSE_IDENTIFIED') {
-    if (c.rootCause.trim().length < 10) out.push('Record the root cause — a sentence, not a word.')
+    if ((c.rootCause ?? '').trim().length < 10) out.push('Record the root cause — a sentence, not a word.')
     if (!c.causeCategory) out.push('Classify the cause so it can be counted in the Pareto.')
   }
   if (to === 'RESOLVED') {
     if (c.resolution === 'PENDING') out.push('Decide the resolution: replacement, credit note, repair, or no fault found.')
-    if (c.resolution !== 'NO_FAULT_FOUND' && c.resolutionValue <= 0) out.push('Enter what the resolution cost — a complaint with no cost never reaches the cost-of-poor-quality report.')
+    if (c.resolution !== 'NO_FAULT_FOUND' && (c.resolutionValue ?? 0) <= 0) out.push('Enter what the resolution cost — a complaint with no cost never reaches the cost-of-poor-quality report.')
   }
   if (to === 'CLOSED') {
     if (c.severity === 'CRITICAL' && !c.capaDocNo) out.push('A critical complaint cannot be closed without a CAPA raised against it.')
     if (!c.ncrDocNo && c.resolution !== 'NO_FAULT_FOUND') out.push('Link the NCR raised for the returned material.')
   }
-  if (to === 'REJECTED' && c.remarks.trim().length < 10) out.push('Rejecting a complaint needs a written justification for the customer.')
+  if (to === 'REJECTED' && (c.remarks ?? '').trim().length < 10) out.push('Rejecting a complaint needs a written justification for the customer.')
   return out
 }
 
@@ -92,8 +93,21 @@ const BLANK = (): Partial<Complaint> => ({
 
 export function ComplaintsPage() {
   const toast = useToast()
-  const { complaints, ncrs, capas } = useQualityData()
-  const { rows, create, update, remove } = complaints
+  const { ncrs, capas } = useQualityData()
+  const [rows, setRows] = useState<Complaint[]>([])
+
+  const fetchComplaints = async () => {
+    try {
+      const data = await complaintsApi.getAll()
+      setRows(data || [])
+    } catch (e) {
+      toast.error('Error', 'Failed to fetch complaints')
+    }
+  }
+
+  useEffect(() => {
+    fetchComplaints()
+  }, [])
 
   const [tab, setTab] = useState('open')
   const [openUid, setOpenUid] = useState<string | null>(null)
@@ -167,41 +181,49 @@ export function ComplaintsPage() {
   function advance(c: Complaint, to: ComplaintStatus) {
     const b = stepBlockers(c, to)
     if (b.length) { toast.error(b[0]); return }
-    update(c.uid, {
+    complaintsApi.update((c as any).id, {
       status: to,
       closedOn: to === 'CLOSED' || to === 'REJECTED' ? new Date().toISOString().slice(0, 10) : null,
-    })
-    toast.success(`${c.docNo} → ${STATUS_LABEL[to]}`)
-    setAdvancing(null)
+    }).then(() => {
+      fetchComplaints()
+      toast.success(`${c.docNo} → ${STATUS_LABEL[to]}`)
+      setAdvancing(null)
+    }).catch((e: any) => toast.error('Error', e.message))
   }
 
-  function save() {
+  async function save() {
     if (!editing) return
     const problems: string[] = []
-    if (!editing.customerName?.trim()) problems.push('Name the customer.')
-    if (!editing.itemCode?.trim()) problems.push('Which item is being complained about?')
-    if (!editing.complaintType?.trim()) problems.push('Give the complaint a type so it can be counted.')
+    if (!(editing.customerName ?? '').trim()) problems.push('Name the customer.')
+    if (!(editing.itemCode ?? '').trim()) problems.push('Which item is being complained about?')
+    if (!(editing.complaintType ?? '').trim()) problems.push('Give the complaint a type so it can be counted.')
     if ((editing.qtyComplained ?? 0) <= 0) problems.push('How many units are affected?')
     if ((editing.qtyComplained ?? 0) > (editing.qtySupplied ?? 0)) problems.push('More units complained about than were supplied — check the quantities.')
     if ((editing.description ?? '').trim().length < 10) problems.push('Describe what the customer reported.')
     if (problems.length) { toast.error(problems[0]); return }
 
-    if (editing.uid) {
-      update(editing.uid, editing as Complaint)
-      toast.success(`${editing.docNo} updated`)
-    } else {
-      const seq = live.length + 31
-      create({ ...(BLANK() as Complaint), ...(editing as Complaint), uid: newUid('cmp'), docNo: `CMP/26-27/${String(seq).padStart(4, '0')}` })
-      toast.success('Complaint logged')
+    try {
+      if (editing.docNo) {
+        await complaintsApi.update((editing as any).id, editing as Complaint)
+        toast.success(`${editing.docNo} updated`)
+      } else {
+        await complaintsApi.create({ ...(BLANK() as Complaint), ...(editing as Complaint) } as any)
+        toast.success('Complaint logged')
+      }
+      fetchComplaints()
+      setEditing(null)
+    } catch (e: any) {
+      toast.error('Error', e.message || 'Failed to save')
     }
-    setEditing(null)
   }
 
   function removeRow(c: Complaint) {
     if (c.status !== 'LOGGED') { toast.error('The investigation has already started. Reject it with a reason rather than deleting the record.'); return }
-    remove(c.uid)
-    if (openUid === c.uid) setOpenUid(null)
-    toast.success(`${c.docNo} removed`)
+    complaintsApi.remove((c as any).id).then(() => {
+      fetchComplaints()
+      if (openUid === String((c as any).id ?? c.uid)) setOpenUid(null)
+      toast.success(`${c.docNo} removed`)
+    }).catch((e: any) => toast.error('Error', e.message))
   }
 
   /* ── columns ────────────────────────────────────────────────── */
@@ -316,15 +338,15 @@ export function ComplaintsPage() {
       <DataTable
         rows={filtered}
         columns={columns}
-        rowKey={(c) => c.uid}
+        rowKey={(c) => String((c as any).id ?? c.uid)}
         searchable
         searchPlaceholder="Search by customer, item, batch or complaint number"
-        onRowClick={(c) => setOpenUid(c.uid)}
+        onRowClick={(c) => setOpenUid(String((c as any).id ?? c.uid))}
         rowClassName={(c) => (OPEN_STATES.includes(c.status) && overdueDays(c.dueOn, c.closedOn) > 0 ? 'bg-danger/5' : undefined)}
         onExport={(f: ExportFormat) => { const n = exportRows(f, `complaints-${tab}`, 'Customer complaints', columnsFromTable(columns), filtered); toast.success('Export ready', `${n} rows written.`) }}
         rowActions={(c) => (
           <>
-            <MenuItem label="Edit" onClick={() => setEditing({ ...c })} />
+            <MenuItem label="Edit" onClick={() => setEditing({ ...c, customerName: c.customerName ?? '', complaintType: c.complaintType ?? '', itemCode: c.itemCode ?? '', itemName: c.itemName ?? '', batchNo: c.batchNo ?? '', productionOrderNo: c.productionOrderNo ?? '', invoiceNo: c.invoiceNo ?? '', description: c.description ?? '', owner: c.owner ?? '', rootCause: c.rootCause ?? '', remarks: c.remarks ?? '' })} />
             {COMPLAINT_FLOW[c.status].map((to) => (
               <MenuItem key={to} label={STATUS_LABEL[to]} onClick={() => setAdvancing({ complaint: c, to })} />
             ))}

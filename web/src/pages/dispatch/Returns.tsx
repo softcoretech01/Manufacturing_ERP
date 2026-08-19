@@ -10,7 +10,9 @@ import { Input, Select, Textarea } from '@/components/ui/Input'
 import { PageHeader } from '@/components/ui/Misc'
 import { Tabs } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
-import { useCrud } from '@/components/crud/CrudKit'
+import { useLiveCrud } from '@/components/crud/CrudKit'
+import { salesReturnApi } from '@/api/salesReturnApi'
+import { useEffect } from 'react'
 import {
   DispatchStatusBadge,
   ItemCell,
@@ -21,7 +23,7 @@ import {
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatCurrency, formatDate, formatQty } from '@/lib/format'
 import { cn } from '@/lib/cn'
-import { salesReturns as seedReturns } from '@/mock/dispatch'
+
 import type { ReturnDisposition, ReturnType, SalesReturn } from '@/types/dispatch'
 
 /** Request → approve → pick up → receive → inspect → decide. */
@@ -49,11 +51,23 @@ export function SalesReturnsPage() {
   const toast = useToast()
   const navigate = useNavigate()
   const canSeeValue = useCanSeeFreight()
-  const seed = useMemo(() => seedReturns, [])
+  const [returns, setReturns] = useState<SalesReturn[]>([])
 
-  const crud = useCrud<SalesReturn>({
+  const loadData = async () => {
+    try {
+      const data = await salesReturnApi.getAll()
+      setReturns(data)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  useEffect(() => {
+    loadData()
+  }, [])
+
+  const crud = useLiveCrud<SalesReturn>({
     key: 'dispatch:sales-return',
-    seed,
     entity: 'Return',
     titleOf: (r) => r.docNo,
     fields: [
@@ -111,9 +125,22 @@ export function SalesReturnsPage() {
         : r.creditNoteNo
           ? `${r.docNo} has credit note ${r.creditNoteNo} against it. A return with a credit note is a financial record.`
           : undefined,
-  })
+  }, returns, salesReturnApi, loadData)
 
-  const returns = crud.rows
+  const _returns = crud.rows
+
+  const updateRow = async (id: number, patch: Partial<SalesReturn>) => {
+    try {
+      const row = returns.find((x: any) => x.id === id);
+      if (!row) return;
+      await salesReturnApi.update(id, { ...row, ...patch });
+      loadData();
+    } catch (e) {
+      toast.error('Update failed', e instanceof Error ? e.message : 'Unknown error');
+      throw e;
+    }
+  }
+
   const [tab, setTab] = useState('OPEN')
   const [receiving, setReceiving] = useState<SalesReturn | null>(null)
   const [receivedQty, setReceivedQty] = useState('')
@@ -265,7 +292,7 @@ export function SalesReturnsPage() {
       <DataTable
         rows={visible}
         columns={columns}
-        rowKey={(r) => r.uid}
+        rowKey={(r) => String((r as any).id || r.uid)}
         searchPlaceholder="Search return, customer, product, shipment or reason…"
         onExport={doExport}
         emptyTitle="No returns"
@@ -283,7 +310,7 @@ export function SalesReturnsPage() {
               label="Approve the return"
               disabled={r.status !== 'REQUESTED'}
               onClick={() => {
-                crud.update(r.uid, { status: 'APPROVED', approvedBy: 'S. Ganapathy' })
+                updateRow((r as any).id, { status: 'APPROVED', approvedBy: 'S. Ganapathy' })
                 toast.success('Return approved', `${r.docNo} approved. A pickup can now be booked — the goods stay the customer's responsibility until we collect.`)
               }}
             />
@@ -292,7 +319,7 @@ export function SalesReturnsPage() {
               disabled={r.status !== 'APPROVED'}
               onClick={() => {
                 const when = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
-                crud.update(r.uid, { status: 'PICKUP_SCHEDULED', pickupOn: when })
+                updateRow((r as any).id, { status: 'PICKUP_SCHEDULED', pickupOn: when })
                 toast.success('Pickup booked', `${r.docNo} pickup booked for ${formatDate(when)}. The reverse leg goes on the next vehicle heading that way.`)
               }}
             />
@@ -311,7 +338,7 @@ export function SalesReturnsPage() {
               disabled={!!r.creditNoteNo || r.receivedQty === 0}
               onClick={() => {
                 const cn2 = `CRN/2627/${String(45 + returns.filter((x) => x.creditNoteNo).length).padStart(4, '0')}`
-                crud.update(r.uid, { creditNoteNo: cn2, status: 'CLOSED' })
+                updateRow((r as any).id, { creditNoteNo: cn2, status: 'CLOSED' })
                 toast.success(
                   'Credit note raised',
                   `${cn2} for ${formatCurrency(r.value)} raised against ${r.customer} and ${r.docNo} closed. Finance sees it on the customer account immediately.`,
@@ -324,7 +351,7 @@ export function SalesReturnsPage() {
               danger
               disabled={r.status !== 'REQUESTED'}
               onClick={() => {
-                crud.update(r.uid, { status: 'REJECTED' })
+                updateRow((r as any).id, { status: 'REJECTED' })
                 toast.success('Return rejected', `${r.docNo} rejected. The customer is notified with the reason, and no pickup is booked.`)
               }}
             />
@@ -357,7 +384,7 @@ export function SalesReturnsPage() {
                   )
                   return
                 }
-                crud.update(receiving.uid, {
+                updateRow((receiving as any).id, {
                   receivedQty: qty,
                   receivedOn: new Date().toISOString().slice(0, 10),
                   status: 'RECEIVED',
@@ -411,7 +438,7 @@ export function SalesReturnsPage() {
                   toast.error('Inspection note required', 'What did the inspection actually find? A disposition without a finding cannot be defended or learned from.')
                   return
                 }
-                crud.update(deciding.uid, {
+                updateRow((deciding as any).id, {
                   disposition: decision.disposition,
                   status: 'INSPECTED',
                   inspectedBy: 'S. Meena',

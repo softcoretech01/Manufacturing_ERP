@@ -9,12 +9,13 @@ import { Input } from '@/components/ui/Input'
 import { PageHeader } from '@/components/ui/Misc'
 import { Tabs } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
-import { useCrud } from '@/components/crud/CrudKit'
+import { useLiveCrud } from '@/components/crud/CrudKit'
+import { labelApi } from '@/api/labelApi'
+import { useEffect } from 'react'
 import { DispatchStatusBadge } from '@/components/dispatch/DispatchShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDateTime, formatQty } from '@/lib/format'
 import { cn } from '@/lib/cn'
-import { labelFormats as seedLabels } from '@/mock/dispatch'
 import type { LabelFormat, LabelKind } from '@/types/dispatch'
 
 const KIND_LABEL: Record<LabelKind, string> = {
@@ -40,11 +41,22 @@ const TABS = [
  */
 export function PackLabelsPage() {
   const toast = useToast()
-  const seed = useMemo(() => seedLabels, [])
+  const [formats, setFormats] = useState<LabelFormat[]>([])
 
-  const crud = useCrud<LabelFormat>({
-    key: 'dispatch:label-format',
-    seed,
+  const fetchLabels = async () => {
+    try {
+      const data = await labelApi.getAll()
+      setFormats(data)
+    } catch (err) {
+      toast.error('Failed to load labels', err instanceof Error ? err.message : 'Unknown error')
+    }
+  }
+
+  useEffect(() => {
+    fetchLabels()
+  }, [])
+
+  const crud = useLiveCrud<LabelFormat>({
     entity: 'Label format',
     titleOf: (l) => `${l.code} — ${l.name}`,
     fields: [
@@ -113,9 +125,8 @@ export function PackLabelsPage() {
       l.printedCount > 0 && l.isActive
         ? `${l.code} has printed ${formatQty(l.printedCount)} labels and is still active. Deactivate it first so nothing is printing from a format that is about to disappear.`
         : undefined,
-  })
+  }, formats, labelApi, fetchLabels)
 
-  const formats = crud.rows
   const [tab, setTab] = useState('ALL')
   const [printing, setPrinting] = useState<LabelFormat | null>(null)
   const [copies, setCopies] = useState('1')
@@ -189,7 +200,7 @@ export function PackLabelsPage() {
           <Button
             variant="primary"
             size="sm"
-            onClick={() => crud.openCreate({ kind: 'CARTON', standard: 'GS1', widthMm: '100', heightMm: '150', languages: 'English', hasBarcode: 'true', isActive: 'true' })}
+            onClick={() => crud.openCreate({ kind: 'CARTON', standard: 'GS1', widthMm: '100', heightMm: '150', languages: 'English', hasBarcode: 'true', isActive: 'true', fields: 'Product name, SKU, Quantity' })}
           >
             New label format
           </Button>
@@ -207,7 +218,7 @@ export function PackLabelsPage() {
       <DataTable
         rows={visible}
         columns={columns}
-        rowKey={(l) => l.uid}
+        rowKey={(l) => String((l as any).id || l.uid)}
         searchPlaceholder="Search format, name, customer or field…"
         onExport={doExport}
         emptyTitle="No label formats"
@@ -224,8 +235,9 @@ export function PackLabelsPage() {
             />
             <MenuItem
               label={l.isActive ? 'Deactivate the format' : 'Activate the format'}
-              onClick={() => {
-                crud.update(l.uid, { isActive: !l.isActive })
+              onClick={async () => {
+                await labelApi.update((l as any).id, { ...l, isActive: !l.isActive })
+                fetchLabels()
                 toast.success(
                   l.isActive ? 'Format deactivated' : 'Format activated',
                   l.isActive
@@ -236,16 +248,16 @@ export function PackLabelsPage() {
             />
             <MenuItem
               label="Duplicate for another customer"
-              onClick={() => {
-                crud.create({
+              onClick={async () => {
+                await labelApi.create({
                   ...l,
-                  uid: `lf-copy-${Date.now().toString(36)}`,
                   code: `${l.code}-COPY`,
                   name: `${l.name} (copy)`,
                   printedCount: 0,
                   lastPrintedOn: null,
                   isActive: false,
-                } as LabelFormat)
+                })
+                fetchLabels()
                 toast.success('Format duplicated', `${l.code}-COPY created as an inactive draft. Edit it, then activate it.`)
               }}
             />
@@ -270,7 +282,7 @@ export function PackLabelsPage() {
                   toast.error('Enter a number of copies', 'At least one.')
                   return
                 }
-                crud.update(printing.uid, { printedCount: printing.printedCount + n, lastPrintedOn: new Date().toISOString() })
+                labelApi.update((printing as any).id, { ...printing, printedCount: printing.printedCount + n, lastPrintedOn: new Date().toISOString() }).then(fetchLabels)
                 toast.success(
                   'Sent to the printer',
                   `${n} × ${printing.code} at ${printing.widthMm} × ${printing.heightMm} mm. The print count is recorded against the format so label stock consumption can be reconciled.`,

@@ -16,6 +16,7 @@ import { formatAmount, formatDate, formatQty } from '@/lib/format'
 import { CAUSE_CATEGORIES, CAUSE_LABEL, NCR_FLOW, NCR_STATUS_LABEL, ncrStepBlockers, overdueDays } from '@/lib/qmsFlow'
 import { newUid } from '@/store/data'
 import { ncrsApi } from '@/api/ncrs'
+import { capasApi } from '@/api/capas'
 import type { CauseCategory, DefectSeverity, Ncr, NcrSource, WhyStep } from '@/types/quality'
 
 /**
@@ -58,7 +59,7 @@ interface FormState {
 
 export function NcrPage() {
   const toast = useToast()
-  const { capas, defects, inspections } = useQualityData()
+  const { defects, inspections } = useQualityData()
   const [rows, setRows] = useState<Ncr[]>([])
 
   
@@ -257,38 +258,40 @@ export function NcrPage() {
     updateWrapper((n as any)?.id, { fiveWhys: n.fiveWhys.map((w) => (w.level === level ? { ...w, ...patch } : w)), version: n.version + 1 })
   }
 
-  function raiseCapa(n: Ncr) {
+  async function raiseCapa(n: Ncr) {
     if (!(n.rootCause ?? '').trim() || !n.causeCategory) {
       toast.error('Not ready for a CAPA', 'A CAPA starts from a root cause. Complete the investigation first.')
       return
     }
-    const seq = capas.rows.length + 11
-    const docNo = `CAPA/26-27/${String(seq).padStart(4, '0')}`
-    capas.create({
-      uid: newUid('cap'),
-      docNo,
-      title: `Action on ${n.title}`,
-      ncrDocNo: n.docNo,
-      itemCode: n.itemCode,
-      rootCause: n.rootCause,
-      causeCategory: n.causeCategory,
-      correctiveAction: '',
-      preventiveAction: '',
-      owner: n.owner,
-      raisedOn: new Date().toISOString().slice(0, 10),
-      dueOn: n.dueOn,
-      status: 'DRAFT',
-      verificationMethod: '',
-      verificationResult: '',
-      verifiedBy: null,
-      verifiedOn: null,
-      closedOn: null,
-      recurrenceChecked: false,
-      effectivenessPct: null,
-      version: 1,
-    })
-    updateWrapper((n as any)?.id, { capaDocNo: docNo, version: n.version + 1 })
-    toast.success('CAPA raised', `${docNo} created from ${n.docNo}, carrying the root cause across.`)
+    try {
+      const nextCode = await capasApi.getNextCode()
+      const docNo = nextCode.code
+      await capasApi.create({
+        title: `Action on ${n.title}`,
+        ncrDocNo: n.docNo,
+        itemCode: n.itemCode,
+        rootCause: n.rootCause,
+        causeCategory: n.causeCategory,
+        correctiveAction: '',
+        preventiveAction: '',
+        owner: n.owner,
+        raisedOn: new Date().toISOString().slice(0, 10),
+        dueOn: n.dueOn,
+        status: 'DRAFT',
+        verificationMethod: '',
+        verificationResult: '',
+        verifiedBy: null,
+        verifiedOn: null,
+        closedOn: null,
+        recurrenceChecked: false,
+        effectivenessPct: null,
+        version: 1,
+      } as any)
+      updateWrapper((n as any)?.id, { capaDocNo: docNo, version: n.version + 1 })
+      toast.success('CAPA raised', `${docNo} created from ${n.docNo}, carrying the root cause across.`)
+    } catch (e: any) {
+      toast.error('Error', e.message || 'Failed to raise CAPA')
+    }
   }
 
   const nextSteps = live ? NCR_FLOW[live.status].filter((s) => s !== 'CANCELLED') : []

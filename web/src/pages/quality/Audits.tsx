@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { ClipboardCheck, Plus, Trash2 } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Button } from '@/components/ui/Button'
@@ -17,6 +17,7 @@ import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDate } from '@/lib/format'
 import { overdueDays } from '@/lib/qmsFlow'
 import { newUid } from '@/store/data'
+import { auditsApi } from '@/api/audits'
 import type { AuditFinding, AuditStatus, AuditType, FindingGrade, QualityAudit } from '@/types/quality'
 
 /**
@@ -83,22 +84,22 @@ function findingsSettled(a: QualityAudit): { settled: number; total: number } {
 
 function stepBlockers(a: QualityAudit, to: AuditStatus): string[] {
   const out: string[] = []
-  if (to === 'IN_PROGRESS' && !a.auditor.trim()) out.push('Name the auditor before the audit starts.')
+  if (to === 'IN_PROGRESS' && !(a.auditor ?? '').trim()) out.push('Name the auditor before the audit starts.')
   if (to === 'REPORTED') {
     if (!a.conductedOn) out.push('Record the date the audit was actually conducted.')
     if (!a.findings.length) out.push('An audit with no findings recorded — not even a conformity — has no report to issue.')
-    const unactioned = a.findings.filter((f) => f.grade !== 'CONFORMS' && !f.action.trim())
+    const unactioned = a.findings.filter((f) => f.grade !== 'CONFORMS' && !(f.action ?? '').trim())
     if (unactioned.length) out.push(`${unactioned.length} finding(s) have no corrective action written against them.`)
-    const unowned = a.findings.filter((f) => f.grade !== 'CONFORMS' && !f.owner.trim())
+    const unowned = a.findings.filter((f) => f.grade !== 'CONFORMS' && !(f.owner ?? '').trim())
     if (unowned.length) out.push(`${unowned.length} finding(s) have nobody accountable for closing them.`)
     if (a.scorePct === null) out.push('Record the checklist score — what proportion of the clauses examined conformed.')
   }
   if (to === 'CLOSED') {
     const open = a.findings.filter(needsAction)
     if (open.length) out.push(`${open.length} finding(s) are still open. An audit cannot be closed over an open non-conformity.`)
-    if (!a.reportRef.trim()) out.push('Record the report reference so the audit can be found again.')
+    if (!(a.reportRef ?? '').trim()) out.push('Record the report reference so the audit can be found again.')
   }
-  if (to === 'CANCELLED' && a.remarks.trim().length < 10) out.push('Cancelling a planned audit needs a recorded reason.')
+  if (to === 'CANCELLED' && (a.remarks ?? '').trim().length < 10) out.push('Cancelling a planned audit needs a recorded reason.')
   return out
 }
 
@@ -115,8 +116,20 @@ const BLANK_FINDING = (): AuditFinding => ({
 
 export function AuditsPage() {
   const toast = useToast()
-  const { audits } = useQualityData()
-  const { rows, create, update, remove } = audits
+  const [rows, setRows] = useState<QualityAudit[]>([])
+
+  const fetchAudits = async () => {
+    try {
+      const data = await auditsApi.getAll()
+      setRows(data || [])
+    } catch (e) {
+      toast.error('Error', 'Failed to fetch audits')
+    }
+  }
+
+  useEffect(() => {
+    fetchAudits()
+  }, [])
 
   const [tab, setTab] = useState('open')
   const [openUid, setOpenUid] = useState<string | null>(null)
@@ -124,7 +137,7 @@ export function AuditsPage() {
   const [advancing, setAdvancing] = useState<{ audit: QualityAudit; to: AuditStatus } | null>(null)
 
   const live = useMemo(() => rows.filter((a) => !a.deletedAt), [rows])
-  const detail = live.find((a) => a.uid === openUid) ?? null
+  const detail = live.find((a) => String((a as any).id ?? a.uid) === openUid) ?? null
 
   /** Every open finding across every audit, which is the real work list. */
   const openFindings = useMemo(
@@ -176,9 +189,11 @@ export function AuditsPage() {
   function advance(a: QualityAudit, to: AuditStatus) {
     const b = stepBlockers(a, to)
     if (b.length) { toast.error(b[0]); return }
-    update(a.uid, { status: to })
-    toast.success(`${a.docNo} → ${STATUS_LABEL[to]}`)
-    setAdvancing(null)
+    auditsApi.update((a as any).id, { ...a, status: to }).then(() => {
+      fetchAudits()
+      toast.success(`${a.docNo} → ${STATUS_LABEL[to]}`)
+      setAdvancing(null)
+    }).catch((e: any) => toast.error('Error', e.message))
   }
 
   function closeFinding(a: QualityAudit, findingUid: string) {
@@ -186,45 +201,55 @@ export function AuditsPage() {
       f.uid === findingUid ? { ...f, closedOn: f.closedOn ? null : new Date().toISOString().slice(0, 10) } : f,
     )
     const wasOpen = a.findings.find((f) => f.uid === findingUid)?.closedOn === null
-    update(a.uid, { findings })
-    // Closing the last one moves the audit on by itself — an audit sitting in
-    // "actions open" with nothing open is the state nobody ever tidies up.
-    if (wasOpen && !findings.some(needsAction) && a.status === 'ACTIONS_OPEN' && a.reportRef.trim()) {
-      update(a.uid, { status: 'CLOSED' })
-      toast.success('Last finding closed — the audit is now closed')
+    let newStatus = a.status
+    let statusMsg = ''
+    if (wasOpen && !findings.some(needsAction) && a.status === 'ACTIONS_OPEN' && (a.reportRef ?? '').trim()) {
+      newStatus = 'CLOSED'
+      statusMsg = 'Last finding closed — the audit is now closed'
     } else {
-      toast.success(wasOpen ? 'Finding closed' : 'Finding reopened')
+      statusMsg = wasOpen ? 'Finding closed' : 'Finding reopened'
     }
+    
+    auditsApi.update((a as any).id, { ...a, findings, status: newStatus }).then(() => {
+      fetchAudits()
+      toast.success(statusMsg)
+    }).catch((e: any) => toast.error('Error', e.message))
   }
 
-  function save() {
+  async function save() {
     if (!editing) return
     const problems: string[] = []
-    if (!editing.title?.trim()) problems.push('Give the audit a title.')
-    if (!editing.auditee?.trim()) problems.push('Who is being audited?')
-    if (!editing.scope?.trim()) problems.push('State the scope — what was examined and what was not.')
+    if (!(editing.title ?? '').trim()) problems.push('Give the audit a title.')
+    if (!(editing.auditee ?? '').trim()) problems.push('Who is being audited?')
+    if (!(editing.scope ?? '').trim()) problems.push('State the scope — what was examined and what was not.')
     if (!editing.plannedOn) problems.push('When is it planned for?')
-    const bad = (editing.findings ?? []).filter((f) => f.grade !== 'CONFORMS' && !f.description.trim())
+    const bad = (editing.findings ?? []).filter((f) => f.grade !== 'CONFORMS' && !(f.description ?? '').trim())
     if (bad.length) problems.push('Every non-conformity needs a description.')
     if (problems.length) { toast.error(problems[0]); return }
 
     const payload = { ...editing } as QualityAudit
-    if (editing.uid) {
-      update(editing.uid, payload)
-      toast.success(`${editing.docNo} updated`)
-    } else {
-      const seq = live.length + 7
-      create({ ...(BLANK() as QualityAudit), ...payload, uid: newUid('aud'), docNo: `AUD/26-27/${String(seq).padStart(4, '0')}` })
-      toast.success('Audit scheduled')
+    try {
+      if (editing.docNo) {
+        await auditsApi.update((editing as any).id, payload)
+        toast.success(`${editing.docNo} updated`)
+      } else {
+        await auditsApi.create({ ...(BLANK() as QualityAudit), ...payload } as any)
+        toast.success('Audit scheduled')
+      }
+      fetchAudits()
+      setEditing(null)
+    } catch (e: any) {
+      toast.error('Error', e.message || 'Failed to save')
     }
-    setEditing(null)
   }
 
   function removeRow(a: QualityAudit) {
     if (a.status !== 'PLANNED') { toast.error('This audit has been conducted. Cancel it with a reason rather than deleting the evidence.'); return }
-    remove(a.uid)
-    if (openUid === a.uid) setOpenUid(null)
-    toast.success(`${a.docNo} removed`)
+    auditsApi.remove((a as any).id).then(() => {
+      fetchAudits()
+      if (openUid === String((a as any).id ?? a.uid)) setOpenUid(null)
+      toast.success(`${a.docNo} removed`)
+    }).catch((e: any) => toast.error('Error', e.message))
   }
 
   /* ── columns ────────────────────────────────────────────────── */
@@ -380,10 +405,10 @@ export function AuditsPage() {
       <DataTable
         rows={filtered}
         columns={columns}
-        rowKey={(a) => a.uid}
+        rowKey={(a) => String((a as any).id ?? a.uid)}
         searchable
         searchPlaceholder="Search by title, auditee, auditor or number"
-        onRowClick={(a) => setOpenUid(a.uid)}
+        onRowClick={(a) => setOpenUid(String((a as any).id ?? a.uid))}
         rowClassName={(a) => (a.findings.some((f) => f.grade === 'MAJOR_NC' && !f.closedOn) ? 'bg-danger/5' : undefined)}
         onExport={(f: ExportFormat) => { const n = exportRows(f, `audits-${tab}`, 'Audit register', columnsFromTable(columns), filtered); toast.success('Export ready', `${n} rows written.`) }}
         rowActions={(a) => (

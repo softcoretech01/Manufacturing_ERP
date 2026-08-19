@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { Plus, Stamp, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type Column } from '@/components/ui/DataTable'
@@ -14,6 +14,7 @@ import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDate } from '@/lib/format'
 import { instrumentStatus } from '@/lib/qmsFlow'
 import { newUid } from '@/store/data'
+import { instrumentsApi } from '@/api/instruments'
 import type { Instrument } from '@/types/quality'
 
 /**
@@ -30,8 +31,21 @@ const dayDiff = (from: string) => Math.round((new Date(from).setHours(0, 0, 0, 0
 
 export function CalibrationPage() {
   const toast = useToast()
-  const { instruments, inspections } = useQualityData()
-  const { rows, create, update, remove } = instruments
+  const { inspections } = useQualityData()
+  const [rows, setRows] = useState<Instrument[]>([])
+
+  const fetchInstruments = async () => {
+    try {
+      const data = await instrumentsApi.getAll()
+      setRows(data || [])
+    } catch (e) {
+      toast.error('Error', 'Failed to fetch instruments')
+    }
+  }
+
+  useEffect(() => {
+    fetchInstruments()
+  }, [])
 
   const [tab, setTab] = useState('due')
   const [formOpen, setFormOpen] = useState(false)
@@ -98,7 +112,7 @@ export function CalibrationPage() {
 
   function openEdit(i: Instrument) {
     setEditing(i)
-    setForm({ code: i.code, name: i.name, instrumentType: i.instrumentType, make: i.make, serialNo: i.serialNo, range: i.range, leastCount: i.leastCount, location: i.location, custodian: i.custodian, calibrationFrequencyDays: String(i.calibrationFrequencyDays), lastCalibratedOn: i.lastCalibratedOn, agency: i.agency, certificateNo: i.certificateNo, observedErrorPct: String(i.observedErrorPct), permittedErrorPct: String(i.permittedErrorPct), remarks: i.remarks })
+    setForm({ code: i.code ?? '', name: i.name ?? '', instrumentType: i.instrumentType ?? '', make: i.make ?? '', serialNo: i.serialNo ?? '', range: i.range ?? '', leastCount: i.leastCount ?? '', location: i.location ?? '', custodian: i.custodian ?? '', calibrationFrequencyDays: String(i.calibrationFrequencyDays ?? '365'), lastCalibratedOn: i.lastCalibratedOn ?? '', agency: i.agency ?? '', certificateNo: i.certificateNo ?? '', observedErrorPct: String(i.observedErrorPct ?? 0), permittedErrorPct: String(i.permittedErrorPct ?? 0), remarks: i.remarks ?? '' })
     setErrors({})
     setFormOpen(true)
   }
@@ -111,9 +125,7 @@ export function CalibrationPage() {
 
   function validate() {
     const e: Record<string, string> = {}
-    const code = form.code.trim().toUpperCase()
-    if (!code) e.code = 'A code is required.'
-    else if (rows.some((i) => i.code === code && i.uid !== editing?.uid)) e.code = `${code} is already in the register.`
+    // Code is auto-generated on backend
     if (!form.name.trim()) e.name = 'A name is required.'
     if (!(Number(form.calibrationFrequencyDays) > 0)) e.calibrationFrequencyDays = 'A calibration interval in days is required.'
     if (!form.lastCalibratedOn) e.lastCalibratedOn = 'The last calibration date sets the next due date.'
@@ -121,11 +133,11 @@ export function CalibrationPage() {
     return Object.keys(e).length === 0
   }
 
-  function save() {
+  async function save() {
     if (!validate()) return
     const freq = Number(form.calibrationFrequencyDays)
     const patch = {
-      code: form.code.trim().toUpperCase(), name: form.name.trim(), instrumentType: form.instrumentType.trim(),
+      name: form.name.trim(), instrumentType: form.instrumentType.trim(),
       make: form.make.trim(), serialNo: form.serialNo.trim(), range: form.range.trim(), leastCount: form.leastCount.trim(),
       location: form.location.trim(), custodian: form.custodian.trim(), calibrationFrequencyDays: freq,
       lastCalibratedOn: form.lastCalibratedOn, nextDueOn: nextDueFrom(form.lastCalibratedOn, freq),
@@ -133,14 +145,19 @@ export function CalibrationPage() {
       observedErrorPct: Number(form.observedErrorPct) || 0, permittedErrorPct: Number(form.permittedErrorPct) || 0,
       remarks: form.remarks.trim(),
     }
-    if (editing) {
-      update(editing.uid, { ...patch, version: editing.version + 1 })
-      toast.success('Instrument updated', `${patch.code} next due ${formatDate(patch.nextDueOn)}.`)
-    } else {
-      create({ ...patch, uid: newUid('ins'), status: 'VALID', version: 1 } as Instrument)
-      toast.success('Instrument registered', `${patch.code} next due ${formatDate(patch.nextDueOn)}.`)
+    try {
+      if (editing) {
+        await instrumentsApi.update((editing as any).id, patch)
+        toast.success('Instrument updated', `${editing.code} next due ${formatDate(patch.nextDueOn)}.`)
+      } else {
+        const res = await instrumentsApi.create(patch as any)
+        toast.success('Instrument registered', `${res.code} next due ${formatDate(patch.nextDueOn)}.`)
+      }
+      fetchInstruments()
+      setFormOpen(false)
+    } catch (e: any) {
+      toast.error('Error', e.message || 'Failed to save')
     }
-    setFormOpen(false)
   }
 
   function recordCalibration(i: Instrument) {
@@ -150,17 +167,18 @@ export function CalibrationPage() {
       toast.error('Outside the permitted error', `Observed ${observed}% against a permitted ${i.permittedErrorPct}%. The instrument must be adjusted or condemned, not returned to service.`)
       return
     }
-    update(i.uid, {
+    instrumentsApi.update((i as any).id, {
       lastCalibratedOn: calDraft.date,
       nextDueOn: nextDueFrom(calDraft.date, i.calibrationFrequencyDays),
       certificateNo: calDraft.certificateNo.trim() || i.certificateNo,
       agency: calDraft.agency.trim() || i.agency,
       observedErrorPct: observed,
       status: 'VALID',
-      version: i.version + 1,
-    })
-    toast.success('Calibration recorded', `${i.code} valid until ${formatDate(nextDueFrom(calDraft.date, i.calibrationFrequencyDays))}. Inspections using it can be approved again.`)
-    setCalibrating(null)
+    }).then(() => {
+      fetchInstruments()
+      toast.success('Calibration recorded', `${i.code} valid until ${formatDate(nextDueFrom(calDraft.date, i.calibrationFrequencyDays))}. Inspections using it can be approved again.`)
+      setCalibrating(null)
+    }).catch((e: any) => toast.error('Error', e.message))
   }
 
   return (
@@ -188,7 +206,7 @@ export function CalibrationPage() {
       <DataTable
         rows={filtered}
         columns={columns}
-        rowKey={(i) => i.uid}
+        rowKey={(i) => String((i as any).id ?? i.uid)}
         searchPlaceholder="Search code, name, type or location…"
         onExport={(f: ExportFormat) => { const n = exportRows(f, 'calibration-register', 'Calibration register', columnsFromTable(columns), filtered); toast.success('Export ready', `${n} rows written.`) }}
         onRowClick={openEdit}

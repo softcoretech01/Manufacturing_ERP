@@ -14,8 +14,9 @@ import { DispatchStatusBadge, EtaChip, PartyCell } from '@/components/dispatch/D
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDateTime, formatQty } from '@/lib/format'
 import { cn } from '@/lib/cn'
-import { useCollection } from '@/store/data'
-import { shipments as seedShipments, vehicles as seedVehicles } from '@/mock/dispatch'
+import { shipmentApi } from '@/api/shipmentApi'
+import { vehicleApi } from '@/api/vehicleApi'
+import { useEffect } from 'react'
 import type { Shipment, Vehicle } from '@/types/dispatch'
 
 const TABS = [
@@ -33,11 +34,25 @@ const TABS = [
 export function TrackingPage() {
   const toast = useToast()
   const navigate = useNavigate()
-  const seed = useMemo(() => seedShipments, [])
-  const vehicleSeed = useMemo(() => seedVehicles, [])
+  const [shipments, setShipments] = useState<Shipment[]>([])
+  const [vehicles, setVehicles] = useState<Vehicle[]>([])
 
-  const { rows: shipments, update } = useCollection<Shipment>('dispatch:shipment', seed)
-  const { rows: vehicles } = useCollection<Vehicle>('dispatch:vehicle', vehicleSeed)
+  const fetchData = async () => {
+    try {
+      const [sData, vData] = await Promise.all([
+        shipmentApi.getAll(),
+        vehicleApi.getAll()
+      ])
+      setShipments(sData)
+      setVehicles(vData)
+    } catch (err) {
+      toast.error('Failed to load data', err instanceof Error ? err.message : 'Unknown error')
+    }
+  }
+
+  useEffect(() => {
+    fetchData()
+  }, [])
 
   const [tab, setTab] = useState('MOVING')
   const [updating, setUpdating] = useState<Shipment | null>(null)
@@ -159,7 +174,7 @@ export function TrackingPage() {
           <CardHeader title="Needs a phone call" description="Somebody has to ring the driver or the transporter about each of these" />
           <CardBody className="space-y-2">
             {[...new Set([...late, ...silent])].map((s) => (
-              <div key={s.uid} className="flex flex-wrap items-center justify-between gap-3 rounded border border-danger/30 bg-danger/5 p-2.5">
+              <div key={String((s as any).id || s.uid)} className="flex flex-wrap items-center justify-between gap-3 rounded border border-danger/30 bg-danger/5 p-2.5">
                 <div className="min-w-0">
                   <p className="text-xs font-medium text-fg">
                     {s.docNo} — {s.customer}
@@ -200,7 +215,7 @@ export function TrackingPage() {
       <DataTable
         rows={visible}
         columns={columns}
-        rowKey={(s) => s.uid}
+        rowKey={(s) => String((s as any).id || s.uid)}
         searchPlaceholder="Search shipment, customer, vehicle, driver or transporter…"
         onExport={doExport}
         emptyTitle="Nothing to track"
@@ -220,7 +235,7 @@ export function TrackingPage() {
               danger
               disabled={!s.delayReason}
               onClick={() => {
-                update(s.uid, { delayReason: null })
+                shipmentApi.update((s as any).id, { ...s, delayReason: null }).then(fetchData)
                 toast.success('Delay note cleared', `${s.docNo} no longer shows a delay reason. The shipment itself is untouched.`)
               }}
             />
@@ -229,14 +244,15 @@ export function TrackingPage() {
               label="Confirm it has arrived"
               disabled={s.status !== 'IN_TRANSIT' && s.status !== 'DISPATCHED'}
               onClick={() => {
-                update(s.uid, {
+                shipmentApi.update((s as any).id, {
+                  ...s,
                   status: 'DELIVERED',
                   deliveredAt: new Date().toISOString(),
                   lastLocation: `Delivered — ${s.destination}`,
                   lastUpdatedAt: new Date().toISOString(),
                   podStatus: 'PENDING',
                   delayReason: hoursLate(s) > 0 ? s.delayReason : null,
-                })
+                }).then(fetchData)
                 toast.success('Arrival recorded', `${s.docNo} arrived at ${s.destination}. Proof of delivery is now the outstanding item.`)
               }}
             />
@@ -266,12 +282,13 @@ export function TrackingPage() {
                   toast.error('Enter a location', 'Where is the vehicle now? "Krishnagiri toll — NH 44" is enough.')
                   return
                 }
-                update(updating.uid, {
+                shipmentApi.update((updating as any).id, {
+                  ...updating,
                   lastLocation: location.trim(),
                   lastUpdatedAt: new Date().toISOString(),
                   delayReason: reason.trim() || null,
                   status: updating.status === 'DISPATCHED' ? 'IN_TRANSIT' : updating.status,
-                })
+                }).then(fetchData)
                 toast.success('Position updated', `${updating.docNo} is at ${location.trim()}.${reason.trim() ? ' The delay reason is recorded and visible to sales.' : ''}`)
                 setUpdating(null)
               }}

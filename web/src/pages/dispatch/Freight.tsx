@@ -10,7 +10,9 @@ import { Select } from '@/components/ui/Input'
 import { PageHeader } from '@/components/ui/Misc'
 import { Tabs } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
-import { useCrud } from '@/components/crud/CrudKit'
+import { useLiveCrud } from '@/components/crud/CrudKit'
+import { freightApi } from '@/api/freightApi'
+import { useEffect } from 'react'
 import {
   CHARGE_TYPE_LABEL,
   DispatchChartTip,
@@ -20,7 +22,7 @@ import {
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatCurrency, formatDate } from '@/lib/format'
 import { cn } from '@/lib/cn'
-import { freightCharges as seedFreight } from '@/mock/dispatch'
+
 import type { FreightCharge } from '@/types/dispatch'
 
 const ALLOCATE_LABEL: Record<string, string> = {
@@ -54,11 +56,23 @@ const TABS = [
 export function FreightPage() {
   const toast = useToast()
   const canSeeValue = useCanSeeFreight()
-  const seed = useMemo(() => seedFreight, [])
+  const [charges, setCharges] = useState<FreightCharge[]>([])
 
-  const crud = useCrud<FreightCharge>({
+  const loadData = async () => {
+    try {
+      const data = await freightApi.getAll()
+      setCharges(data)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  useEffect(() => {
+    loadData()
+  }, [])
+
+  const crud = useLiveCrud<FreightCharge>({
     key: 'dispatch:freight',
-    seed,
     entity: 'Freight charge',
     titleOf: (f) => `${CHARGE_TYPE_LABEL[f.chargeType]} on ${f.shipmentNo}`,
     fields: [
@@ -115,9 +129,22 @@ export function FreightPage() {
       f.status === 'PAID'
         ? `${f.docNo} has been paid against bill ${f.billNo}. A paid charge is a financial record — raise a debit note instead.`
         : undefined,
-  })
+  }, charges, freightApi, loadData)
 
-  const charges = crud.rows
+  const _charges = crud.rows
+
+  const updateRow = async (id: number, patch: Partial<FreightCharge>) => {
+    try {
+      const row = charges.find((x: any) => x.id === id);
+      if (!row) return;
+      await freightApi.update(id, { ...row, ...patch });
+      loadData();
+    } catch (e) {
+      toast.error('Update failed', e instanceof Error ? e.message : 'Unknown error');
+      throw e;
+    }
+  }
+
   const [tab, setTab] = useState('ALL')
   const [groupBy, setGroupBy] = useState<'chargeType' | 'transporter' | 'customer' | 'route'>('chargeType')
 
@@ -295,7 +322,7 @@ export function FreightPage() {
                     variant="outline"
                     size="sm"
                     onClick={() => {
-                      crud.update(f.uid, { status: 'APPROVED', approvedBy: 'S. Ganapathy' })
+                      updateRow((f as any).id, { status: 'APPROVED', approvedBy: 'S. Ganapathy' })
                       toast.success('Dispute settled', `${f.docNo} accepted at ${formatCurrency(f.amount)} and released for payment.`)
                     }}
                   >
@@ -347,7 +374,7 @@ export function FreightPage() {
       <DataTable
         rows={visible}
         columns={columns}
-        rowKey={(f) => f.uid}
+        rowKey={(f) => String((f as any).id || f.uid)}
         searchPlaceholder="Search charge, shipment, transporter, customer or bill…"
         onExport={doExport}
         emptyTitle="No freight charges"
@@ -369,7 +396,7 @@ export function FreightPage() {
                   toast.error('No transporter bill', `${f.docNo} has no bill number against it. An estimate cannot be approved for payment — enter the bill first.`)
                   return
                 }
-                crud.update(f.uid, { status: 'APPROVED', approvedBy: 'S. Ganapathy' })
+                updateRow((f as any).id, { status: 'APPROVED', approvedBy: 'S. Ganapathy' })
                 toast.success('Approved', `${formatCurrency(f.amount)} approved against bill ${f.billNo}. Finance can now pay it.`)
               }}
             />
@@ -377,7 +404,7 @@ export function FreightPage() {
               label="Mark paid"
               disabled={f.status !== 'APPROVED'}
               onClick={() => {
-                crud.update(f.uid, { status: 'PAID' })
+                updateRow((f as any).id, { status: 'PAID' })
                 toast.success('Marked paid', `${formatCurrency(f.amount)} paid to ${f.transporter}, allocated to ${ALLOCATE_LABEL[f.allocateTo].toLowerCase()}.`)
               }}
             />
@@ -386,7 +413,7 @@ export function FreightPage() {
               danger
               disabled={f.status === 'PAID' || f.status === 'DISPUTED'}
               onClick={() => {
-                crud.update(f.uid, { status: 'DISPUTED' })
+                updateRow((f as any).id, { status: 'DISPUTED' })
                 toast.success('Charge disputed', `${f.docNo} held. ${f.transporter} is notified and payment is stopped until a corrected bill arrives.`)
               }}
             />

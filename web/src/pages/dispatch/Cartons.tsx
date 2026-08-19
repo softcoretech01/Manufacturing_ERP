@@ -10,7 +10,9 @@ import { Input, Select } from '@/components/ui/Input'
 import { PageHeader } from '@/components/ui/Misc'
 import { Tabs } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
-import { useCrud } from '@/components/crud/CrudKit'
+import { cartonApi } from '@/api/cartonApi'
+import { useEffect } from 'react'
+import { Trash2 } from 'lucide-react'
 import {
   DimensionCell,
   DispatchStatusBadge,
@@ -21,7 +23,8 @@ import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDateTime, formatQty } from '@/lib/format'
 import { cn } from '@/lib/cn'
 import { useCollection } from '@/store/data'
-import { cartons as seedCartons, pallets as seedPallets } from '@/mock/dispatch'
+import { pallets as seedPallets } from '@/mock/dispatch'
+
 import type { Carton, Pallet } from '@/types/dispatch'
 
 const TABS = [
@@ -39,61 +42,100 @@ const TABS = [
 export function CartonsPage() {
   const toast = useToast()
   const navigate = useNavigate()
-  const seed = useMemo(() => seedCartons, [])
+  
+
+  
+  const [cartons, setCartons] = useState<Carton[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [editingItem, setEditingItem] = useState<Carton | null>(null)
+  const [formData, setFormData] = useState<Partial<Carton>>({})
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+
+  const fetchCartons = async () => {
+    setIsLoading(true)
+    try {
+      const data = await cartonApi.getAll()
+      setCartons(data)
+    } catch (e) {
+      toast.error('Error fetching cartons', String(e))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchCartons()
+  }, [])
+
+  const handleCreate = () => {
+    setEditingItem(null)
+    setFormData({
+      status: 'OPEN',
+      labelPrinted: false,
+      weightChecked: false,
+      quantity: 0
+    })
+    setIsModalOpen(true)
+  }
+
+  const handleEdit = (carton: Carton) => {
+    setEditingItem(carton)
+    setFormData(carton)
+    setIsModalOpen(true)
+  }
+
+  const handleDelete = async (carton: Carton) => {
+    if (!confirm(`Are you sure you want to delete ${carton.cartonNo}?`)) return
+    try {
+      await cartonApi.delete(Number(carton.uid) || Number((carton as any).id))
+      toast.success('Deleted', `${carton.cartonNo} has been deleted.`)
+      fetchCartons()
+    } catch (e) {
+      toast.error('Delete failed', String(e))
+    }
+  }
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsSaving(true)
+    try {
+      const payload: Partial<Carton> = {
+        ...formData,
+        quantity: Number(formData.quantity) || 0,
+        grossWeightKg: Number(formData.grossWeightKg) || 0,
+        netWeightKg: Number(formData.netWeightKg) || 0,
+        lengthMm: Number(formData.lengthMm) || 0,
+        widthMm: Number(formData.widthMm) || 0,
+        heightMm: Number(formData.heightMm) || 0,
+      }
+      
+      if (editingItem) {
+        await cartonApi.update(Number(editingItem.uid) || Number((editingItem as any).id), payload)
+        toast.success('Updated', `${editingItem.cartonNo} has been updated.`)
+      } else {
+        await cartonApi.create(payload)
+        toast.success('Created', `New carton has been created.`)
+      }
+      setIsModalOpen(false)
+      fetchCartons()
+    } catch (e) {
+      toast.error('Save failed', String(e))
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleUpdateStatus = async (carton: Carton, updates: Partial<Carton>) => {
+    try {
+      await cartonApi.update(Number(carton.uid) || Number((carton as any).id), updates)
+      fetchCartons()
+    } catch (e) {
+      toast.error('Update failed', String(e))
+    }
+  }
+
   const palletSeed = useMemo(() => seedPallets, [])
-
-  const crud = useCrud<Carton>({
-    key: 'dispatch:carton',
-    seed,
-    entity: 'Carton',
-    titleOf: (c) => c.cartonNo,
-    fields: [
-      { name: 'cartonNo', label: 'Carton number', required: true, readOnly: true },
-      { name: 'packingOrderNo', label: 'Packing order', required: true },
-      { name: 'itemName', label: 'Product', required: true, span: 2 },
-      { name: 'batchNo', label: 'Batch' },
-      { name: 'quantity', label: 'Bottles inside', type: 'number', required: true },
-      { name: 'grossWeightKg', label: 'Gross weight (kg)', type: 'number', required: true },
-      { name: 'netWeightKg', label: 'Net weight (kg)', type: 'number', required: true },
-      { name: 'lengthMm', label: 'Length (mm)', type: 'number' },
-      { name: 'widthMm', label: 'Width (mm)', type: 'number' },
-      { name: 'heightMm', label: 'Height (mm)', type: 'number' },
-      { name: 'operator', label: 'Packed by', required: true },
-    ],
-    fromForm: (v, existing) => ({
-      ...(existing ?? {
-        cartonNo: v.cartonNo,
-        barcode: `(01)8901234000000(37)${v.quantity}`,
-        customer: 'New customer',
-        itemCode: 'FG-NEW',
-        contents: [],
-        uom: 'NOS',
-        packedOn: new Date().toISOString(),
-        palletNo: null,
-        labelPrinted: false,
-        weightChecked: false,
-        status: 'OPEN' as const,
-      }),
-      packingOrderNo: v.packingOrderNo,
-      itemName: v.itemName,
-      batchNo: v.batchNo || null,
-      quantity: Number(v.quantity) || 0,
-      grossWeightKg: Number(v.grossWeightKg) || 0,
-      netWeightKg: Number(v.netWeightKg) || 0,
-      lengthMm: Number(v.lengthMm) || 0,
-      widthMm: Number(v.widthMm) || 0,
-      heightMm: Number(v.heightMm) || 0,
-      operator: v.operator,
-    }),
-    blockDelete: (c) =>
-      c.status === 'LOADED' || c.status === 'DELIVERED'
-        ? `${c.cartonNo} has already been ${c.status.toLowerCase()}. A carton that has left the plant cannot be deleted — it is part of the delivery record.`
-        : c.palletNo
-          ? `${c.cartonNo} is on pallet ${c.palletNo}. Take it off the pallet first.`
-          : undefined,
-  })
-
-  const cartons = crud.rows
   const { rows: pallets, update: updatePallet } = useCollection<Pallet>('dispatch:pallet', palletSeed)
 
   const [tab, setTab] = useState('ALL')
@@ -183,7 +225,7 @@ export function CartonsPage() {
         actions={
           <>
             <Button variant="outline" size="sm" onClick={() => navigate('/dispatch/pallets')}>Pallets</Button>
-            <Button variant="primary" size="sm" onClick={() => crud.openCreate({ cartonNo: `CTN/2607/${String(4_201 + cartons.length).padStart(5, '0')}`, operator: 'M. Priya' })}>
+            <Button variant="primary" size="sm" onClick={() => handleCreate()}>
               New carton
             </Button>
           </>
@@ -211,7 +253,7 @@ export function CartonsPage() {
       <DataTable
         rows={visible}
         columns={columns}
-        rowKey={(c) => c.uid}
+        rowKey={(c) => String((c as any).id || c.uid)}
         searchPlaceholder="Search carton number, barcode, product or operator…"
         onExport={doExport}
         emptyTitle="No cartons"
@@ -219,8 +261,8 @@ export function CartonsPage() {
         rowClassName={(c) => cn(c.status === 'OPEN' && 'bg-warning/[0.04]', !c.labelPrinted && c.status !== 'OPEN' && 'bg-warning/[0.03]')}
         rowActions={(c) => (
           <>
-            <MenuItem label="Edit the carton" onClick={() => crud.openEdit(c)} />
-            <MenuItem label="Delete the carton" danger onClick={() => crud.askDelete(c)} />
+            <MenuItem label="Edit the carton" onClick={() => handleEdit(c)} />
+            <MenuItem label="Delete the carton" danger onClick={() => handleDelete(c)} />
             <MenuItem separatorBefore label="Open the carton detail" onClick={() => setViewing(c)} />
             <MenuItem
               label="Verify the weight"
@@ -235,14 +277,14 @@ export function CartonsPage() {
                   toast.error('Weigh it first', `${c.cartonNo} has not been weight-checked. A carton is sealed only after its weight is confirmed against the expected weight.`)
                   return
                 }
-                crud.update(c.uid, { status: 'SEALED' })
+                handleUpdateStatus(c, { status: 'SEALED' })
                 toast.success('Carton sealed', `${c.cartonNo} sealed with ${c.quantity} bottles. It can now be labelled and put on a pallet.`)
               }}
             />
             <MenuItem
               label="Print the carton label"
               onClick={() => {
-                crud.update(c.uid, { labelPrinted: true })
+                handleUpdateStatus(c, { labelPrinted: true })
                 toast.success('Label printed', `GS1-128 label for ${c.cartonNo} sent to the packing-bay printer. Barcode ${c.barcode}.`)
               }}
             />
@@ -257,7 +299,7 @@ export function CartonsPage() {
               onClick={() => {
                 const p = pallets.find((x) => x.palletNo === c.palletNo)
                 if (p) updatePallet(p.uid, { cartonCount: Math.max(0, p.cartonCount - 1), totalWeightKg: Math.max(0, p.totalWeightKg - c.grossWeightKg) })
-                crud.update(c.uid, { palletNo: null, status: 'SEALED' })
+                handleUpdateStatus(c, { palletNo: null, status: 'SEALED' })
                 toast.success('Carton removed from pallet', `${c.cartonNo} is loose again. Pallet ${c.palletNo} now holds ${Math.max(0, (p?.cartonCount ?? 1) - 1)} cartons.`)
               }}
             />
@@ -292,7 +334,7 @@ export function CartonsPage() {
                   )
                   return
                 }
-                crud.update(weighing.uid, { grossWeightKg: w, weightChecked: true })
+                handleUpdateStatus(weighing, { grossWeightKg: w, weightChecked: true })
                 toast.success('Weight verified', `${weighing.cartonNo} at ${w} kg, within tolerance of the expected ${expected} kg.`)
                 setWeighing(null)
               }}
@@ -347,7 +389,7 @@ export function CartonsPage() {
                   cartonCount: p.cartonCount + 1,
                   totalWeightKg: Math.round((p.totalWeightKg + assign.grossWeightKg) * 10) / 10,
                 })
-                crud.update(assign.uid, { palletNo: p.palletNo, status: 'PALLETISED' })
+                handleUpdateStatus(assign, { palletNo: p.palletNo, status: 'PALLETISED' })
                 toast.success('Carton palletised', `${assign.cartonNo} added to ${p.palletNo} — now ${p.cartonCount + 1} of ${p.cartonCapacity} cartons.`)
                 setAssign(null)
               }}
@@ -392,7 +434,7 @@ export function CartonsPage() {
               <Button
                 variant="primary"
                 onClick={() => {
-                  crud.update(viewing.uid, { labelPrinted: true })
+                  handleUpdateStatus(viewing, { labelPrinted: true })
                   toast.success('Label printed', `Label for ${viewing.cartonNo} sent to the printer.`)
                 }}
               >
@@ -469,7 +511,38 @@ export function CartonsPage() {
         )}
       </Drawer>
 
-      {crud.dialogs}
+      
+      <Modal title={editingItem ? "Edit Carton" : "Add Carton"} open={isModalOpen} onClose={() => setIsModalOpen(false)}>
+        <form onSubmit={handleSave} className="flex flex-col gap-4">
+          <Input label="Carton number" value={formData.cartonNo || ''} readOnly disabled placeholder="Auto-generated" />
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Packing order" value={formData.packingOrderNo || ''} onChange={e => setFormData({...formData, packingOrderNo: e.target.value})} required />
+            <Input label="Customer" value={formData.customer || ''} onChange={e => setFormData({...formData, customer: e.target.value})} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Item Code" value={formData.itemCode || ''} onChange={e => setFormData({...formData, itemCode: e.target.value})} required />
+            <Input label="Item Name" value={formData.itemName || ''} onChange={e => setFormData({...formData, itemName: e.target.value})} required />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Batch" value={formData.batchNo || ''} onChange={e => setFormData({...formData, batchNo: e.target.value})} />
+            <Input label="Quantity (Bottles)" type="number" value={formData.quantity || ''} onChange={e => setFormData({...formData, quantity: Number(e.target.value)})} required />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Gross weight (kg)" type="number" step="0.01" value={formData.grossWeightKg || ''} onChange={e => setFormData({...formData, grossWeightKg: Number(e.target.value)})} />
+            <Input label="Net weight (kg)" type="number" step="0.01" value={formData.netWeightKg || ''} onChange={e => setFormData({...formData, netWeightKg: Number(e.target.value)})} />
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            <Input label="Length (mm)" type="number" value={formData.lengthMm || ''} onChange={e => setFormData({...formData, lengthMm: Number(e.target.value)})} />
+            <Input label="Width (mm)" type="number" value={formData.widthMm || ''} onChange={e => setFormData({...formData, widthMm: Number(e.target.value)})} />
+            <Input label="Height (mm)" type="number" value={formData.heightMm || ''} onChange={e => setFormData({...formData, heightMm: Number(e.target.value)})} />
+          </div>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button type="button" variant="secondary" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+            <Button type="submit" variant="primary" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save'}</Button>
+          </div>
+        </form>
+      </Modal>
+
 
       <Card className="mt-4">
         <CardHeader title="Configurable packing rules" description="The carton specification comes from the customer, not from us" />

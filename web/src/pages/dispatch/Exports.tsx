@@ -10,7 +10,10 @@ import { Input } from '@/components/ui/Input'
 import { PageHeader, ProgressBar } from '@/components/ui/Misc'
 import { Tabs } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
-import { useCrud } from '@/components/crud/CrudKit'
+import { useLiveCrud } from '@/components/crud/CrudKit'
+import { exportShipmentApi } from '@/api/exportShipmentApi'
+import { exportDocumentApi } from '@/api/exportDocumentApi'
+import { useEffect } from 'react'
 import {
   DispatchStatusBadge,
   EXPORT_DOC_LABEL,
@@ -21,7 +24,7 @@ import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatCurrency, formatDate } from '@/lib/format'
 import { cn } from '@/lib/cn'
 import { useCollection } from '@/store/data'
-import { exportDocuments as seedDocs, exportShipments as seedExports } from '@/mock/dispatch'
+
 import type { ExportDocument, ExportShipment } from '@/types/dispatch'
 
 const TABS = [
@@ -41,12 +44,34 @@ export function ExportsPage() {
   const toast = useToast()
   const navigate = useNavigate()
   const canSeeValue = useCanSeeFreight()
-  const seed = useMemo(() => seedExports, [])
-  const docSeed = useMemo(() => seedDocs, [])
+  const [exportsData, setExportsData] = useState<ExportShipment[]>([])
+  const [docsData, setDocsData] = useState<ExportDocument[]>([])
 
-  const crud = useCrud<ExportShipment>({
+  const loadData = async () => {
+    try {
+      const data = await exportShipmentApi.getAll()
+      setExportsData(data)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  const loadDocs = async () => {
+    try {
+      const data = await exportDocumentApi.getAll()
+      setDocsData(data)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  useEffect(() => {
+    loadData()
+    loadDocs()
+  }, [])
+
+  const crud = useLiveCrud<ExportShipment>({
     key: 'dispatch:export-shipment',
-    seed,
     entity: 'Export shipment',
     titleOf: (e) => `${e.docNo} — ${e.containerNo}`,
     fields: [
@@ -118,10 +143,23 @@ export function ExportsPage() {
         : e.customsStatus !== 'NOT_FILED'
           ? `${e.docNo} has been filed with customs under ${e.shippingBillNo ?? 'a shipping bill'}. Withdraw the filing first.`
           : undefined,
-  })
+  }, exportsData, exportShipmentApi, loadData)
 
   const exports = crud.rows
-  const { rows: docs } = useCollection<ExportDocument>('dispatch:export-doc', docSeed)
+  const docs = docsData
+
+  const updateRow = async (id: number, patch: Partial<ExportShipment>) => {
+    try {
+      const row = exports.find((x: any) => x.id === id);
+      if (!row) return;
+      await exportShipmentApi.update(id, { ...row, ...patch });
+      loadData();
+    } catch (e) {
+      toast.error('Update failed', e instanceof Error ? e.message : 'Unknown error');
+      throw e;
+    }
+  }
+
 
   const [tab, setTab] = useState('ACTIVE')
   const [viewing, setViewing] = useState<ExportShipment | null>(null)
@@ -305,7 +343,7 @@ export function ExportsPage() {
       <DataTable
         rows={visible}
         columns={columns}
-        rowKey={(e) => e.uid}
+        rowKey={(e) => String((e as any).id || e.uid)}
         searchPlaceholder="Search export, container, customer, vessel or port…"
         onExport={doExport}
         emptyTitle="No export shipments"
@@ -335,7 +373,7 @@ export function ExportsPage() {
                   return
                 }
                 const sb = `SB/${4_471_900 + exports.length}`
-                crud.update(e.uid, { customsStatus: 'FILED', shippingBillNo: sb })
+                updateRow((e as any).id, { customsStatus: 'FILED', shippingBillNo: sb })
                 toast.success('Filed with customs', `Shipping bill ${sb} filed on ICEGATE for ${e.containerNo}. Assessment usually follows within a day.`)
               }}
             />
@@ -343,7 +381,7 @@ export function ExportsPage() {
               label="Record gate-in at the port"
               disabled={e.status !== 'STUFFED'}
               onClick={() => {
-                crud.update(e.uid, { status: 'GATED_IN' })
+                updateRow((e as any).id, { status: 'GATED_IN' })
                 toast.success('Gated in', `${e.containerNo} is inside the port. The free period before demurrage starts now.`)
               }}
             />
@@ -356,7 +394,7 @@ export function ExportsPage() {
                   return
                 }
                 const bl = `MAEU-${2_274_500 + exports.length}`
-                crud.update(e.uid, { status: 'SAILED', blNo: bl })
+                updateRow((e as any).id, { status: 'SAILED', blNo: bl })
                 toast.success('Sailed', `${e.containerNo} is aboard ${e.vessel} ${e.voyageNo}. Bill of lading ${bl} issued — the document set is now complete for the buyer's bank.`)
               }}
             />
@@ -382,7 +420,7 @@ export function ExportsPage() {
                   toast.error('Seal number required', 'The shipping line seal number goes on the bill of lading. Without it the container cannot be gated in.')
                   return
                 }
-                crud.update(stuffing.uid, { sealNo: seal.trim(), status: 'STUFFED', stuffingDate: new Date().toISOString().slice(0, 10) })
+                updateRow((stuffing as any).id, { sealNo: seal.trim(), status: 'STUFFED', stuffingDate: new Date().toISOString().slice(0, 10) })
                 toast.success(
                   'Container stuffed and sealed',
                   `${stuffing.containerNo} sealed with ${seal.trim()}. Next is the customs filing, then gate-in before the ${formatDate(stuffing.etd)} cut-off.`,
