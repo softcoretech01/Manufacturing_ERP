@@ -14,8 +14,11 @@
 
 import { getSession, setTokens, clearSession } from './session'
 
+// Default to the relative path so the Vite dev proxy (/api → backend) is used
+// even when VITE_API_BASE_URL is not set — avoids a dead absolute fallback
+// (e.g. a down localhost:8000) that surfaces as "Cannot reach the backend".
 const BASE_URL: string =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8000/api/v1'
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '/api/v1'
 
 export interface PageMeta {
   page: number

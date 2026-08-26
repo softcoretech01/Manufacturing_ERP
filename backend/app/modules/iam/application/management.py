@@ -327,6 +327,12 @@ class UserService:
         )
         if exists.first():
             raise DuplicateError(f"Login id '{login_id}' already exists.")
+        # Enforce the company's password policy (CLAUDE.md §5.3 security controls).
+        from app.modules.security.service import SecurityPolicyService
+
+        await SecurityPolicyService(self.session, self.ctx).validate_password(
+            data.password, login_id=login_id, full_name=data.full_name
+        )
         now = utcnow()
         user = SysUser(
             uid=new_uid(),
@@ -421,6 +427,11 @@ class UserService:
 
     async def reset_password(self, uid: str, new_password: str) -> None:
         user = await self._get_or_404(uid)
+        from app.modules.security.service import SecurityPolicyService
+
+        await SecurityPolicyService(self.session, self.ctx).validate_password(
+            new_password, login_id=user.login_id, full_name=user.full_name
+        )
         user.password_hash = hash_password(new_password)
         user.version += 1
         user.updated_at = utcnow()
