@@ -1,16 +1,28 @@
-import { GitBranch, Pencil, Plus, Power, Trash2 } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useState } from 'react'
+import { Pencil, Plus, Power, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { Badge } from '@/components/ui/Badge'
 import { MenuItem } from '@/components/ui/Menu'
-import { PageHeader } from '@/components/ui/Misc'
+import { PageHeader, Alert } from '@/components/ui/Misc'
+import { Modal } from '@/components/ui/Modal'
+import { Input, Select, Switch } from '@/components/ui/Input'
 import { useToast } from '@/components/ui/Toast'
-import { HowItWorks, useCrud, type CrudField } from '@/components/crud/CrudKit'
+import { HowItWorks } from '@/components/crud/CrudKit'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
-import { branches as seedBranches, plants, warehouses } from '@/mock/data'
-import { useActiveContext } from '@/store/auth'
-import type { Branch } from '@/types'
+import { ProblemError } from '@/api/client'
+import { collectErrors } from '@/lib/validate'
+import { branches as branchApi, type Branch } from '@/api/organisation'
+import {
+  useBranches,
+  useCreateBranch,
+  useUpdateBranch,
+  useDeactivateBranch,
+  useRestoreBranch,
+} from '@/hooks/useOrganisation'
+import { useSession } from '@/api/session'
+
+/** This screen is wired to the live FastAPI backend (Organisation module). */
 
 const STATES = [
   { code: '33', name: 'Tamil Nadu' },
@@ -29,120 +41,183 @@ const BRANCH_TYPES = [
   { value: 'WAREHOUSE_ONLY', label: 'Warehouse only' },
 ]
 
+interface FormState {
+  code: string
+  name: string
+  branch_type: string
+  gst_state_code: string
+  has_separate_gstin: boolean
+  gstin: string
+  address_line1: string
+  pincode: string
+  contact_person: string
+  phone: string
+  email: string
+}
+
+const BLANK: FormState = {
+  code: '',
+  name: '',
+  branch_type: 'FACTORY',
+  gst_state_code: '33',
+  has_separate_gstin: false,
+  gstin: '',
+  address_line1: '',
+  pincode: '',
+  contact_person: '',
+  phone: '',
+  email: '',
+}
+
 export function BranchesPage() {
   const toast = useToast()
-  const navigate = useNavigate()
-  const { company } = useActiveContext()
+  const companyUid = useSession((s) => s.companyUid)
 
-  const fields: CrudField[] = [
-    { name: 'code', label: 'Branch code', required: true, upper: true, maxLength: 8, placeholder: 'MUM', hint: 'Short code used on documents.' },
-    { name: 'name', label: 'Branch name', required: true, placeholder: 'Mumbai Depot' },
-    { name: 'branchType', label: 'Branch type', type: 'select', required: true, options: BRANCH_TYPES },
-    { name: 'stateCode', label: 'State', type: 'select', required: true, options: STATES.map((s) => ({ value: s.code, label: `${s.name} (${s.code})` })) },
-    { name: 'hasSeparateGstin', label: 'This branch has its own GST registration', type: 'switch', span: 2, hint: 'Turn on when the branch files GST separately from head office.' },
-    {
-      name: 'gstin',
-      label: 'GSTIN',
-      upper: true,
-      maxLength: 15,
-      span: 2,
-      required: true,
-      placeholder: '33AABCS1234K1ZP',
-      showIf: (v) => v.hasSeparateGstin === 'true',
-      hint: 'Checked three ways: format, the PAN inside it, and the state code.',
-      validate: (v, values) => {
-        if (!/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(v))
-          return 'Not a valid GSTIN. It should be 15 characters, like 33AABCS1234K1ZP.'
-        if (v.slice(2, 12) !== company.pan) return `The PAN inside this GSTIN (${v.slice(2, 12)}) is not the company PAN (${company.pan}).`
-        if (v.slice(0, 2) !== values.stateCode) return `This GSTIN belongs to state ${v.slice(0, 2)}, but you selected state ${values.stateCode}.`
-        return undefined
-      },
-    },
-    { name: 'city', label: 'City', required: true },
-    { name: 'pincode', label: 'PIN code', required: true, maxLength: 6, validate: (v) => (/^[1-9][0-9]{5}$/.test(v) ? undefined : 'A PIN code is 6 digits and cannot start with 0.') },
-    { name: 'contactPerson', label: 'Contact person' },
-    { name: 'phone', label: 'Phone', type: 'tel', placeholder: '+91 98400 12345' },
-  ]
+  const { data, isLoading, error, refetch } = useBranches({ page_size: 200 })
+  const createBranch = useCreateBranch()
+  const updateBranch = useUpdateBranch()
+  const deactivateBranch = useDeactivateBranch()
+  const restoreBranch = useRestoreBranch()
 
-  const crud = useCrud<Branch>({
-    key: 'admin:branch',
-    seed: seedBranches,
-    entity: 'Branch',
-    fields,
-    titleOf: (b) => `${b.code} — ${b.name}`,
-    defaults: { branchType: 'FACTORY', stateCode: '33', hasSeparateGstin: 'false' },
-    toForm: (b) => ({
+  const rows = data?.data ?? []
+
+  const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState<Branch | null>(null)
+  const [form, setForm] = useState<FormState>(BLANK)
+  const [errors, setErrors] = useState<Record<string, string>>({})
+
+  const set = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }))
+
+  function openCreate() {
+    setEditing(null)
+    setForm(BLANK)
+    setErrors({})
+    setFormOpen(true)
+    // Preview the next auto-generated code; it is authoritative on the server.
+    branchApi
+      .nextCode()
+      .then((code) => setForm((f) => ({ ...f, code })))
+      .catch(() => {})
+  }
+
+  function openEdit(b: Branch) {
+    setEditing(b)
+    // Load *every* editable field from the record — previously contact_person and
+    // phone were hard-blanked here, so saving an edit erased them (data loss).
+    setForm({
       code: b.code,
       name: b.name,
-      branchType: b.branchType,
-      stateCode: b.stateCode,
-      hasSeparateGstin: String(b.hasSeparateGstin),
+      branch_type: b.branch_type,
+      gst_state_code: b.gst_state_code ?? '33',
+      has_separate_gstin: b.has_separate_gstin,
       gstin: b.gstin ?? '',
-      city: b.city,
-      pincode: b.pincode,
-      contactPerson: b.contactPerson,
-      phone: b.phone,
-    }),
-    fromForm: (v, existing) => ({
-      companyUid: existing?.companyUid ?? company.uid,
-      code: v.code,
-      name: v.name,
-      branchType: v.branchType as Branch['branchType'],
-      stateCode: v.stateCode,
-      state: STATES.find((s) => s.code === v.stateCode)?.name ?? '',
-      hasSeparateGstin: v.hasSeparateGstin === 'true',
-      gstin: v.hasSeparateGstin === 'true' ? v.gstin : null,
-      city: v.city,
-      pincode: v.pincode,
-      contactPerson: v.contactPerson ?? '',
-      phone: v.phone ?? '',
-      isActive: existing?.isActive ?? true,
-    }),
-    blockDelete: (b) => {
-      const p = plants.filter((x) => x.branchUid === b.uid).length
-      const w = warehouses.filter((x) => x.branchUid === b.uid).length
-      if (p || w) return `${b.name} still has ${p} plants and ${w} warehouses attached. Move or delete those first.`
-      return undefined
-    },
-  })
+      address_line1: b.address_line1 ?? '',
+      pincode: b.pincode ?? '',
+      contact_person: b.contact_person ?? '',
+      phone: b.phone ?? '',
+      email: b.email ?? '',
+    })
+    setErrors({})
+    setFormOpen(true)
+  }
 
-  const rows = crud.rows.filter((b) => b.companyUid === company.uid)
+  /** Map a backend problem+json error onto field errors + a toast. */
+  function handleError(err: unknown, fallback: string) {
+    if (err instanceof ProblemError) {
+      const fieldErrors: Record<string, string> = {}
+      for (const e of err.problem.errors ?? []) fieldErrors[e.field] = e.message
+      setErrors(fieldErrors)
+      toast.error(err.problem.title || 'Request failed', err.problem.detail)
+    } else {
+      toast.error(fallback, err instanceof Error ? err.message : 'Unknown error.')
+    }
+  }
+
+  function save() {
+    // Client-side format checks mirror the server rules (immediate feedback).
+    const clientErrors = collectErrors({
+      phone: ['phone', form.phone],
+      email: ['email', form.email],
+      pincode: ['pincode', form.pincode],
+      ...(form.has_separate_gstin ? { gstin: ['gstin', form.gstin] as ['gstin', string] } : {}),
+    })
+    if (Object.keys(clientErrors).length) {
+      setErrors(clientErrors)
+      toast.error('Check the highlighted fields', 'Some values are not in the expected format.')
+      return
+    }
+    setErrors({})
+    // `code` is never sent: the server auto-generates it on create and it is
+    // immutable on edit (BranchUpdate has no code field).
+    const body: Record<string, unknown> = {
+      name: form.name.trim(),
+      branch_type: form.branch_type,
+      has_separate_gstin: form.has_separate_gstin,
+      gst_state_code: form.gst_state_code,
+      gstin: form.has_separate_gstin ? form.gstin.trim().toUpperCase() : null,
+      address_line1: form.address_line1.trim() || null,
+      pincode: form.pincode.trim() || null,
+      contact_person: form.contact_person.trim() || null,
+      phone: form.phone.trim() || null,
+      email: form.email.trim() || null,
+    }
+    if (editing) {
+      updateBranch.mutate(
+        { uid: editing.uid, body: { version: editing.version, ...body } },
+        {
+          onSuccess: () => {
+            toast.success('Branch updated', `${form.code} saved.`)
+            setFormOpen(false)
+          },
+          onError: (e) => handleError(e, 'Update failed'),
+        },
+      )
+    } else {
+      createBranch.mutate(body, {
+        onSuccess: (created) => {
+          toast.success('Branch created', `${created.code} added.`)
+          setFormOpen(false)
+        },
+        onError: (e) => handleError(e, 'Create failed'),
+      })
+    }
+  }
+
+  function toggleActive(b: Branch) {
+    if (b.is_active) {
+      deactivateBranch.mutate(
+        { uid: b.uid, body: { version: b.version } },
+        {
+          onSuccess: () => toast.success('Branch deactivated', `${b.name} is now inactive.`),
+          onError: (e) => handleError(e, 'Deactivate failed'),
+        },
+      )
+    } else {
+      restoreBranch.mutate(b.uid, {
+        onSuccess: () => toast.success('Branch restored', `${b.name} is active again.`),
+        onError: (e) => handleError(e, 'Restore failed'),
+      })
+    }
+  }
 
   const columns: Column<Branch>[] = [
-    { key: 'code', header: 'Code', sortable: true, width: '80px', render: (b) => <span className="font-mono text-xs font-medium">{b.code}</span> },
+    { key: 'code', header: 'Code', sortable: true, width: '90px', render: (b) => <span className="font-mono text-xs font-medium">{b.code}</span> },
     { key: 'name', header: 'Branch', sortable: true, render: (b) => <span className="font-medium text-fg">{b.name}</span> },
-    { key: 'branchType', header: 'Type', sortable: true, width: '130px', render: (b) => <Badge tone="neutral" size="sm" dot={false}>{b.branchType.replace(/_/g, ' ').toLowerCase()}</Badge> },
+    { key: 'branch_type', header: 'Type', sortable: true, width: '140px', render: (b) => <Badge tone="neutral" size="sm" dot={false}>{b.branch_type.replace(/_/g, ' ').toLowerCase()}</Badge> },
     {
       key: 'gstin',
       header: 'GSTIN',
-      width: '170px',
+      width: '180px',
       render: (b) => (b.gstin ? <span className="font-mono text-[11px]">{b.gstin}</span> : <span className="text-xs text-fg-subtle">Uses head office</span>),
     },
-    { key: 'city', header: 'City', sortable: true, width: '130px' },
-    { key: 'state', header: 'State', sortable: true, width: '130px', render: (b) => `${b.state} (${b.stateCode})` },
-    { key: 'pincode', header: 'PIN', width: '80px', defaultHidden: true },
-    { key: 'contactPerson', header: 'Contact', defaultHidden: true },
-    { key: 'phone', header: 'Phone', defaultHidden: true },
+    { key: 'gst_state_code', header: 'State', width: '80px', render: (b) => b.gst_state_code ?? '—' },
+    { key: 'version', header: 'Ver', align: 'right', width: '60px', defaultHidden: true },
     {
-      key: 'plants',
-      header: 'Plants',
-      align: 'right',
-      width: '70px',
-      accessor: (b) => plants.filter((p) => p.branchUid === b.uid).length,
-    },
-    {
-      key: 'warehouses',
-      header: 'Stores',
-      align: 'right',
-      width: '70px',
-      accessor: (b) => warehouses.filter((w) => w.branchUid === b.uid).length,
-    },
-    {
-      key: 'isActive',
+      key: 'is_active',
       header: 'Status',
-      width: '90px',
-      accessor: (b) => (b.isActive ? 'Active' : 'Inactive'),
-      render: (b) => <Badge tone={b.isActive ? 'success' : 'neutral'} size="sm">{b.isActive ? 'Active' : 'Inactive'}</Badge>,
+      width: '100px',
+      accessor: (b) => (b.is_active ? 'Active' : 'Inactive'),
+      render: (b) => <Badge tone={b.is_active ? 'success' : 'neutral'} size="sm">{b.is_active ? 'Active' : 'Inactive'}</Badge>,
     },
   ]
 
@@ -155,58 +230,115 @@ export function BranchesPage() {
     }
   }
 
+  const saving = createBranch.isPending || updateBranch.isPending
+
   return (
     <div>
       <PageHeader
         title="Branches"
         breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Organisation' }, { label: 'Branches' }]}
         actions={
-          <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => crud.openCreate()}>
+          <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={openCreate}>
             Add branch
           </Button>
         }
       />
 
       <HowItWorks>
-        A branch is one of your registered business addresses. Add a branch here before you can create
-        plants or stores under it. If a branch has its own GST number, stock moved to or from it counts
-        as a sale between locations and needs a tax invoice — so tick that box only when it is true.
+        Live data from the FastAPI backend (Organisation module). Branches are scoped to your signed-in
+        company; GSTIN is validated on the server (format, embedded PAN and state code).
       </HowItWorks>
+
+      {!companyUid && (
+        <Alert tone="warning" title="Not signed in to the backend">
+          Sign in first so the app has an API session, then this list will load.
+        </Alert>
+      )}
+
+      {error && (
+        <Alert tone="danger" title="Could not load branches">
+          {error instanceof ProblemError ? error.problem.detail : 'Is the backend running at the configured API URL?'}{' '}
+          <button className="underline" onClick={() => refetch()}>Retry</button>
+        </Alert>
+      )}
 
       <DataTable
         rows={rows}
         columns={columns}
         rowKey={(b) => b.uid}
-        searchPlaceholder="Branch name, code, GSTIN or city…"
+        loading={isLoading}
+        searchPlaceholder="Branch name, code or GSTIN…"
         onExport={doExport}
-        onRowClick={crud.openEdit}
+        onRowClick={openEdit}
         emptyTitle="No branches yet"
         emptyDescription="Add your first branch to start building the organisation."
         emptyAction={
-          <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => crud.openCreate()}>
+          <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={openCreate}>
             Add branch
           </Button>
         }
         rowActions={(b) => (
           <>
-            <MenuItem label="Edit" icon={<Pencil />} onClick={() => crud.openEdit(b)} />
-            <MenuItem label="View plants" onClick={() => navigate('/admin/plants')} />
-            <MenuItem label="View warehouses" onClick={() => navigate('/admin/warehouses')} />
+            <MenuItem label="Edit" icon={<Pencil />} onClick={() => openEdit(b)} />
             <MenuItem
-              label={b.isActive ? 'Deactivate' : 'Activate'}
-              icon={<Power />}
+              label={b.is_active ? 'Deactivate' : 'Restore'}
+              icon={b.is_active ? <Power /> : <RotateCcw />}
               separatorBefore
-              onClick={() => {
-                crud.update(b.uid, { isActive: !b.isActive } as Partial<Branch>)
-                toast.success(b.isActive ? 'Branch deactivated' : 'Branch activated', `${b.name} is now ${b.isActive ? 'inactive' : 'active'}.`)
-              }}
+              onClick={() => toggleActive(b)}
             />
-            <MenuItem label="Delete" icon={<Trash2 />} danger onClick={() => crud.askDelete(b)} />
           </>
         )}
       />
 
-      {crud.dialogs}
+      <Modal
+        open={formOpen}
+        onClose={() => setFormOpen(false)}
+        title={editing ? `Edit ${editing.code}` : 'Add branch'}
+        size="lg"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
+            <Button variant="primary" onClick={save} loading={saving}>
+              {editing ? 'Save changes' : 'Add branch'}
+            </Button>
+          </>
+        }
+      >
+        <div className="grid gap-3.5 sm:grid-cols-2">
+          <Input label="Branch code" value={form.code || 'auto…'} readOnly className="bg-surface-2"
+            hint="Auto-generated · not editable" onChange={() => {}} />
+          <Input label="Branch name" required value={form.name} error={errors.name} maxLength={150}
+            onChange={(e) => set({ name: e.target.value })} placeholder="Mumbai Depot" />
+          <Select label="Branch type" value={form.branch_type} error={errors.branch_type}
+            onChange={(e) => set({ branch_type: e.target.value })} options={BRANCH_TYPES} />
+          <Select label="State (GST code)" value={form.gst_state_code} error={errors.gst_state_code}
+            onChange={(e) => set({ gst_state_code: e.target.value })}
+            options={STATES.map((s) => ({ value: s.code, label: `${s.name} (${s.code})` }))} />
+          <div className="sm:col-span-2">
+            <Switch checked={form.has_separate_gstin} onChange={(v) => set({ has_separate_gstin: v })}
+              label="This branch has its own GST registration" />
+          </div>
+          {form.has_separate_gstin && (
+            <Input label="GSTIN" required containerClassName="sm:col-span-2" value={form.gstin} error={errors.gstin}
+              maxLength={15} placeholder="33AABCS1429B1ZP"
+              hint="Validated on the server: format, the PAN inside it, and the state code."
+              onChange={(e) => set({ gstin: e.target.value.toUpperCase() })} />
+          )}
+          <Input label="Address" containerClassName="sm:col-span-2" value={form.address_line1}
+            maxLength={200} placeholder="Plot 42, SIDCO Industrial Estate"
+            onChange={(e) => set({ address_line1: e.target.value })} />
+          <Input label="Pincode" value={form.pincode} error={errors.pincode} maxLength={6}
+            inputMode="numeric" placeholder="600001"
+            onChange={(e) => set({ pincode: e.target.value.replace(/[^0-9]/g, '') })} />
+          <Input label="Contact person" value={form.contact_person} maxLength={150}
+            onChange={(e) => set({ contact_person: e.target.value })} />
+          <Input label="Phone" type="tel" value={form.phone} error={errors.phone} maxLength={20}
+            inputMode="tel" placeholder="+91 98400 12345"
+            onChange={(e) => set({ phone: e.target.value })} />
+          <Input label="Email" type="email" value={form.email} error={errors.email} maxLength={150}
+            placeholder="branch@company.com" onChange={(e) => set({ email: e.target.value })} />
+        </div>
+      </Modal>
     </div>
   )
 }

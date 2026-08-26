@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus, Scale, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -15,7 +15,8 @@ import { useRowEdit } from '@/components/crud/RowEdit'
 import { DetailBlock, ProcStatusBadge } from '@/components/procurement/ProcShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatCurrency, formatDate } from '@/lib/format'
-import { newUid, useCollection } from '@/store/data'
+import { useCollection } from '@/store/data'
+import { quotations as seedQuotations, rfqs as seedRfqs } from '@/mock/procurement'
 import {
   GST_PCT,
   invitedVendorsAwaitingQuote,
@@ -24,7 +25,6 @@ import {
   quotableRfqs,
   quotationTotals,
 } from '@/lib/procFlow'
-import { quotations as seedQuotations, rfqs as seedRfqs } from '@/mock/procurement'
 import type { QuotationLine, Rfq, SupplierQuotation } from '@/types/procurement'
 
 /**
@@ -50,16 +50,17 @@ interface LineEntry {
 export function QuotationsPage() {
   const toast = useToast()
   const qSeed = useMemo(() => seedQuotations, [])
-  const rfqSeed = useMemo(() => seedRfqs, [])
-
   const { rows, create, update, remove } = useCollection<SupplierQuotation>('proc:sq', qSeed)
+
+  const rfqSeed = useMemo(() => seedRfqs, [])
+  const { rows: rfqs, update: updateRfq } = useCollection<Rfq>('proc:rfqs', rfqSeed)
+
   const rowEdit = useRowEdit<SupplierQuotation>({
     key: 'proc:sq',
-    seed: qSeed,
+    seed: [],
     entity: 'Quotation',
     titleOf: (r) => r.docNo,
   })
-  const { rows: rfqs, update: updateRfq } = useCollection<Rfq>('proc:rfq', rfqSeed)
 
   const [tab, setTab] = useState('all')
   const [detail, setDetail] = useState<SupplierQuotation | null>(null)
@@ -171,7 +172,6 @@ export function QuotationsPage() {
     const leadTimeDays = Math.max(...built.map((l) => l.leadTimeDays), 0)
 
     create({
-      uid: newUid('sq'),
       docNo,
       docDate: new Date().toISOString().slice(0, 10),
       rfqNo,

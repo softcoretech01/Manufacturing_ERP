@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { AlertTriangle, ArrowRight, ClipboardCheck, FileWarning, Gauge, IndianRupee, PackageX, Ruler, ShieldAlert, TrendingUp } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -6,7 +6,15 @@ import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { PageHeader, ProgressBar, Section, StatTile } from '@/components/ui/Misc'
-import { ChartTip, DispositionBadge, GradeBadge, NcrStatusBadge, SeverityBadge, StageBadge, useQualityData } from '@/components/quality/QmsShell'
+import { ChartTip, DispositionBadge, GradeBadge, NcrStatusBadge, SeverityBadge, StageBadge } from '@/components/quality/QmsShell'
+import { inspectionsApi } from '@/api/inspections'
+import { ncrsApi } from '@/api/ncrs'
+import { capasApi } from '@/api/capas'
+import { complaintsApi } from '@/api/complaints'
+import { auditsApi } from '@/api/audits'
+import { instrumentsApi } from '@/api/instruments'
+import { supplierQualityApi } from '@/api/supplierQuality'
+import type { Inspection, Ncr, Capa, Complaint, QualityAudit, Instrument, SupplierQualityRecord } from '@/types/quality'
 import { cn } from '@/lib/cn'
 import { formatAmount, formatCompact, formatDate } from '@/lib/format'
 import {
@@ -22,7 +30,7 @@ import {
   rejectionPct,
   scoreSupplier,
 } from '@/lib/qmsFlow'
-import { qualityTrend } from '@/mock/quality'
+
 
 /**
  * Quality dashboard (Ch 4 and 21).
@@ -34,33 +42,65 @@ import { qualityTrend } from '@/mock/quality'
 
 export function QualityDashboardPage() {
   const navigate = useNavigate()
-  const { inspections, ncrs, capas, complaints, instruments, supplierQuality, audits } = useQualityData()
+
+  const [inspectionsRows, setInspectionsRows] = useState<Inspection[]>([])
+  const [ncrsRows, setNcrsRows] = useState<Ncr[]>([])
+  const [capasRows, setCapasRows] = useState<Capa[]>([])
+  const [complaintsRows, setComplaintsRows] = useState<Complaint[]>([])
+  const [auditsRows, setAuditsRows] = useState<QualityAudit[]>([])
+  const [instrumentsRows, setInstrumentsRows] = useState<Instrument[]>([])
+  const [supplierQualityRows, setSupplierQualityRows] = useState<SupplierQualityRecord[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    Promise.all([
+      inspectionsApi.getAll(),
+      ncrsApi.getAll(),
+      capasApi.getAll(),
+      complaintsApi.getAll(),
+      auditsApi.getAll(),
+      instrumentsApi.getAll(),
+      supplierQualityApi.getAll(),
+    ]).then(([i, n, c, cm, a, inst, sq]) => {
+      setInspectionsRows(i)
+      setNcrsRows(n)
+      setCapasRows(c)
+      setComplaintsRows(cm)
+      setAuditsRows(a)
+      setInstrumentsRows(inst)
+      setSupplierQualityRows(sq)
+      setLoading(false)
+    }).catch((err) => {
+      console.error(err)
+      setLoading(false)
+    })
+  }, [])
 
   const kpis = useMemo(() => {
-    const done = inspections.rows.filter((i) => i.status === 'COMPLETED')
+    const done = inspectionsRows.filter((i) => i.status === 'COMPLETED')
     const incoming = done.filter((i) => i.stage === 'IQC')
-    const openInspections = inspections.rows.filter((i) => i.status !== 'COMPLETED' && i.status !== 'CANCELLED')
-    const blockedByCalibration = openInspections.filter((i) => calibrationBlocks(i, instruments.rows).length > 0)
+    const openInspections = inspectionsRows.filter((i) => i.status !== 'COMPLETED' && i.status !== 'CANCELLED')
+    const blockedByCalibration = openInspections.filter((i) => calibrationBlocks(i, instrumentsRows).length > 0)
 
-    const openNcrs = ncrs.rows.filter((n) => !['CLOSED', 'CANCELLED'].includes(n.status))
-    const capaStats = capaClosureDays(capas.rows)
-    const openComplaints = complaints.rows.filter((c) => !['CLOSED', 'REJECTED'].includes(c.status))
+    const openNcrs = ncrsRows.filter((n) => !['CLOSED', 'CANCELLED'].includes(n.status))
+    const capaStats = capaClosureDays(capasRows)
+    const openComplaints = complaintsRows.filter((c) => !['CLOSED', 'REJECTED'].includes(c.status))
 
-    const dueInstruments = instruments.rows.filter((i) => ['DUE', 'OVERDUE'].includes(instrumentStatus(i)))
-    const overdueInstruments = instruments.rows.filter((i) => instrumentStatus(i) === 'OVERDUE')
+    const dueInstruments = instrumentsRows.filter((i) => ['DUE', 'OVERDUE'].includes(instrumentStatus(i)))
+    const overdueInstruments = instrumentsRows.filter((i) => instrumentStatus(i) === 'OVERDUE')
 
     const internalRejected = done.filter((i) => i.stage !== 'IQC').reduce((s, i) => s + i.rejectedQty, 0)
     const internalInspected = done.filter((i) => i.stage !== 'IQC').reduce((s, i) => s + i.lotSize, 0)
     const supplierRejected = incoming.reduce((s, i) => s + i.rejectedQty, 0)
     const supplierInspected = incoming.reduce((s, i) => s + i.lotSize, 0)
 
-    const openFindings = audits.rows.flatMap((a) => a.findings).filter((f) => f.grade !== 'CONFORMS' && !f.closedOn)
+    const openFindings = auditsRows.flatMap((a) => a.findings).filter((f) => f.grade !== 'CONFORMS' && !f.closedOn)
 
     return {
-      fpy: firstPassYield(inspections.rows),
-      acceptance: acceptanceRate(inspections.rows),
+      fpy: firstPassYield(inspectionsRows),
+      acceptance: acceptanceRate(inspectionsRows),
       incomingAcceptance: acceptanceRate(incoming),
-      rejection: rejectionPct(inspections.rows),
+      rejection: rejectionPct(inspectionsRows),
       internalPpm: ppm(internalRejected, internalInspected),
       supplierPpm: ppm(supplierRejected, supplierInspected),
       openInspections,
@@ -73,11 +113,11 @@ export function QualityDashboardPage() {
       dueInstruments,
       overdueInstruments,
       openFindings,
-      copq: copq(ncrs.rows, complaints.rows),
-      pareto: paretoOf(inspections.rows),
-      suppliers: supplierQuality.rows.map(scoreSupplier).sort((a, b) => a.score - b.score),
+      copq: copq(ncrsRows, complaintsRows),
+      pareto: paretoOf(inspectionsRows),
+      suppliers: supplierQualityRows.map(scoreSupplier).sort((a, b) => a.score - b.score),
     }
-  }, [inspections.rows, ncrs.rows, capas.rows, complaints.rows, instruments.rows, supplierQuality.rows, audits.rows])
+  }, [inspectionsRows, ncrsRows, capasRows, complaintsRows, instrumentsRows, supplierQualityRows, auditsRows])
 
   const actionQueue = [
     { label: 'Inspections waiting on a result', count: kpis.openInspections.length, to: '/quality/inspections', icon: ClipboardCheck, tone: 'pending' as const },
@@ -90,7 +130,46 @@ export function QualityDashboardPage() {
     { label: 'Audit findings still open', count: kpis.openFindings.length, to: '/quality/ncr', icon: Gauge, tone: 'progress' as const },
   ]
 
+  const liveQualityTrend = useMemo(() => {
+    const months = []
+    const now = new Date()
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const monthLabel = d.toLocaleString('en-US', { month: 'short' })
+      const year = d.getFullYear()
+      const monthIndex = d.getMonth()
+      
+      const isSameMonth = (dateStr: string) => {
+        const dt = new Date(dateStr)
+        return dt.getFullYear() === year && dt.getMonth() === monthIndex
+      }
+      
+      const inspThisMonth = inspectionsRows.filter(x => x.createdAt && isSameMonth(x.createdAt))
+      const fpy = firstPassYield(inspThisMonth)
+      
+      const iqcThisMonth = inspThisMonth.filter(x => x.stage === 'IQC')
+      const iqcAcceptance = iqcThisMonth.length > 0 ? (iqcThisMonth.filter(x => x.disposition === 'ACCEPTED').length / iqcThisMonth.length) * 100 : 0
+      
+      const inspInspected = inspThisMonth.reduce((s, x) => s + x.lotSize, 0)
+      const inspRejected = inspThisMonth.reduce((s, x) => s + x.rejectedQty, 0)
+      const internalPpm = ppm(inspRejected, inspInspected)
+      
+      const supplierPpm = iqcThisMonth.length > 0 ? ppm(iqcThisMonth.reduce((s, x) => s + x.rejectedQty, 0), iqcThisMonth.reduce((s, x) => s + x.lotSize, 0)) : 0
+      
+      months.push({
+        month: monthLabel,
+        fpyPct: fpy.fpyPct || 0,
+        incomingAcceptPct: iqcAcceptance,
+        internalPpm: internalPpm,
+        supplierPpm: supplierPpm,
+      })
+    }
+    return months
+  }, [inspectionsRows])
+
   const paretoChart = kpis.pareto.slice(0, 8).map((p) => ({ name: p.code, Quantity: p.qty, Cumulative: Number(p.cumulativePct.toFixed(1)) }))
+
+  if (loading) return <div className="p-8 text-center text-fg-subtle">Loading dashboard data...</div>
 
   return (
     <div>
@@ -134,7 +213,7 @@ export function QualityDashboardPage() {
           <CardHeader title="Quality trend" description="First pass yield and incoming acceptance against internal and supplier PPM" />
           <CardBody className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={qualityTrend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <ComposedChart data={liveQualityTrend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" vertical={false} />
                 <XAxis dataKey="month" tick={{ fontSize: 10, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} />
                 <YAxis yAxisId="l" domain={[85, 100]} unit="%" tick={{ fontSize: 10, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} width={42} />
@@ -183,7 +262,7 @@ export function QualityDashboardPage() {
                   <thead><tr><th>NCR</th><th>Issue</th><th style={{ width: '6.5rem' }}>Severity</th><th className="text-right" style={{ width: '8rem' }}>Cost</th><th style={{ width: '8rem' }}>Due</th><th style={{ width: '11rem' }}>Status</th></tr></thead>
                   <tbody>
                     {kpis.openNcrs.map((n) => (
-                      <tr key={n.uid} className={overdueDays(n.dueOn, n.closedOn) > 0 ? 'bg-danger/5' : undefined}>
+                      <tr key={n.docNo} className={overdueDays(n.dueOn, n.closedOn) > 0 ? 'bg-danger/5' : undefined}>
                         <td className="font-mono text-2xs font-medium text-brand-600">{n.docNo}</td>
                         <td><p className="max-w-[18rem] truncate text-xs text-fg">{n.title}</p><p className="font-mono text-2xs text-fg-subtle">{n.itemCode}</p></td>
                         <td><SeverityBadge severity={n.severity} /></td>
@@ -205,7 +284,7 @@ export function QualityDashboardPage() {
             <CardBody className="space-y-2.5">
               {!kpis.dueInstruments.length ? (<p className="text-xs text-fg-subtle">Every instrument is inside its calibration interval.</p>) : (
                 kpis.dueInstruments.slice(0, 5).map((i) => (
-                  <Link key={i.uid} to="/quality/calibration" className="flex items-center justify-between gap-3 border-b border-border pb-2.5 last:border-0 last:pb-0">
+                  <Link key={i.code} to="/quality/calibration" className="flex items-center justify-between gap-3 border-b border-border pb-2.5 last:border-0 last:pb-0">
                     <div className="min-w-0"><p className="truncate text-xs font-medium text-fg">{i.name}</p><p className="font-mono text-2xs text-fg-subtle">{i.code} · due {formatDate(i.nextDueOn)}</p></div>
                     <Badge tone={instrumentStatus(i) === 'OVERDUE' ? 'danger' : 'warning'} size="sm">{instrumentStatus(i) === 'OVERDUE' ? 'Overdue' : 'Due'}</Badge>
                   </Link>
@@ -217,7 +296,7 @@ export function QualityDashboardPage() {
           <Card>
             <CardHeader title="Weakest suppliers" description="By computed score" />
             <CardBody className="space-y-2.5">
-              {kpis.suppliers.slice(0, 4).map((s) => (
+              {kpis.suppliers.slice(0, 4).map((s: any) => (
                 <Link key={s.supplierCode} to="/quality/suppliers" className="block border-b border-border pb-2.5 last:border-0 last:pb-0">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0"><p className="truncate text-xs font-medium text-fg">{s.supplierName}</p><p className="font-mono text-2xs text-fg-subtle">{s.supplierCode} · {Math.round(s.ppm).toLocaleString('en-IN')} PPM</p></div>
@@ -249,12 +328,12 @@ export function QualityDashboardPage() {
                   <thead><tr><th>Inspection</th><th style={{ width: '7.5rem' }}>Stage</th><th>Item</th><th style={{ width: '11rem' }}>Disposition</th><th>Instrument out of calibration</th></tr></thead>
                   <tbody>
                     {kpis.blockedByCalibration.map((i) => (
-                      <tr key={i.uid}>
+                      <tr key={i.docNo}>
                         <td className="font-mono text-2xs font-medium text-brand-600">{i.docNo}</td>
                         <td><StageBadge stage={i.stage} /></td>
                         <td className="text-xs">{i.itemCode}</td>
                         <td><DispositionBadge disposition={i.disposition} /></td>
-                        <td className="text-2xs text-danger">{calibrationBlocks(i, instruments.rows).map((b) => `${b.instrumentCode} (${b.status.toLowerCase()})`).join(', ')}</td>
+                        <td className="text-2xs text-danger">{calibrationBlocks(i, instrumentsRows).map((b) => `${b.instrumentCode} (${b.status.toLowerCase()})`).join(', ')}</td>
                       </tr>
                     ))}
                   </tbody>

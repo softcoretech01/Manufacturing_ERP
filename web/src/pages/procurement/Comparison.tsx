@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Award, Download, Printer, Trophy } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -11,8 +11,8 @@ import { useToast } from '@/components/ui/Toast'
 import { exportRows, type ExportFormat } from '@/lib/export'
 import { formatCurrency, formatDate } from '@/lib/format'
 import { useCollection } from '@/store/data'
-import { comparableRfqs, MIN_QUOTES_TO_COMPARE, scoreQuotations, type ScoredQuotation } from '@/lib/procFlow'
 import { quotations as seedQuotations, rfqs as seedRfqs } from '@/mock/procurement'
+import { comparableRfqs, MIN_QUOTES_TO_COMPARE, scoreQuotations, type ScoredQuotation } from '@/lib/procFlow'
 import type { Rfq, SupplierQuotation } from '@/types/procurement'
 import { cn } from '@/lib/cn'
 
@@ -41,10 +41,10 @@ export function ComparisonPage() {
   const toast = useToast()
   const navigate = useNavigate()
   const qSeed = useMemo(() => seedQuotations, [])
-  const rfqSeed = useMemo(() => seedRfqs, [])
-
   const { rows: quotations, update: updateQuotation } = useCollection<SupplierQuotation>('proc:sq', qSeed)
-  const { rows: rfqs, update: updateRfq } = useCollection<Rfq>('proc:rfq', rfqSeed)
+  
+  const rfqSeed = useMemo(() => seedRfqs, [])
+  const { rows: rfqs, update: updateRfq } = useCollection<Rfq>('proc:rfqs', rfqSeed)
 
   const ready = comparableRfqs(rfqs, quotations)
   const [rfqNo, setRfqNo] = useState('')
@@ -77,23 +77,33 @@ export function ComparisonPage() {
     return c.better === 'lower' ? Math.min(...vals) : Math.max(...vals)
   }
 
-  function confirmAward() {
+  async function confirmAward() {
     if (!awarding || !active) return
     if (!awarding.isBestOverall && !reason.trim()) {
       toast.error('Reason required', 'Selecting a vendor other than the recommended one has to be justified.')
       return
     }
-    onTable.forEach((q) => {
-      updateQuotation(q.uid, {
-        status: q.uid === awarding.quotation.uid ? 'AWARDED' : 'REGRETTED',
-        rank: scored.find((s) => s.quotation.uid === q.uid)?.rank ?? 0,
-        totalScore: Math.round(scored.find((s) => s.quotation.uid === q.uid)?.totalScore ?? 0),
+
+    try {
+      onTable.forEach((q) => {
+        updateQuotation(q.uid.toString(), {
+          status: q.uid === awarding.quotation.uid ? 'AWARDED' : 'REGRETTED',
+          rank: scored.find((s) => s.quotation.uid === q.uid)?.rank ?? 0,
+          totalScore: Math.round(scored.find((s) => s.quotation.uid === q.uid)?.totalScore ?? 0),
+        })
       })
-    })
-    updateRfq(active.uid, { status: 'COMPLETED', awardedTo: awarding.quotation.supplierName })
-    toast.success('Vendor selected', `${awarding.quotation.supplierName} selected on ${active.docNo}. You can raise the purchase order now.`)
-    setAwarding(null)
-    setReason('')
+
+      updateRfq(active.uid.toString(), { 
+        status: 'COMPLETED', 
+        awardedTo: awarding.quotation.supplierName 
+      })
+
+      toast.success('Vendor selected', `${awarding.quotation.supplierName} selected on ${active.docNo}. You can raise the purchase order now.`)
+      setAwarding(null)
+      setReason('')
+    } catch (e) {
+      toast.error('Error', 'Failed to update award')
+    }
   }
 
   function doExport(format: ExportFormat) {

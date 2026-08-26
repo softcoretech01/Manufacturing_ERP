@@ -46,8 +46,14 @@ def configure_logging() -> None:
         stream=sys.stdout,
         level=logging.DEBUG if settings.debug else logging.INFO,
     )
-    for noisy in ("uvicorn.access", "aiomysql", "sqlalchemy.engine.Engine"):
+    # Per-query DB chatter stays quiet; uvicorn's access log (the per-request
+    # "GET ... 200 OK" lines) is silenced only outside dev so it's visible while
+    # developing but not noisy in production JSON logs.
+    for noisy in ("aiomysql", "sqlalchemy.engine.Engine"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.access").setLevel(
+        logging.INFO if settings.app_env == "dev" else logging.WARNING
+    )
 
     processors: list[Any] = [
         structlog.contextvars.merge_contextvars,

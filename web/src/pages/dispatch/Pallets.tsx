@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -8,13 +8,14 @@ import { MenuItem } from '@/components/ui/Menu'
 import { PageHeader, ProgressBar } from '@/components/ui/Misc'
 import { Tabs } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
-import { useCrud } from '@/components/crud/CrudKit'
 import { CountBar, DispatchStatusBadge, PartyCell, WeightCell } from '@/components/dispatch/DispatchShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/cn'
-import { useCollection } from '@/store/data'
-import { cartons as seedCartons, pallets as seedPallets } from '@/mock/dispatch'
+import { palletApi } from '@/api/palletApi'
+import { cartonApi } from '@/api/cartonApi'
+import { Modal } from '@/components/ui/Modal'
+import { Field, Input, Select } from '@/components/ui/Input'
 import type { Carton, Pallet } from '@/types/dispatch'
 
 const TYPE_LABEL: Record<string, string> = {
@@ -39,65 +40,91 @@ const TABS = [
 export function PalletsPage() {
   const toast = useToast()
   const navigate = useNavigate()
-  const seed = useMemo(() => seedPallets, [])
-  const cartonSeed = useMemo(() => seedCartons, [])
 
-  const crud = useCrud<Pallet>({
-    key: 'dispatch:pallet',
-    seed,
-    entity: 'Pallet',
-    titleOf: (p) => p.palletNo,
-    fields: [
-      { name: 'palletNo', label: 'Pallet number', required: true, readOnly: true },
-      {
-        name: 'palletType',
-        label: 'Pallet type',
-        type: 'select',
-        required: true,
-        options: Object.entries(TYPE_LABEL).map(([value, label]) => ({ value, label })),
-        hint: 'Export pallets must be heat-treated and ISPM-15 stamped',
-      },
-      { name: 'customer', label: 'Customer', required: true },
-      { name: 'destination', label: 'Destination', required: true, span: 2 },
-      { name: 'cartonCapacity', label: 'Carton capacity', type: 'number', required: true },
-      { name: 'lengthMm', label: 'Length (mm)', type: 'number', required: true },
-      { name: 'widthMm', label: 'Width (mm)', type: 'number', required: true },
-      { name: 'stackHeightMm', label: 'Maximum stack height (mm)', type: 'number', required: true, hint: 'Container door height limits this — 2,300 mm for a 40 ft high cube' },
-      { name: 'builtBy', label: 'Built by', required: true },
-    ],
-    fromForm: (v, existing) => ({
-      ...(existing ?? {
-        palletNo: v.palletNo,
-        barcode: `(00)3890123400000${v.palletNo.slice(-4)}`,
-        cartonCount: 0,
-        totalWeightKg: v.palletType === 'EXPORT' ? 28 : 22,
-        builtOn: new Date().toISOString(),
-        wrapped: false,
-        strapped: false,
-        labelPrinted: false,
-        shipmentNo: null,
-        containerNo: null,
-        status: 'BUILDING' as const,
-      }),
-      palletType: v.palletType as Pallet['palletType'],
-      customer: v.customer,
-      destination: v.destination,
-      cartonCapacity: Number(v.cartonCapacity) || 0,
-      lengthMm: Number(v.lengthMm) || 0,
-      widthMm: Number(v.widthMm) || 0,
-      stackHeightMm: Number(v.stackHeightMm) || 0,
-      builtBy: v.builtBy,
-    }),
-    blockDelete: (p) =>
-      p.cartonCount > 0
-        ? `${p.palletNo} holds ${p.cartonCount} cartons. Take them off first — deleting the pallet would leave the cartons pointing at nothing.`
-        : p.status === 'LOADED' || p.status === 'SHIPPED'
-          ? `${p.palletNo} has already been ${p.status.toLowerCase()} and is part of a delivery record.`
-          : undefined,
-  })
+  const [pallets, setPallets] = useState<Pallet[]>([])
+  const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState<Partial<Pallet> | null>(null)
+  const [isNew, setIsNew] = useState(false)
+  const [cartons, setCartons] = useState<Carton[]>([])
 
-  const pallets = crud.rows
-  const { rows: cartons, update: updateCarton } = useCollection<Carton>('dispatch:carton', cartonSeed)
+  const fetchPallets = async () => {
+    setLoading(true)
+    try {
+      const [palletsData, cartonsData] = await Promise.all([
+        palletApi.getAll(),
+        cartonApi.getAll()
+      ])
+      setPallets(palletsData)
+      setCartons(cartonsData)
+    } catch (e) {
+      toast.error('Failed to load data', e instanceof Error ? e.message : 'Unknown error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchPallets()
+  }, [])
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editing) return
+    try {
+      if (isNew) {
+        await palletApi.create({
+          ...editing,
+          palletNo: 'AUTO',
+          builtOn: new Date().toISOString(),
+          cartonCount: 0,
+          totalWeightKg: editing.palletType === 'EXPORT' ? 28 : 22,
+          wrapped: false,
+          strapped: false,
+          labelPrinted: false,
+          status: 'BUILDING'
+        })
+        toast.success('Pallet created successfully', 'The pallet has been recorded.')
+      } else {
+        await palletApi.update((editing as any).id, editing)
+        toast.success('Pallet updated successfully', 'The pallet details have been saved.')
+      }
+      setEditing(null)
+      fetchPallets()
+    } catch (err) {
+      toast.error('Failed to save', err instanceof Error ? err.message : 'Unknown error')
+    }
+  }
+
+  const handleDelete = async (p: Pallet) => {
+    if (p.cartonCount > 0) {
+      toast.error('Cannot delete', `${p.palletNo} holds ${p.cartonCount} cartons. Take them off first.`)
+      return
+    }
+    if (p.status === 'LOADED' || p.status === 'SHIPPED') {
+      toast.error('Cannot delete', `${p.palletNo} has already been ${p.status.toLowerCase()}.`)
+      return
+    }
+    if (confirm(`Are you sure you want to delete pallet ${p.palletNo}?`)) {
+      try {
+        await palletApi.delete((p as any).id)
+        toast.success('Pallet deleted', `${p.palletNo} has been removed.`)
+        fetchPallets()
+      } catch (err) {
+        toast.error('Failed to delete', err instanceof Error ? err.message : 'Unknown error')
+      }
+    }
+  }
+
+  const updateStatus = async (p: Pallet, changes: Partial<Pallet>) => {
+    try {
+      await palletApi.update((p as any).id, { ...p, ...changes })
+      fetchPallets()
+    } catch (err) {
+      toast.error('Update failed', err instanceof Error ? err.message : 'Unknown error')
+    }
+  }
+
+
 
   const [tab, setTab] = useState('ALL')
 
@@ -184,15 +211,18 @@ export function PalletsPage() {
             <Button
               variant="primary"
               size="sm"
-              onClick={() => crud.openCreate({
-                palletNo: `PLT/2607/${String(215 + pallets.length).padStart(4, '0')}`,
-                palletType: 'STANDARD',
-                cartonCapacity: '40',
-                lengthMm: '1200',
-                widthMm: '1000',
-                stackHeightMm: '1800',
-                builtBy: 'A. Ramesh',
-              })}
+              onClick={() => {
+                setIsNew(true)
+                setEditing({
+                  palletNo: `PLT/2607/${String(215 + pallets.length).padStart(4, '0')}`,
+                  palletType: 'STANDARD',
+                  cartonCapacity: 40,
+                  lengthMm: 1200,
+                  widthMm: 1000,
+                  stackHeightMm: 1800,
+                  builtBy: 'A. Ramesh',
+                })
+              }}
             >
               Start a pallet
             </Button>
@@ -219,7 +249,7 @@ export function PalletsPage() {
           {building.map((p) => {
             const blocker = closeBlocker(p)
             return (
-              <Card key={p.uid}>
+              <Card key={(p as any).id || p.uid}>
                 <CardHeader
                   title={`${p.palletNo} · ${TYPE_LABEL[p.palletType]}`}
                   description={`${p.customer} → ${p.destination}`}
@@ -232,7 +262,7 @@ export function PalletsPage() {
                           toast.error('Cannot close the pallet', `${blocker}. Finish that first — a pallet that ships unwrapped arrives as loose cartons.`)
                           return
                         }
-                        crud.update(p.uid, { status: 'CLOSED' })
+                        updateStatus(p, { status: 'CLOSED' })
                         toast.success('Pallet closed', `${p.palletNo} closed with ${p.cartonCount} cartons at ${p.totalWeightKg} kg. It can now be staged for loading.`)
                       }}
                     >
@@ -257,7 +287,7 @@ export function PalletsPage() {
                       variant={p.wrapped ? 'success' : 'outline'}
                       size="sm"
                       onClick={() => {
-                        crud.update(p.uid, { wrapped: !p.wrapped })
+                        updateStatus(p, { wrapped: !p.wrapped })
                         toast.success(p.wrapped ? 'Wrap removed' : 'Pallet wrapped', `${p.palletNo} — stretch film ${p.wrapped ? 'recorded as removed' : 'applied'}.`)
                       }}
                     >
@@ -267,7 +297,7 @@ export function PalletsPage() {
                       variant={p.strapped ? 'success' : 'outline'}
                       size="sm"
                       onClick={() => {
-                        crud.update(p.uid, { strapped: !p.strapped })
+                        updateStatus(p, { strapped: !p.strapped })
                         toast.success(p.strapped ? 'Straps removed' : 'Pallet strapped', `${p.palletNo} — PP straps ${p.strapped ? 'recorded as cut' : 'applied'}.`)
                       }}
                     >
@@ -277,7 +307,7 @@ export function PalletsPage() {
                       variant={p.labelPrinted ? 'success' : 'outline'}
                       size="sm"
                       onClick={() => {
-                        crud.update(p.uid, { labelPrinted: true })
+                        updateStatus(p, { labelPrinted: true })
                         toast.success('Pallet label printed', `SSCC ${p.barcode} printed for ${p.palletNo}. One scan at the customer's dock books the whole pallet in.`)
                       }}
                     >
@@ -295,7 +325,8 @@ export function PalletsPage() {
       <DataTable
         rows={visible}
         columns={columns}
-        rowKey={(p) => p.uid}
+        rowKey={(p) => String((p as any).id || p.uid)}
+        loading={loading}
         searchPlaceholder="Search pallet, customer, destination or SSCC…"
         onExport={doExport}
         emptyTitle="No pallets"
@@ -305,8 +336,8 @@ export function PalletsPage() {
         )}
         rowActions={(p) => (
           <>
-            <MenuItem label="Edit the pallet" onClick={() => crud.openEdit(p)} />
-            <MenuItem label="Delete the pallet" danger onClick={() => crud.askDelete(p)} />
+            <MenuItem label="Edit the pallet" onClick={() => { setIsNew(false); setEditing(p) }} />
+            <MenuItem label="Delete the pallet" danger onClick={() => handleDelete(p)} />
             <MenuItem
               separatorBefore
               label="Close the pallet"
@@ -317,7 +348,7 @@ export function PalletsPage() {
                   toast.error('Cannot close the pallet', `${blocker}.`)
                   return
                 }
-                crud.update(p.uid, { status: 'CLOSED' })
+                updateStatus(p, { status: 'CLOSED' })
                 toast.success('Pallet closed', `${p.palletNo} closed with ${p.cartonCount} cartons.`)
               }}
             />
@@ -325,14 +356,14 @@ export function PalletsPage() {
               label="Move to dispatch staging"
               disabled={p.status !== 'CLOSED'}
               onClick={() => {
-                crud.update(p.uid, { status: 'STAGED' })
+                updateStatus(p, { status: 'STAGED' })
                 toast.success('Pallet staged', `${p.palletNo} moved to the dispatch staging area and is ready for a loading sheet.`)
               }}
             />
             <MenuItem
               label="Print the pallet label"
               onClick={() => {
-                crud.update(p.uid, { labelPrinted: true })
+                updateStatus(p, { labelPrinted: true })
                 toast.success('Pallet label printed', `SSCC ${p.barcode} sent to the printer.`)
               }}
             />
@@ -344,8 +375,9 @@ export function PalletsPage() {
               disabled={p.status === 'SHIPPED' || p.status === 'LOADED' || p.cartonCount === 0}
               onClick={() => {
                 const on = cartons.filter((c) => c.palletNo === p.palletNo)
-                for (const c of on) updateCarton(c.uid, { palletNo: null, status: 'SEALED' })
-                crud.update(p.uid, { cartonCount: 0, totalWeightKg: p.palletType === 'EXPORT' ? 28 : 22, wrapped: false, strapped: false, status: 'BUILDING' })
+                Promise.all(on.map(c => cartonApi.update((c as any).id, { palletNo: null, status: 'SEALED' }))).then(() => {
+                  updateStatus(p, { cartonCount: 0, totalWeightKg: p.palletType === 'EXPORT' ? 28 : 22, wrapped: false, strapped: false, status: 'BUILDING' })
+                })
                 toast.success(
                   'Pallet broken down',
                   `${on.length} carton${on.length === 1 ? '' : 's'} released from ${p.palletNo} and back to loose. The pallet is empty and can be rebuilt.`,
@@ -356,7 +388,99 @@ export function PalletsPage() {
         )}
       />
 
-      {crud.dialogs}
+            <Modal
+        open={!!editing}
+        onClose={() => setEditing(null)}
+        title={isNew ? 'Add pallet' : 'Edit pallet'}
+      >
+        <form onSubmit={handleSave} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Pallet number" required>
+              <Input type="text" value={editing?.palletNo || ''} readOnly disabled />
+            </Field>
+            <Field label="Pallet type" required hint="Export pallets must be heat-treated and ISPM-15 stamped">
+              <Select
+                value={editing?.palletType || ''}
+                onChange={(e) => setEditing({ ...editing, palletType: e.target.value as any })}
+                required
+              >
+                {Object.entries(TYPE_LABEL).map(([val, label]) => (
+                  <option key={val} value={val}>{label}</option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <Field label="Customer" required>
+            <Input
+              type="text"
+              value={editing?.customer || ''}
+              onChange={(e) => setEditing({ ...editing, customer: e.target.value })}
+              required
+              maxLength={255}
+            />
+          </Field>
+          <Field label="Destination" required>
+            <Input
+              type="text"
+              value={editing?.destination || ''}
+              onChange={(e) => setEditing({ ...editing, destination: e.target.value })}
+              required
+              maxLength={255}
+            />
+          </Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Carton capacity" required>
+              <Input
+                type="number"
+                value={editing?.cartonCapacity || ''}
+                onChange={(e) => setEditing({ ...editing, cartonCapacity: Number(e.target.value) })}
+                required
+              />
+            </Field>
+            <Field label="Length (mm)" required>
+              <Input
+                type="number"
+                value={editing?.lengthMm || ''}
+                onChange={(e) => setEditing({ ...editing, lengthMm: Number(e.target.value) })}
+                required
+              />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Width (mm)" required>
+              <Input
+                type="number"
+                value={editing?.widthMm || ''}
+                onChange={(e) => setEditing({ ...editing, widthMm: Number(e.target.value) })}
+                required
+              />
+            </Field>
+            <Field label="Maximum stack height (mm)" required hint="Container door height limits this — 2,300 mm for a 40 ft high cube">
+              <Input
+                type="number"
+                value={editing?.stackHeightMm || ''}
+                onChange={(e) => setEditing({ ...editing, stackHeightMm: Number(e.target.value) })}
+                required
+              />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Built by" required>
+              <Input
+                type="text"
+                value={editing?.builtBy || ''}
+                onChange={(e) => setEditing({ ...editing, builtBy: e.target.value })}
+                required
+                maxLength={100}
+              />
+            </Field>
+          </div>
+          <div className="flex justify-end gap-2 pt-4">
+            <Button variant="outline" type="button" onClick={() => setEditing(null)}>Cancel</Button>
+            <Button variant="primary" type="submit">{isNew ? 'Add pallet' : 'Save'}</Button>
+          </div>
+        </form>
+      </Modal>
 
       <Card className="mt-4">
         <CardHeader title="Four kinds of pallet, four different rules" />

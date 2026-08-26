@@ -1,0 +1,51 @@
+USE ERP_Quality;
+
+CREATE TABLE IF NOT EXISTS Ncr (
+    Id INT AUTO_INCREMENT PRIMARY KEY,
+    DocNo VARCHAR(50) NOT NULL UNIQUE,
+    Source VARCHAR(50) NOT NULL,
+    Severity VARCHAR(20) NOT NULL,
+    Title VARCHAR(255) NOT NULL,
+    Description TEXT,
+    ItemCode VARCHAR(50),
+    ItemName VARCHAR(255),
+    BatchNo VARCHAR(50),
+    OriginDocNo VARCHAR(50),
+    SupplierCode VARCHAR(50),
+    QuantityAffected DECIMAL(15,3) DEFAULT 0,
+    QuantityScrapped DECIMAL(15,3) DEFAULT 0,
+    QuantityReworked DECIMAL(15,3) DEFAULT 0,
+    Uom VARCHAR(20),
+    Containment TEXT,
+    ContainedAt DATETIME,
+    RootCause TEXT,
+    CauseCategory VARCHAR(50),
+    Status VARCHAR(50) NOT NULL DEFAULT 'OPEN',
+    RaisedBy VARCHAR(100),
+    RaisedOn DATETIME,
+    Owner VARCHAR(100),
+    DueOn DATETIME,
+    ClosedOn DATETIME,
+    CapaDocNo VARCHAR(50),
+    CostImpact DECIMAL(15,3) DEFAULT 0,
+    Remarks TEXT,
+    Version INT DEFAULT 1,
+    DeletedAt DATETIME,
+    CreatedBy VARCHAR(100),
+    CreatedDate DATETIME,
+    ModifiedBy VARCHAR(100),
+    ModifiedDate DATETIME
+);
+
+CREATE TABLE IF NOT EXISTS NcrStep (
+    Id INT AUTO_INCREMENT PRIMARY KEY,
+    NcrId INT NOT NULL,
+    Level INT NOT NULL,
+    Question TEXT,
+    Answer TEXT,
+    CreatedBy VARCHAR(100),
+    CreatedDate DATETIME,
+    ModifiedBy VARCHAR(100),
+    ModifiedDate DATETIME,
+    CONSTRAINT FK_NcrStep_Ncr FOREIGN KEY (NcrId) REFERENCES Ncr(Id) ON DELETE CASCADE
+);

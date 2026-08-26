@@ -34,20 +34,9 @@ import { Badge } from '@/components/ui/Badge'
 import { ProcStatusBadge } from '@/components/procurement/ProcShell'
 import { formatCompact, formatCurrency, formatDate } from '@/lib/format'
 import { cn } from '@/lib/cn'
-import {
-  asns,
-  contracts,
-  evaluations,
-  grns,
-  inspections,
-  purchaseOrders,
-  quotations,
-  requisitions,
-  rfqs,
-  spendByCategory,
-  spendTrend,
-  supplierSpend,
-} from '@/mock/procurement'
+import { useEffect, useState } from 'react'
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'
 
 const CHART_COLOURS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16']
 
@@ -74,46 +63,25 @@ function ChartTooltip({ active, payload, label, prefix = '', suffix = '' }: any)
 export function ProcurementDashboardPage() {
   const navigate = useNavigate()
 
-  const kpis = useMemo(() => {
-    const openPo = purchaseOrders.filter((p) =>
-      ['APPROVED', 'PARTIALLY_EXECUTED', 'IN_PROGRESS', 'ON_HOLD'].includes(p.status),
-    )
-    const openValue = openPo.reduce((s, p) => s + p.totalValue * (1 - p.receivedPct / 100), 0)
-    const ytdSpend = spendTrend.reduce((s, m) => s + m.spend, 0)
-    const budget = spendTrend.reduce((s, m) => s + m.budget, 0)
-    const receipts = grns.filter((g) => g.status !== 'CANCELLED')
-    const onTime = receipts.filter((g) => g.delayDays <= 0).length
-    const received = receipts.reduce((s, g) => s + g.totalReceived, 0)
-    const rejected = receipts.reduce((s, g) => s + g.totalRejected, 0)
-    return {
-      openPoCount: openPo.length,
-      openValue,
-      ytdSpend,
-      budgetVariance: ((ytdSpend - budget) / budget) * 100,
-      prPending: requisitions.filter((r) => r.status === 'PENDING_APPROVAL').length,
-      poPending: purchaseOrders.filter((p) => p.status === 'PENDING_APPROVAL').length,
-      rfqOpen: rfqs.filter((r) => r.status === 'IN_PROGRESS' || r.status === 'PENDING_APPROVAL').length,
-      quotesAwaiting: rfqs.flatMap((r) => r.suppliers).filter((s) => s.responseStatus === 'INVITED' || s.responseStatus === 'VIEWED').length,
-      inTransit: asns.filter((a) => a.status === 'IN_TRANSIT' || a.status === 'NOTIFIED').length,
-      qcPending: inspections.filter((i) => i.status === 'PENDING' || i.status === 'IN_PROGRESS').length,
-      onTimePct: (onTime / receipts.length) * 100,
-      rejectionPct: (rejected / received) * 100,
-      savings: quotations.reduce((s, q) => s + (q.status === 'AWARDED' ? 1_008_000 : 0), 0),
-    }
+  const [data, setData] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetch(`${API_URL}/procurement/dashboard/`)
+      .then((res) => res.json())
+      .then((json) => {
+        setData(json)
+        setLoading(false)
+      })
+      .catch((err) => {
+        console.error(err)
+        setLoading(false)
+      })
   }, [])
 
-  const expiringContracts = contracts
-    .filter((c) => c.status === 'ACTIVE' || c.status === 'EXPIRING')
-    .map((c) => ({ ...c, days: Math.ceil((new Date(c.validTo).getTime() - Date.now()) / 86_400_000) }))
-    .filter((c) => c.days <= 90)
-    .sort((a, b) => a.days - b.days)
+  if (loading || !data) return <div className="p-8 text-center text-fg-muted">Loading dashboard...</div>
 
-  const riskSuppliers = evaluations.filter((e) => e.grade === 'C' || e.grade === 'D').sort((a, b) => a.overallScore - b.overallScore)
-
-  const overduePo = purchaseOrders
-    .filter((p) => ['APPROVED', 'PARTIALLY_EXECUTED', 'ON_HOLD'].includes(p.status))
-    .map((p) => ({ ...p, days: Math.ceil((Date.now() - new Date(p.promisedDate).getTime()) / 86_400_000) }))
-    .filter((p) => p.days > 0)
+  const { kpis, expiringContracts, riskSuppliers, overduePo, categoryPie, spendTrend, supplierSpend, recentPo, recentGrn } = data
 
   const actionQueue = [
     { label: 'Requisitions awaiting my approval', count: kpis.prPending, to: '/procurement/requisitions', icon: ClipboardList, tone: 'pending' as const },
@@ -123,8 +91,6 @@ export function ProcurementDashboardPage() {
     { label: 'Receipts awaiting inspection', count: kpis.qcPending, to: '/procurement/grn', icon: PackageCheck, tone: 'warning' as const },
     { label: 'Overdue purchase orders', count: overduePo.length, to: '/procurement/orders', icon: AlertTriangle, tone: 'danger' as const },
   ]
-
-  const categoryPie = spendByCategory.slice(0, 6).map((c) => ({ name: c.category, value: Math.round(c.value / 100_000) }))
 
   return (
     <div>
@@ -214,7 +180,7 @@ export function ProcurementDashboardPage() {
           <CardHeader title="Spend vs budget" description="Monthly committed spend against the approved procurement budget" />
           <CardBody className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={spendTrend.map((s) => ({ ...s, spendL: Math.round(s.spend / 100_000), budgetL: Math.round(s.budget / 100_000) }))} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <BarChart data={spendTrend.map((s) => ({ ...s, spendL: Number((s.spend / 100_000).toFixed(2)), budgetL: Number((s.budget / 100_000).toFixed(2)) }))} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" vertical={false} />
                 <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} width={38} />
@@ -232,7 +198,7 @@ export function ProcurementDashboardPage() {
           <CardBody className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={categoryPie} dataKey="value" nameKey="name" innerRadius={44} outerRadius={72} paddingAngle={2}>
+                <Pie data={categoryPie.map((c: any) => ({ name: c.category, value: Number((c.value / 100_000).toFixed(2)) }))} dataKey="value" nameKey="name" innerRadius={44} outerRadius={72} paddingAngle={2}>
                   {categoryPie.map((_, i) => (
                     <Cell key={i} fill={CHART_COLOURS[i % CHART_COLOURS.length]} />
                   ))}
@@ -329,7 +295,7 @@ export function ProcurementDashboardPage() {
                   <div className="min-w-0">
                     <p className="truncate text-xs font-medium text-fg">{e.supplierName}</p>
                     <p className="truncate text-2xs text-fg-muted">
-                      {e.rejectionPct.toFixed(1)}% rejection · {e.onTimePct.toFixed(0)}% on time · {e.action.replace('_', ' ').toLowerCase()}
+                      Grade {e.grade}
                     </p>
                   </div>
                   <span className="shrink-0 text-xs font-semibold text-danger tabular">{e.overallScore.toFixed(1)}</span>
@@ -356,7 +322,7 @@ export function ProcurementDashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {purchaseOrders.slice(0, 6).map((p) => (
+                  {recentPo.map((p) => (
                     <tr key={p.uid}>
                       <td className="font-mono text-2xs">{p.docNo}</td>
                       <td className="max-w-[10rem] truncate">{p.supplierName}</td>
@@ -384,7 +350,7 @@ export function ProcurementDashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {grns.slice(0, 6).map((g) => (
+                  {recentGrn.map((g) => (
                     <tr key={g.uid}>
                       <td className="font-mono text-2xs">{g.docNo}</td>
                       <td className="max-w-[10rem] truncate">{g.supplierName}</td>

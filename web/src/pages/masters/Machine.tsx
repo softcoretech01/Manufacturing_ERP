@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { Activity, AlertTriangle, Cog, Gauge, Plus, Upload, Wrench } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader, DataGrid } from '@/components/ui/Card'
@@ -11,7 +11,6 @@ import { Alert, PageHeader, ProgressBar } from '@/components/ui/Misc'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { useToast } from '@/components/ui/Toast'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
-import { useCollection } from '@/store/data'
 import {
   GovernanceCard,
   LifecycleTrail,
@@ -22,8 +21,9 @@ import {
   WhereUsedPanel,
 } from '@/components/masters/MasterShell'
 import { formatDate } from '@/lib/format'
-import { machines } from '@/mock/masters'
+// mock import removed
 import type { Machine } from '@/types/masters'
+import * as api from '@/api/masters'
 
 const STATE_TONE = {
   RUNNING: 'success',
@@ -138,14 +138,14 @@ function MachineDetail({ m, onClose }: { m: Machine; onClose: () => void }) {
               </Card>
               <GovernanceCard
                 createdBy={m.createdBy}
-                createdAt={m.createdAt}
+                createdAt={m.createdDate as any}
                 modifiedBy={m.modifiedBy}
-                modifiedAt={m.modifiedAt}
-                approvedBy={m.approvedBy}
-                approvedAt={m.approvedAt}
-                revision={m.revision}
-                effectiveFrom={m.effectiveFrom}
-                effectiveTo={m.effectiveTo}
+                modifiedAt={m.modifiedDate as any}
+                approvedBy={undefined}
+                approvedAt={undefined}
+                revision={1}
+                effectiveFrom={null as any}
+                effectiveTo={null}
               />
             </div>
           </div>
@@ -246,7 +246,26 @@ function MachineDetail({ m, onClose }: { m: Machine; onClose: () => void }) {
 
 export function MachineMasterPage() {
   const toast = useToast()
-  const { rows: list, update, remove } = useCollection('master:MACHINE', machines)
+  
+  const [machines, setMachines] = useState<any[]>([])
+  
+  const loadMachines = async () => {
+    try {
+      const data = await api.getMachines()
+      setMachines(data.map(m => ({
+        ...m,
+        uid: String(m.id),
+        whereUsed: [],
+        revisions: []
+      })))
+    } catch (e: any) {
+      toast.error('Failed to load machines', e.message)
+    }
+  }
+
+  useEffect(() => {
+    loadMachines()
+  }, [])
 
   function doExport(format: ExportFormat) {
     try {
@@ -259,7 +278,29 @@ export function MachineMasterPage() {
   const [tab, setTab] = useState('list')
   const [detail, setDetail] = useState<Machine | null>(null)
   const [formOpen, setFormOpen] = useState(false)
+  const [form, setForm] = useState<any>({ operations: [], criticality: 'C', currentState: 'IDLE' })
   const [filter, setFilter] = useState('')
+
+  const handleOpenNew = async () => {
+    try {
+      const res = await api.getNextMachineCode()
+      setForm({ code: res.nextCode, operations: [], criticality: 'C', currentState: 'IDLE', operatorsRequired: 1, pmFrequencyDays: 90 })
+      setFormOpen(true)
+    } catch (e) {
+      toast.error('Failed to fetch next code')
+    }
+  }
+  
+  const handleCreate = async () => {
+    try {
+      await api.createMachine(form)
+      toast.success('Machine created')
+      setFormOpen(false)
+      loadMachines()
+    } catch (e) {
+      toast.error('Failed to create machine')
+    }
+  }
 
   const groups = useMemo(() => [...new Set(machines.map((m) => m.machineGroup))].sort(), [])
 
@@ -358,7 +399,7 @@ export function MachineMasterPage() {
             <Button variant="outline" size="sm" icon={<Upload className="h-4 w-4" />} onClick={() => toast.info('Import machines')}>
               Import
             </Button>
-            <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setFormOpen(true)}>
+            <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={handleOpenNew}>
               New machine
             </Button>
           </>
@@ -415,18 +456,31 @@ export function MachineMasterPage() {
                 label={m.currentState === 'DECOMMISSIONED' ? 'Recommission' : 'Decommission'}
                 danger={m.currentState !== 'DECOMMISSIONED'}
                 separatorBefore
-                disabled={m.whereUsed.some((w) => w.isOpen)}
-                onClick={() => {
+                disabled={m.whereUsed?.some((w: any) => w.isOpen)}
+                onClick={async () => {
                   const off = m.currentState === 'DECOMMISSIONED'
-                  update(m.uid, { currentState: off ? 'IDLE' : 'DECOMMISSIONED', status: off ? 'ACTIVE' : 'INACTIVE' })
-                  toast.success(off ? 'Recommissioned' : 'Decommissioned', m.name)
+                  try {
+                    await api.updateMachine(m.id, { currentState: off ? 'IDLE' : 'DECOMMISSIONED', status: off ? 'ACTIVE' : 'INACTIVE' })
+                    toast.success(off ? 'Recommissioned' : 'Decommissioned', m.name)
+                    loadMachines()
+                  } catch (e) {
+                    toast.error('Failed to update status')
+                  }
                 }}
               />
               <MenuItem
-                label={m.whereUsed.length ? `Delete — blocked (${m.whereUsed.length} refs)` : 'Delete'}
+                label={m.whereUsed?.length ? `Delete — blocked (${m.whereUsed.length} refs)` : 'Delete'}
                 danger
-                disabled={m.whereUsed.length > 0}
-                onClick={() => { remove(m.uid); toast.success('Deleted', `${m.code} — ${m.name}`) }}
+                disabled={m.whereUsed?.length > 0}
+                onClick={async () => { 
+                  try {
+                    await api.deleteMachine(m.id)
+                    toast.success('Deleted', `${m.code} — ${m.name}`)
+                    loadMachines()
+                  } catch (e) {
+                    toast.error('Failed to delete machine')
+                  }
+                }}
               />
             </>
           )}
@@ -445,46 +499,51 @@ export function MachineMasterPage() {
         footer={
           <>
             <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={() => { toast.success('Machine created'); setFormOpen(false) }}>Create</Button>
+            <Button variant="primary" onClick={handleCreate}>Create</Button>
           </>
         }
       >
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-3.5">
-            <Input label="Machine code" required placeholder="MC-0011" className="font-mono" />
-            <Input label="Name" required placeholder="Hydraulic Deep Draw Press 400T" />
-            <Select label="Machine group" required options={groups.map((g) => ({ value: g, label: g }))} />
-            <Input label="Manufacturer" required placeholder="Amada" />
-            <Input label="Model number" placeholder="AMD-DD-400" className="font-mono" />
-            <Input label="Serial number" placeholder="SN-AM-778821" className="font-mono" />
-            <Input label="Asset code" required placeholder="AST/00911" className="font-mono" hint="Must match an existing fixed-asset record." />
+            <Input label="Machine code" required disabled value={form.code || ''} className="font-mono" />
+            <Input label="Name" required value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <Select label="Machine group" required value={form.machineGroup || ''} onChange={(e) => setForm({ ...form, machineGroup: e.target.value })} options={groups.map((g) => ({ value: g, label: g }))} />
+            <Input label="Manufacturer" required value={form.manufacturer || ''} onChange={(e) => setForm({ ...form, manufacturer: e.target.value })} />
+            <Input label="Model number" value={form.modelNumber || ''} onChange={(e) => setForm({ ...form, modelNumber: e.target.value })} className="font-mono" />
+            <Input label="Serial number" value={form.serialNumber || ''} onChange={(e) => setForm({ ...form, serialNumber: e.target.value })} className="font-mono" />
+            <Input label="Asset code" required value={form.assetCode || ''} onChange={(e) => setForm({ ...form, assetCode: e.target.value })} className="font-mono" hint="Must match an existing fixed-asset record." />
           </div>
           <div className="space-y-3.5">
             <div className="grid grid-cols-2 gap-3">
-              <Select label="Line" required options={[{ value: 'LN-A', label: 'Line A' }, { value: 'LN-B', label: 'Line B' }, { value: 'LN-C', label: 'Line C' }]} />
-              <Select label="Work centre" required options={[{ value: 'WC-01', label: 'WC-01' }, { value: 'WC-02', label: 'WC-02' }, { value: 'WC-03', label: 'WC-03' }]} />
+              <Select label="Plant" required value={form.plantUid || ''} onChange={(e) => setForm({ ...form, plantUid: e.target.value })} options={[{ value: 'P1', label: 'P1' }]} />
+              <Select label="Line" required value={form.lineCode || ''} onChange={(e) => setForm({ ...form, lineCode: e.target.value })} options={[{ value: 'LN-A', label: 'Line A' }, { value: 'LN-B', label: 'Line B' }, { value: 'LN-C', label: 'Line C' }]} />
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Input label="Capacity / hour" type="number" required />
-              <Select label="Capacity UOM" options={[{ value: 'NOS', label: 'NOS' }, { value: 'KG', label: 'KG' }, { value: 'CTN', label: 'CTN' }]} />
+              <Select label="Work centre" required value={form.workCentreCode || ''} onChange={(e) => setForm({ ...form, workCentreCode: e.target.value })} options={[{ value: 'WC-01', label: 'WC-01' }, { value: 'WC-02', label: 'WC-02' }, { value: 'WC-03', label: 'WC-03' }]} />
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Input label="Power (kW)" type="number" />
-              <Input label="Operators required" type="number" defaultValue={1} />
+              <Input label="Capacity / hour" type="number" required value={form.capacityPerHour || ''} onChange={(e) => setForm({ ...form, capacityPerHour: parseFloat(e.target.value) })} />
+              <Select label="Capacity UOM" value={form.capacityUom || ''} onChange={(e) => setForm({ ...form, capacityUom: e.target.value })} options={[{ value: 'NOS', label: 'NOS' }, { value: 'KG', label: 'KG' }, { value: 'CTN', label: 'CTN' }]} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Power (kW)" type="number" value={form.powerKw || ''} onChange={(e) => setForm({ ...form, powerKw: parseFloat(e.target.value) })} />
+              <Input label="Operators required" type="number" value={form.operatorsRequired || ''} onChange={(e) => setForm({ ...form, operatorsRequired: parseInt(e.target.value) })} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <Select
                 label="Criticality"
                 required
+                value={form.criticality || ''}
+                onChange={(e) => setForm({ ...form, criticality: e.target.value })}
                 options={[
                   { value: 'A', label: 'A — line stops' },
                   { value: 'B', label: 'B — recoverable' },
                   { value: 'C', label: 'C — low impact' },
                 ]}
               />
-              <Input label="PM frequency (days)" type="number" defaultValue={90} required />
+              <Input label="PM frequency (days)" type="number" required value={form.pmFrequencyDays || ''} onChange={(e) => setForm({ ...form, pmFrequencyDays: parseInt(e.target.value) })} />
             </div>
-            <Textarea label="Operations performed" rows={2} placeholder="Deep Drawing, Bottle Forming" hint="A routing step can only be assigned to a machine that lists the operation." />
+            <Textarea label="Operations performed" rows={2} value={form.operations?.join(', ')} onChange={(e) => setForm({ ...form, operations: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })} placeholder="Deep Drawing, Bottle Forming" hint="Comma separated." />
           </div>
         </div>
       </Modal>

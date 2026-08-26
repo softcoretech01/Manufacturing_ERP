@@ -22,8 +22,9 @@ import {
   WhereUsedPanel,
 } from '@/components/masters/MasterShell'
 import { formatDate } from '@/lib/format'
-import { employees } from '@/mock/masters'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { Employee } from '@/types/masters'
+import * as api from '@/api/masters'
 
 const SKILL_TONE = { TRAINEE: 'neutral', OPERATOR: 'progress', SKILLED: 'success', EXPERT: 'brand' } as const
 
@@ -217,7 +218,61 @@ function EmployeeDetail({ e, onClose }: { e: Employee; onClose: () => void }) {
 
 export function EmployeeMasterPage() {
   const toast = useToast()
-  const { rows: list, update, remove } = useCollection('master:EMPLOYEE', employees)
+  const queryClient = useQueryClient()
+  
+  const { data: list = [] } = useQuery({
+    queryKey: ['employees'],
+    queryFn: api.getEmployees,
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ uid, data }: { uid: string, data: any }) => api.updateEmployee(uid, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['employees'] }),
+  })
+  
+  const removeMutation = useMutation({
+    mutationFn: (uid: string) => api.deleteEmployee(uid),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['employees'] }),
+  })
+
+  const createMutation = useMutation({
+    mutationFn: (data: any) => api.createEmployee(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['employees'] })
+      setFormOpen(false)
+      toast.success('Submitted for approval')
+    },
+    onError: (e: any) => toast.error('Failed to create', e.message),
+  })
+
+  const update = (uid: string, data: any) => updateMutation.mutate({ uid, data })
+  const remove = (uid: string) => removeMutation.mutate(uid)
+
+  const [tab, setTab] = useState('list')
+  const [detail, setDetail] = useState<Employee | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
+  
+  const [formName, setFormName] = useState('')
+  const [formCode, setFormCode] = useState('')
+  const [formDob, setFormDob] = useState('')
+  const [formGender, setFormGender] = useState('M')
+  const [formMobile, setFormMobile] = useState('')
+  const [formEmail, setFormEmail] = useState('')
+  const [formDesignation, setFormDesignation] = useState('')
+  const [formDepartment, setFormDepartment] = useState('Production')
+  const [formType, setFormType] = useState('PERMANENT')
+  const [formDoj, setFormDoj] = useState('')
+  const [formShift, setFormShift] = useState('SH-A')
+  const [formShopFloor, setFormShopFloor] = useState(true)
+
+  const [deptFilter, setDeptFilter] = useState('')
+
+  const departments = useMemo(() => [...new Set(list.map((e: any) => e.department))].sort(), [list])
+  const rows = deptFilter ? list.filter((e: any) => e.department === deptFilter) : list
+
+  const shopFloor = list.filter((e: any) => e.isShopFloor)
+  const noSkills = list.filter((e: any) => e.isShopFloor && e.skills?.length === 0)
+  const pending = list.filter((e: any) => e.status !== 'ACTIVE' && e.status !== 'INACTIVE')
 
   function doExport(format: ExportFormat) {
     try {
@@ -227,18 +282,6 @@ export function EmployeeMasterPage() {
       toast.error('Export failed', e instanceof Error ? e.message : 'Unknown error.')
     }
   }
-  const [tab, setTab] = useState('list')
-  const [detail, setDetail] = useState<Employee | null>(null)
-  const [formOpen, setFormOpen] = useState(false)
-  const [formShopFloor, setFormShopFloor] = useState(true)
-  const [deptFilter, setDeptFilter] = useState('')
-
-  const departments = useMemo(() => [...new Set(employees.map((e) => e.department))].sort(), [])
-  const rows = deptFilter ? employees.filter((e) => e.department === deptFilter) : employees
-
-  const shopFloor = employees.filter((e) => e.isShopFloor)
-  const noSkills = employees.filter((e) => e.isShopFloor && e.skills.length === 0)
-  const pending = employees.filter((e) => e.status !== 'ACTIVE' && e.status !== 'INACTIVE')
 
   const columns: Column<Employee>[] = [
     {
@@ -308,7 +351,15 @@ export function EmployeeMasterPage() {
             <Button variant="outline" size="sm" icon={<Upload className="h-4 w-4" />} onClick={() => toast.info('Import employees')}>
               Import
             </Button>
-            <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setFormOpen(true)}>
+            <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={async () => {
+              try {
+                const { nextCode } = await api.getNextEmployeeCode()
+                setFormCode(nextCode)
+              } catch (e) {
+                console.error(e)
+              }
+              setFormOpen(true)
+            }}>
               New employee
             </Button>
           </>
@@ -431,28 +482,54 @@ export function EmployeeMasterPage() {
         footer={
           <>
             <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={() => { toast.success('Submitted to HR for approval'); setFormOpen(false) }}>
+            <Button variant="primary" onClick={() => {
+              createMutation.mutate({
+                name: formName,
+                code: formCode || undefined, // If blank, API can use next-code logic or we'll let it fail validation if required. Actually we'll fetch next code.
+                dateOfBirth: formDob ? new Date(formDob).toISOString() : undefined,
+                gender: formGender,
+                mobile: formMobile,
+                email: formEmail,
+                designation: formDesignation,
+                department: formDepartment,
+                employmentType: formType,
+                dateOfJoining: formDoj ? new Date(formDoj).toISOString() : undefined,
+                shiftCode: formShift,
+                isShopFloor: formShopFloor,
+              })
+            }}>
               Submit for approval
             </Button>
           </>
         }
       >
         <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-3.5">
-            <Input label="Full name" required placeholder="Karthik Subramanian" />
-            <Input label="Employee code" required placeholder="EMP-0011" className="font-mono" hint="Auto-numbered; override only for migration." />
-            <Input label="Date of birth" type="date" required />
-            <Select label="Gender" required options={[{ value: 'M', label: 'Male' }, { value: 'F', label: 'Female' }, { value: 'O', label: 'Other' }]} />
-            <Input label="Mobile" required placeholder="+91 98400 00000" />
-            <Input label="Email" type="email" placeholder="name@ssbindustries.co.in" />
-          </div>
-          <div className="space-y-3.5">
-            <Input label="Designation" required placeholder="Line Operator" />
-            <Select label="Department" required options={departments.map((d) => ({ value: d, label: d }))} />
-            <Select label="Employment type" required options={[{ value: 'PERMANENT', label: 'Permanent' }, { value: 'CONTRACT', label: 'Contract' }, { value: 'TRAINEE', label: 'Trainee' }, { value: 'APPRENTICE', label: 'Apprentice' }]} />
-            <Input label="Date of joining" type="date" required />
-            <Select label="Default shift" options={[{ value: 'SH-A', label: 'Shift A — Morning' }, { value: 'SH-B', label: 'Shift B — Afternoon' }, { value: 'SH-C', label: 'Shift C — Night' }, { value: 'SH-GEN', label: 'General' }]} />
-            <Switch checked={formShopFloor} onChange={setFormShopFloor} label="Shop floor — issue badge and PIN" />
+          {/* Row 1 */}
+          <Input label="Employee code" required placeholder="EMP-0011" className="font-mono" hint="Auto-numbered; override only for migration." value={formCode} onChange={(e) => setFormCode(e.target.value)} disabled />
+          <Input label="Full name" required placeholder="Karthik Subramanian" value={formName} onChange={(e) => setFormName(e.target.value)} />
+          
+          {/* Row 2 */}
+          <Select label="Department" required options={departments.map((d) => ({ value: d, label: d }))} value={formDepartment} onChange={(e) => setFormDepartment(e.target.value)} />
+          <Input label="Designation" required placeholder="Line Operator" value={formDesignation} onChange={(e) => setFormDesignation(e.target.value)} />
+          
+          {/* Row 3 */}
+          <Select label="Employment type" required options={[{ value: 'PERMANENT', label: 'Permanent' }, { value: 'CONTRACT', label: 'Contract' }, { value: 'TRAINEE', label: 'Trainee' }, { value: 'APPRENTICE', label: 'Apprentice' }]} value={formType} onChange={(e) => setFormType(e.target.value)} />
+          <Input label="Date of joining" type="date" required value={formDoj} onChange={(e) => setFormDoj(e.target.value)} />
+          
+          {/* Row 4 */}
+          <Input label="Mobile" required placeholder="9840000000" value={formMobile} onChange={(e) => setFormMobile(e.target.value)} />
+          <Input label="Email" type="email" placeholder="name@ssbindustries.co.in" value={formEmail} onChange={(e) => setFormEmail(e.target.value)} />
+          
+          {/* Row 5 */}
+          <Input label="Date of birth" type="date" required value={formDob} onChange={(e) => setFormDob(e.target.value)} />
+          <Select label="Gender" required options={[{ value: 'M', label: 'Male' }, { value: 'F', label: 'Female' }, { value: 'O', label: 'Other' }]} value={formGender} onChange={(e) => setFormGender(e.target.value)} />
+          
+          {/* Row 6 */}
+          <Select label="Default shift" options={[{ value: 'SH-A', label: 'Shift A — Morning' }, { value: 'SH-B', label: 'Shift B — Afternoon' }, { value: 'SH-C', label: 'Shift C — Night' }, { value: 'SH-GEN', label: 'General' }]} value={formShift} onChange={(e) => setFormShift(e.target.value)} />
+          <Switch checked={formShopFloor} onChange={setFormShopFloor} label="Shop floor — issue badge and PIN" />
+          
+          {/* Row 7 */}
+          <div className="md:col-span-2">
             <Alert tone="info">
               Statutory identifiers (Aadhaar, PAN, PF, ESI, bank) are captured on a separate
               payroll-only screen. They are not entered here because this form is visible to more

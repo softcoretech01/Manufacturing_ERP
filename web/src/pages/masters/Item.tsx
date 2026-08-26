@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Barcode,
@@ -22,7 +22,7 @@ import { Alert, PageHeader } from '@/components/ui/Misc'
 import { Input, Select, Switch, Textarea } from '@/components/ui/Input'
 import { useToast } from '@/components/ui/Toast'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
-import { useCollection } from '@/store/data'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   GovernanceCard,
   LifecycleTrail,
@@ -33,8 +33,9 @@ import {
   WhereUsedPanel,
 } from '@/components/masters/MasterShell'
 import { formatCurrency, formatQty } from '@/lib/format'
-import { items } from '@/mock/masters'
+
 import type { Item, ItemType } from '@/types/masters'
+import * as api from '@/api/masters'
 
 const TYPE_META: Record<ItemType, { label: string; tone: 'brand' | 'progress' | 'success' | 'warning' | 'neutral' | 'pending' | 'danger' }> = {
   RAW_MATERIAL: { label: 'Raw material', tone: 'warning' },
@@ -53,7 +54,7 @@ function barcodePayload(i: Item) {
   return `v1|RM|${i.code}|{lot_no}|{heat_no}|{grade}|{grn_no}`
 }
 
-function ItemDetail({ i, onClose }: { i: Item; onClose: () => void }) {
+function ItemDetail({ i, onClose, onEdit }: { i: Item; onClose: () => void; onEdit: () => void }) {
   const toast = useToast()
   const [tab, setTab] = useState('general')
   const isBottle = i.capacityMl != null
@@ -74,7 +75,7 @@ function ItemDetail({ i, onClose }: { i: Item; onClose: () => void }) {
           <MasterActions
             status={i.status}
             usageCount={i.whereUsed.filter((w) => w.isOpen).length}
-            onEdit={() => toast.info('Edit', 'An approved item is versioned, not edited in place.')}
+            onEdit={onEdit}
             onSubmit={() => toast.success('Submitted for approval')}
           />
         </div>
@@ -142,15 +143,15 @@ function ItemDetail({ i, onClose }: { i: Item; onClose: () => void }) {
                 </CardBody>
               </Card>
               <GovernanceCard
-                createdBy={i.createdBy}
-                createdAt={i.createdAt}
-                modifiedBy={i.modifiedBy}
-                modifiedAt={i.modifiedAt}
-                approvedBy={i.approvedBy}
-                approvedAt={i.approvedAt}
-                revision={i.revision}
-                effectiveFrom={i.effectiveFrom}
-                effectiveTo={i.effectiveTo}
+                createdBy={i.createdBy ?? 'System'}
+                createdAt={i.createdDate ?? i.createdAt ?? ''}
+                modifiedBy={i.modifiedBy ?? i.createdBy ?? 'System'}
+                modifiedAt={i.modifiedDate ?? i.modifiedAt ?? ''}
+                approvedBy={i.approvedBy ?? null}
+                approvedAt={i.approvedAt ?? null}
+                revision={i.revision ?? 1}
+                effectiveFrom={i.effectiveFrom ?? new Date().toISOString().slice(0, 10)}
+                effectiveTo={i.effectiveTo ?? null}
               />
             </div>
           </div>
@@ -367,54 +368,112 @@ function ItemDetail({ i, onClose }: { i: Item; onClose: () => void }) {
   )
 }
 
-function ItemForm({ open, onClose }: { open: boolean; onClose: () => void }) {
+function ItemForm({ s, open, onClose, onSave }: { s?: Item | null; open: boolean; onClose: () => void; onSave: (data: Partial<Item>) => void }) {
   const toast = useToast()
-  const [itemType, setItemType] = useState<ItemType>('FINISHED')
-  const [hsn, setHsn] = useState('')
-  const [batch, setBatch] = useState(true)
-  const [serial, setSerial] = useState(false)
+  
+  const [code, setCode] = useState(s?.code || '')
+  const [name, setName] = useState(s?.name || '')
+  const [shortName, setShortName] = useState(s?.shortName || '')
+  const [itemType, setItemType] = useState<ItemType>(s?.itemType || 'FINISHED')
+  const [category, setCategory] = useState(s?.category || '')
+  const [baseUom, setBaseUom] = useState(s?.baseUom || 'NOS')
+  const [hsn, setHsn] = useState(s?.hsnCode || '')
+  
+  const [bottleModel, setBottleModel] = useState(s?.bottleModel || '')
+  const [colour, setColour] = useState(s?.colour || '')
+  const [lidType, setLidType] = useState(s?.lidType || '')
+  const [steelGrade, setSteelGrade] = useState(s?.steelGrade || '')
+  const [thicknessMm, setThicknessMm] = useState<number | ''>(s?.thicknessMm || '')
+  
+  const [valuationMethod, setValuationMethod] = useState(s?.valuationMethod || 'STANDARD')
+  const [standardCost, setStandardCost] = useState<number | ''>(s?.standardCost || '')
+  const [sellingPrice, setSellingPrice] = useState<number | ''>(s?.sellingPrice || '')
+  
+  const [batch, setBatch] = useState(s?.isBatchTracked ?? true)
+  const [serial, setSerial] = useState(s?.isSerialTracked ?? false)
+  const [specification, setSpecification] = useState(s?.specification || '')
 
-  const hsnError =
-    hsn && !/^\d{4}$|^\d{6}$|^\d{8}$/.test(hsn)
-      ? 'HSN must be 4, 6 or 8 digits.'
-      : hsn.length === 4
-        ? 'A 4-digit HSN is rejected by the e-invoice portal above ₹5 crore turnover. Use 6 or 8.'
-        : undefined
+  useEffect(() => {
+    if (open) {
+      if (!s) {
+        api.getNextItemCode().then(res => setCode(res.nextCode)).catch(() => setCode('AUTO'))
+      } else {
+        setCode(s.code)
+      }
+      setName(s?.name || '')
+      setShortName(s?.shortName || '')
+      setItemType(s?.itemType || 'FINISHED')
+      setCategory(s?.category || '')
+      setBaseUom(s?.baseUom || 'NOS')
+      setHsn(s?.hsnCode || '')
+      
+      setBottleModel(s?.bottleModel || '')
+      setColour(s?.colour || '')
+      setLidType(s?.lidType || '')
+      setSteelGrade(s?.steelGrade || '')
+      setThicknessMm(s?.thicknessMm || '')
+      
+      setValuationMethod(s?.valuationMethod || (s?.itemType === 'FINISHED' ? 'STANDARD' : 'WEIGHTED_AVG'))
+      setStandardCost(s?.standardCost || '')
+      setSellingPrice(s?.sellingPrice || '')
+      setBatch(s?.isBatchTracked ?? true)
+      setSerial(s?.isSerialTracked ?? false)
+      setSpecification(s?.specification || '')
+    }
+  }, [s, open])
 
+  const hsnError = hsn && !/^\d{4}$|^\d{6}$|^\d{8}$/.test(hsn) ? 'HSN must be 4, 6 or 8 digits.' : undefined
+  const codeError = !code ? 'Required' : undefined
   const isBottle = itemType === 'FINISHED' || itemType === 'SEMI_FINISHED'
+
+  const handleSubmit = () => {
+    const valid = !(!code || !name || !shortName || !itemType || !category || !baseUom || !!hsnError)
+    if (valid) {
+      onSave({
+        code: s ? code.trim() : 'AUTO',
+        name: name.trim(),
+        shortName: shortName.trim(),
+        itemType, category, baseUom, purchaseUom: baseUom, salesUom: baseUom, hsnCode: hsn,
+        bottleModel: isBottle ? bottleModel : null,
+        colour: isBottle ? colour : null,
+        lidType: isBottle ? lidType : null,
+        steelGrade: isBottle ? steelGrade : null,
+        thicknessMm: isBottle && thicknessMm !== '' ? Number(thicknessMm) : null,
+        valuationMethod,
+        standardCost: standardCost !== '' ? Number(standardCost) : 0,
+        sellingPrice: sellingPrice !== '' ? Number(sellingPrice) : 0,
+        isBatchTracked: batch,
+        isSerialTracked: serial,
+        specification
+      })
+    }
+  }
 
   return (
     <Modal
       open={open}
       onClose={onClose}
       size="lg"
-      title="New item"
+      title={s ? "Edit item" : "New item"}
       description="Items are approval-controlled because a wrong HSN, UOM or valuation method is expensive to unpick after transactions exist."
       footer={
         <>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button variant="outline" onClick={() => { toast.success('Saved as draft'); onClose() }}>Save draft</Button>
-          <Button variant="primary" disabled={!!hsnError} onClick={() => { toast.success('Submitted for approval'); onClose() }}>
-            Submit for approval
-          </Button>
+          <Button variant="primary" disabled={!!hsnError || !code || !name} onClick={handleSubmit}>Save Item</Button>
         </>
       }
     >
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-3.5">
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Item Code" value={code || 'Loading...'} onChange={e => setCode(e.target.value)} error={codeError} disabled />
+            <Select label="Type" value={itemType} onChange={e => setItemType(e.target.value as ItemType)} options={[{value: 'RAW_MATERIAL', label: 'Raw Material'}, {value: 'SEMI_FINISHED', label: 'Semi-finished'}, {value: 'FINISHED', label: 'Finished'}, {value: 'CONSUMABLE', label: 'Consumable'}, {value: 'PACKING', label: 'Packing'}, {value: 'SPARE', label: 'Spare'}, {value: 'SERVICE', label: 'Service'}]} />
+          </div>
+          <Input label="Description" required value={name} onChange={e => setName(e.target.value)} placeholder="Vacuum Flask 750 ml — Matte Black" />
+          <Input label="Short name" value={shortName} onChange={e => setShortName(e.target.value)} placeholder="VF750 Black" hint="Used where space is tight — labels, pick lists, mobile." />
+          <Input label="Category" required value={category} onChange={e => setCategory(e.target.value)} placeholder="Vacuum Flask" />
           <Select
-            label="Item type"
-            required
-            value={itemType}
-            onChange={(e) => setItemType(e.target.value as ItemType)}
-            options={Object.entries(TYPE_META).map(([v, m]) => ({ value: v, label: m.label }))}
-          />
-          <Input label="Item code" required placeholder="FG-SS-750-BLK" className="font-mono" hint="Manual for items; the code is the language the shop floor speaks." />
-          <Input label="Description" required placeholder="Vacuum Flask 750 ml — Matte Black" />
-          <Input label="Short name" placeholder="VF750 Black" hint="Used where space is tight — labels, pick lists, mobile." />
-          <Input label="Category" required placeholder="Vacuum Flask" />
-          <Select
-            label="Base (stock) UOM"
+            label="Base (stock) UOM" value={baseUom} onChange={e => setBaseUom(e.target.value)}
             required
             options={[
               { value: 'NOS', label: 'NOS — Numbers' },
@@ -440,7 +499,7 @@ function ItemForm({ open, onClose }: { open: boolean; onClose: () => void }) {
           {isBottle && (
             <>
               <Select
-                label="Bottle model"
+                label="Bottle model" value={bottleModel} onChange={e => setBottleModel(e.target.value)}
                 options={[
                   { value: '', label: '— not a bottle —' },
                   { value: 'CLASSIC-500', label: 'Classic 500 ml' },
@@ -448,20 +507,20 @@ function ItemForm({ open, onClose }: { open: boolean; onClose: () => void }) {
                   { value: 'TREK-1000', label: 'Trek 1000 ml' },
                 ]}
               />
-              <div className="grid grid-cols-2 gap-3">
-                <Select label="Colour" options={[{ value: 'COL-BLK-M', label: 'Matte Black' }, { value: 'COL-STL-B', label: 'Brushed Steel' }, { value: 'COL-BLU-O', label: 'Ocean Blue' }]} />
-                <Select label="Lid type" options={[{ value: 'LID-SCR-SS', label: 'Screw Cap — Stainless' }, { value: 'LID-SIP-01', label: 'Sipper Cap' }]} />
+              <div className="grid grid-cols-2 gap-4">
+                <Select label="Colour" value={colour} onChange={e => setColour(e.target.value)} options={[{ value: 'COL-BLK-M', label: 'Matte Black' }, { value: 'COL-STL-B', label: 'Brushed Steel' }, { value: 'COL-BLU-O', label: 'Ocean Blue' }]} />
+                <Select label="Lid type" value={lidType} onChange={e => setLidType(e.target.value)} options={[{ value: 'LID-SCR-SS', label: 'Screw Cap — Stainless' }, { value: 'LID-SIP-01', label: 'Sipper Cap' }]} />
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <Select label="Steel grade" options={[{ value: 'SS304', label: 'SS 304' }, { value: 'SS316', label: 'SS 316' }]} />
-                <Select label="Thickness" options={[{ value: '0.5', label: '0.50 mm' }, { value: '0.6', label: '0.60 mm' }]} />
+                <Select label="Steel grade" value={steelGrade} onChange={e => setSteelGrade(e.target.value)} options={[{ value: 'SS304', label: 'SS 304' }, { value: 'SS316', label: 'SS 316' }]} />
+                <Select label="Thickness" value={thicknessMm} onChange={e => setThicknessMm(e.target.value)} options={[{ value: '0.5', label: '0.50 mm' }, { value: '0.6', label: '0.60 mm' }]} />
               </div>
             </>
           )}
           <Select
             label="Valuation method"
             required
-            defaultValue={itemType === 'FINISHED' ? 'STANDARD' : 'WEIGHTED_AVG'}
+            value={valuationMethod} onChange={e => setValuationMethod(e.target.value)}
             options={[
               { value: 'WEIGHTED_AVG', label: 'Weighted average' },
               { value: 'FIFO', label: 'FIFO' },
@@ -483,7 +542,7 @@ function ItemForm({ open, onClose }: { open: boolean; onClose: () => void }) {
               </p>
             )}
           </div>
-          <Textarea label="Specification" rows={3} placeholder="What the item is, in the terms a supplier or an inspector would use." />
+          <Textarea label="Specification" rows={3} value={specification} onChange={e => setSpecification(e.target.value)} placeholder="What the item is, in the terms a supplier or an inspector would use." />
         </div>
       </div>
     </Modal>
@@ -492,8 +551,17 @@ function ItemForm({ open, onClose }: { open: boolean; onClose: () => void }) {
 
 export function ItemMasterPage() {
   const toast = useToast()
-  const navigate = useNavigate()
-  const { rows: list, update, remove } = useCollection('master:ITEM', items)
+  const queryClient = useQueryClient()
+  const { data: list = [], isLoading } = useQuery({ queryKey: ['items'], queryFn: api.getItems })
+
+  const deleteMutation = useMutation({
+    mutationFn: api.deleteItem,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['items'] })
+      toast.success('Item deleted')
+    },
+    onError: () => toast.error('Failed to delete item')
+  })
 
   function doExport(format: ExportFormat) {
     try {
@@ -508,13 +576,34 @@ export function ItemMasterPage() {
   const [formOpen, setFormOpen] = useState(false)
   const [typeFilter, setTypeFilter] = useState('')
 
+  
+  const createMutation = useMutation({
+    mutationFn: api.createItem,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['items'] })
+      setFormOpen(false)
+      toast.success('Item created')
+    },
+    onError: () => toast.error('Failed to create item')
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<Item> }) => api.updateItem(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['items'] })
+      setFormOpen(false)
+      toast.success('Item updated')
+    },
+    onError: () => toast.error('Failed to update item')
+  })
+
   const rows = useMemo(
-    () => (typeFilter ? items.filter((i) => i.itemType === typeFilter) : items),
-    [typeFilter],
+    () => (typeFilter ? list.filter((i) => i.itemType === typeFilter) : list),
+    [typeFilter, list],
   )
 
-  const noPrice = items.filter((i) => i.isSold && i.sellingPrice === 0)
-  const pending = items.filter((i) => i.status === 'PENDING_APPROVAL' || i.status === 'DRAFT')
+  const noPrice = list.filter((i) => i.isSold && i.sellingPrice === 0)
+  const pending = list.filter((i) => i.status === 'PENDING_APPROVAL' || i.status === 'DRAFT')
 
   const columns: Column<Item>[] = [
     {
@@ -536,7 +625,10 @@ export function ItemMasterPage() {
       header: 'Type',
       sortable: true,
       width: '150px',
-      render: (i) => <Badge tone={TYPE_META[i.itemType].tone} size="sm" dot={false}>{TYPE_META[i.itemType].label}</Badge>,
+      render: (i) => {
+        const meta = TYPE_META[i.itemType] || { label: i.itemType || 'Unknown', tone: 'neutral' };
+        return <Badge tone={meta.tone as any} size="sm" dot={false}>{meta.label}</Badge>;
+      },
     },
     { key: 'category', header: 'Category', width: '150px', sortable: true, render: (i) => <span className="truncate text-xs text-fg-muted">{i.category}</span> },
     { key: 'baseUom', header: 'UOM', width: '80px', render: (i) => <span className="font-mono text-2xs">{i.baseUom}</span> },
@@ -605,7 +697,7 @@ export function ItemMasterPage() {
         <DataTable
           rows={rows}
           columns={columns}
-          rowKey={(i) => i.uid}
+          rowKey={(i) => i.id}
           searchPlaceholder="Code, description, HSN or category…"
           pageSize={20}
           onRowClick={setDetail}
@@ -634,15 +726,14 @@ export function ItemMasterPage() {
                 separatorBefore
                 disabled={i.whereUsed.some((w) => w.isOpen)}
                 onClick={() => {
-                  update(i.uid, { status: i.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' })
-                  toast.success(i.status === 'ACTIVE' ? 'Deactivated' : 'Activated', i.name)
+                  updateMutation.mutate({ id: i.id, data: { status: i.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' } })
                 }}
               />
               <MenuItem
                 label={i.whereUsed.length ? `Delete — blocked (${i.whereUsed.length} refs)` : 'Delete'}
                 danger
                 disabled={i.whereUsed.length > 0}
-                onClick={() => { remove(i.uid); toast.success('Deleted', `${i.code} — ${i.name}`) }}
+                onClick={() => deleteMutation.mutate(i.id)}
               />
             </>
           )}
@@ -651,8 +742,8 @@ export function ItemMasterPage() {
 
       
 
-      {detail && <ItemDetail i={detail} onClose={() => setDetail(null)} />}
-      <ItemForm open={formOpen} onClose={() => setFormOpen(false)} />
+      {detail && <ItemDetail i={detail} onClose={() => setDetail(null)} onEdit={() => setFormOpen(true)} />}
+      <ItemForm s={detail} open={formOpen} onClose={() => setFormOpen(false)} onSave={(data) => detail ? updateMutation.mutate({ id: detail.id, data }) : createMutation.mutate(data)} />
     </div>
   )
 }

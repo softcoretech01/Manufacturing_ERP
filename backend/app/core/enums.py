@@ -161,18 +161,24 @@ class WarehouseType(StrEnum):
 
 
 class BinType(StrEnum):
-    FLOOR = "FLOOR"
     RACK = "RACK"
     PALLET = "PALLET"
-    SHELF = "SHELF"
-    COIL_STAND = "COIL_STAND"
     BULK = "BULK"
+    COIL_STAND = "COIL_STAND"
+    FLOOR = "FLOOR"
+    SHELF = "SHELF"
+    BIN_BOX = "BIN_BOX"
+    TANK = "TANK"
+    STAGING = "STAGING"
 
 
 class BinStatus(StrEnum):
     AVAILABLE = "AVAILABLE"
-    BLOCKED = "BLOCKED"
     FULL = "FULL"
+    BLOCKED = "BLOCKED"
+    UNDER_COUNT = "UNDER_COUNT"
+    DAMAGED = "DAMAGED"
+    INACTIVE = "INACTIVE"
 
 
 class DepartmentType(StrEnum):
@@ -261,6 +267,43 @@ class ValuationMethod(StrEnum):
     WEIGHTED_AVG = "WEIGHTED_AVG"
     FIFO = "FIFO"
     STANDARD = "STANDARD"
+
+
+class ItemType(StrEnum):
+    RAW_MATERIAL = "RAW_MATERIAL"
+    FINISHED_GOODS = "FINISHED_GOODS"
+    WIP = "WIP"
+    CONSUMABLE = "CONSUMABLE"
+    PACKING = "PACKING"
+    SPARE = "SPARE"
+
+
+class StockStatus(StrEnum):
+    AVAILABLE = "AVAILABLE"
+    QUARANTINE = "QUARANTINE"
+    BLOCKED = "BLOCKED"
+    REJECTED = "REJECTED"
+    IN_TRANSIT = "IN_TRANSIT"
+    AT_SUBCONTRACTOR = "AT_SUBCONTRACTOR"
+    EXPIRED = "EXPIRED"
+    SAMPLE = "SAMPLE"
+
+
+class MovementDirection(StrEnum):
+    IN = "IN"
+    OUT = "OUT"
+
+
+class CountType(StrEnum):
+    CYCLE = "CYCLE"
+    FULL = "FULL"
+
+
+class CountStatus(StrEnum):
+    COUNTING = "COUNTING"      # created, blind entry in progress
+    COUNTED = "COUNTED"        # submitted, variances visible, awaiting approval
+    POSTED = "POSTED"          # approved, reconciling movements posted, immutable
+    CANCELLED = "CANCELLED"
 
 
 class RateType(StrEnum):

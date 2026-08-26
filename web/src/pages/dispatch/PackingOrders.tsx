@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -9,7 +9,7 @@ import { MenuItem } from '@/components/ui/Menu'
 import { PageHeader } from '@/components/ui/Misc'
 import { Tabs } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
-import { useCrud } from '@/components/crud/CrudKit'
+import { Input, Select, Textarea } from '@/components/ui/Input'
 import {
   CountBar,
   DispatchStatusBadge,
@@ -21,8 +21,8 @@ import {
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDate, formatQty } from '@/lib/format'
 import { cn } from '@/lib/cn'
-import { packingOrders as seedPacking } from '@/mock/dispatch'
 import type { PackingOrder, PackingStatus } from '@/types/dispatch'
+import { packingOrderApi } from '@/api/packingOrder'
 
 const FLOW: PackingStatus[] = ['PLANNED', 'MATERIAL_READY', 'PACKING_STARTED', 'PACKED', 'QC_VERIFIED', 'READY_FOR_DISPATCH']
 
@@ -33,88 +33,36 @@ const TABS = [
   { id: 'EXPORT', label: 'Export & OEM' },
 ]
 
-/**
- * Packing orders — raised from a completed production order, a sales order or
- * the dispatch schedule. An order cannot reach "ready to dispatch" until the
- * packaging material is issued, quality has released the batch and the cartons
- * have been weight-checked; those three gates are shown on the row rather than
- * discovered at the loading bay.
- */
 export function PackingOrdersPage() {
   const toast = useToast()
   const navigate = useNavigate()
-  const seed = useMemo(() => seedPacking, [])
 
-  const crud = useCrud<PackingOrder>({
-    key: 'dispatch:packing-order',
-    seed,
-    entity: 'Packing order',
-    titleOf: (o) => o.docNo,
-    fields: [
-      { name: 'docNo', label: 'Packing order number', required: true, readOnly: true, hint: 'Issued by the numbering engine — not editable' },
-      { name: 'customer', label: 'Customer', required: true },
-      { name: 'salesOrderNo', label: 'Sales order' },
-      { name: 'itemName', label: 'Product', required: true, span: 2 },
-      { name: 'batchNo', label: 'Batch' },
-      { name: 'quantity', label: 'Quantity', type: 'number', required: true },
-      { name: 'cartonSpec', label: 'Carton specification', required: true, hint: '12 bottles / carton, FBA single-unit box…' },
-      { name: 'cartonsPlanned', label: 'Cartons planned', type: 'number', required: true },
-      { name: 'warehouse', label: 'Warehouse', required: true },
-      { name: 'packingDate', label: 'Packing date', type: 'date', required: true },
-      { name: 'supervisor', label: 'Packing supervisor', required: true },
-      {
-        name: 'priority',
-        label: 'Priority',
-        type: 'select',
-        options: [
-          { value: 'LOW', label: 'Low' },
-          { value: 'NORMAL', label: 'Normal' },
-          { value: 'HIGH', label: 'High' },
-          { value: 'URGENT', label: 'Urgent' },
-        ],
-      },
-      { name: 'remarks', label: 'Remarks', type: 'textarea', span: 2 },
-    ],
-    fromForm: (v, existing) => ({
-      ...(existing ?? {
-        docNo: v.docNo,
-        docDate: new Date().toISOString().slice(0, 10),
-        status: 'PLANNED' as PackingStatus,
-        sourceType: 'SALES_ORDER' as const,
-        sourceNo: v.salesOrderNo || '—',
-        customerCode: 'CUS-NEW',
-        itemCode: 'FG-NEW',
-        packedQuantity: 0,
-        cartonsPacked: 0,
-        uom: 'NOS',
-        materialReady: false,
-        qcReleased: false,
-        weightVerified: false,
-        isExport: false,
-        isOem: false,
-      }),
-      customer: v.customer,
-      salesOrderNo: v.salesOrderNo || null,
-      itemName: v.itemName,
-      batchNo: v.batchNo || null,
-      quantity: Number(v.quantity) || 0,
-      cartonSpec: v.cartonSpec,
-      cartonsPlanned: Number(v.cartonsPlanned) || 0,
-      warehouse: v.warehouse,
-      packingDate: v.packingDate,
-      supervisor: v.supervisor,
-      priority: (v.priority || 'NORMAL') as PackingOrder['priority'],
-      remarks: v.remarks || undefined,
-    }),
-    blockDelete: (o) =>
-      o.cartonsPacked > 0
-        ? `${o.docNo} already has ${o.cartonsPacked} cartons packed against it. Cancel the order instead — deleting it would orphan those cartons.`
-        : undefined,
-  })
-
-  const orders = crud.rows
+  const [orders, setOrders] = useState<PackingOrder[]>([])
+  const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('ALL')
   const [advance, setAdvance] = useState<PackingOrder | null>(null)
+  const [deleting, setDeleting] = useState<PackingOrder | null>(null)
+
+  // Edit / Create Form state
+  const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState<PackingOrder | null>(null)
+  const [form, setForm] = useState<Partial<PackingOrder>>({})
+
+  const loadData = async () => {
+    try {
+      setLoading(true)
+      const data = await packingOrderApi.getAll()
+      setOrders(data)
+    } catch (e: any) {
+      toast.error('Failed to load orders', e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadData()
+  }, [])
 
   const visible = orders.filter((o) => {
     if (tab === 'OPEN') return o.status === 'MATERIAL_READY' || o.status === 'PACKING_STARTED' || o.status === 'PACKED'
@@ -127,7 +75,6 @@ export function PackingOrdersPage() {
   const awaitingQc = orders.filter((o) => o.status === 'PACKED' && !o.qcReleased)
   const readyCount = orders.filter((o) => o.status === 'READY_FOR_DISPATCH').length
 
-  /** Which gate stops this order moving on. */
   function blockingGate(o: PackingOrder): string | null {
     const next = FLOW[FLOW.indexOf(o.status) + 1]
     if (!next) return null
@@ -190,6 +137,82 @@ export function PackingOrdersPage() {
     }
   }
 
+  const handleUpdate = async (uid: string, patch: Partial<PackingOrder>) => {
+    try {
+      await packingOrderApi.update(Number(uid), patch)
+      loadData()
+    } catch (e: any) {
+      toast.error('Update failed', e.message)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!deleting) return
+    try {
+      await packingOrderApi.delete(Number(deleting.uid))
+      toast.success('Packing order deleted', `${deleting.docNo} removed.`)
+      setDeleting(null)
+      loadData()
+    } catch (e: any) {
+      toast.error('Delete failed', e.message)
+    }
+  }
+
+  const openCreate = () => {
+    setEditing(null)
+    setForm({
+      docNo: '',
+      customer: '',
+      salesOrderNo: '',
+      itemName: '',
+      batchNo: '',
+      quantity: 0,
+      cartonSpec: '',
+      cartonsPlanned: 0,
+      warehouse: 'FG Store — Chennai',
+      packingDate: new Date().toISOString(),
+      supervisor: '',
+      priority: 'NORMAL',
+      remarks: '',
+      status: 'PLANNED',
+      sourceType: 'SALES_ORDER',
+      sourceNo: '—',
+      customerCode: 'CUS-NEW',
+      itemCode: 'FG-NEW',
+      packedQuantity: 0,
+      cartonsPacked: 0,
+      uom: 'NOS',
+      materialReady: false,
+      qcReleased: false,
+      weightVerified: false,
+      isExport: false,
+      isOem: false,
+    })
+    setFormOpen(true)
+  }
+
+  const openEdit = (o: PackingOrder) => {
+    setEditing(o)
+    setForm({ ...o })
+    setFormOpen(true)
+  }
+
+  const handleSave = async () => {
+    try {
+      if (editing) {
+        await packingOrderApi.update(Number(editing.uid), form)
+        toast.success('Updated', `${editing.docNo} saved.`)
+      } else {
+        await packingOrderApi.create(form)
+        toast.success('Created', `New packing order added.`)
+      }
+      setFormOpen(false)
+      loadData()
+    } catch (e: any) {
+      toast.error('Save failed', e.message)
+    }
+  }
+
   return (
     <div>
       <PageHeader
@@ -200,7 +223,7 @@ export function PackingOrdersPage() {
             <Button variant="outline" size="sm" onClick={() => navigate('/dispatch/packing-materials')}>
               Packaging material
             </Button>
-            <Button variant="primary" size="sm" onClick={() => crud.openCreate({ docNo: `PKO/2607/${String(313 + orders.length).padStart(4, '0')}`, priority: 'NORMAL', warehouse: 'FG Store — Chennai' })}>
+            <Button variant="primary" size="sm" onClick={openCreate}>
               New packing order
             </Button>
           </>
@@ -240,7 +263,7 @@ export function PackingOrdersPage() {
                       variant="success"
                       size="sm"
                       onClick={() => {
-                        crud.update(o.uid, { qcReleased: true, status: 'QC_VERIFIED' })
+                        handleUpdate(o.uid, { qcReleased: true, status: 'QC_VERIFIED' })
                         toast.success('Quality release recorded', `${o.docNo} is QC verified. Once the carton weights are checked it can move to dispatch staging.`)
                       }}
                     >
@@ -268,8 +291,14 @@ export function PackingOrdersPage() {
         )}
         rowActions={(o) => (
           <>
-            <MenuItem label="Edit the order" onClick={() => crud.openEdit(o)} />
-            <MenuItem label="Delete the order" danger onClick={() => crud.askDelete(o)} />
+            <MenuItem label="Edit the order" onClick={() => openEdit(o)} />
+            <MenuItem label="Delete the order" danger onClick={() => {
+                if (o.cartonsPacked > 0) {
+                    toast.error('Cannot delete', `${o.docNo} already has ${o.cartonsPacked} cartons packed against it. Cancel the order instead — deleting it would orphan those cartons.`)
+                } else {
+                    setDeleting(o)
+                }
+            }} />
             <MenuItem
               separatorBefore
               label="Move to the next stage"
@@ -285,7 +314,7 @@ export function PackingOrdersPage() {
               danger
               disabled={o.status === 'DISPATCHED' || o.status === 'CANCELLED'}
               onClick={() => {
-                crud.update(o.uid, { status: 'CANCELLED' })
+                handleUpdate(o.uid, { status: 'CANCELLED' })
                 toast.success('Packing order cancelled', `${o.docNo} cancelled. The record stays for the audit trail — nothing is erased.`)
               }}
             />
@@ -313,7 +342,7 @@ export function PackingOrdersPage() {
                   patch.cartonsPacked = advance.cartonsPlanned
                   patch.packedQuantity = advance.quantity
                 }
-                crud.update(advance.uid, patch)
+                handleUpdate(advance.uid, patch)
                 toast.success(
                   'Stage recorded',
                   next === 'PACKED'
@@ -349,7 +378,52 @@ export function PackingOrdersPage() {
         )}
       </Modal>
 
-      {crud.dialogs}
+      <Modal
+        open={!!deleting}
+        onClose={() => setDeleting(null)}
+        title="Delete packing order"
+        size="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setDeleting(null)}>Keep it</Button>
+            <Button variant="danger" onClick={handleDelete}>Delete</Button>
+          </>
+        }
+      >
+        <p className="text-sm text-fg-muted">
+          <span className="font-medium text-fg">{deleting?.docNo}</span> will be removed from
+          the list. It is marked deleted rather than erased, so the history stays intact.
+        </p>
+      </Modal>
+
+      <Modal
+        open={formOpen}
+        onClose={() => setFormOpen(false)}
+        title={editing ? `Edit ${editing.docNo}` : 'New packing order'}
+        size="lg"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
+            <Button variant="primary" onClick={handleSave}>{editing ? 'Save changes' : 'Create order'}</Button>
+          </>
+        }
+      >
+        <div className="grid gap-3.5 sm:grid-cols-2">
+          {!editing && <Input label="Doc No" hint="Auto-generated if left blank" value={form.docNo || ''} onChange={e => setForm({ ...form, docNo: e.target.value })} />}
+          <Input label="Customer" required value={form.customer || ''} onChange={e => setForm({ ...form, customer: e.target.value })} />
+          <Input label="Sales order" value={form.salesOrderNo || ''} onChange={e => setForm({ ...form, salesOrderNo: e.target.value })} />
+          <Input label="Product" required containerClassName="sm:col-span-2" value={form.itemName || ''} onChange={e => setForm({ ...form, itemName: e.target.value })} />
+          <Input label="Batch" value={form.batchNo || ''} onChange={e => setForm({ ...form, batchNo: e.target.value })} />
+          <Input label="Quantity" type="number" required value={String(form.quantity || '')} onChange={e => setForm({ ...form, quantity: Number(e.target.value) })} />
+          <Input label="Carton specification" hint="12 bottles / carton, FBA single-unit box…" required value={form.cartonSpec || ''} onChange={e => setForm({ ...form, cartonSpec: e.target.value })} />
+          <Input label="Cartons planned" type="number" required value={String(form.cartonsPlanned || '')} onChange={e => setForm({ ...form, cartonsPlanned: Number(e.target.value) })} />
+          <Input label="Warehouse" required value={form.warehouse || ''} onChange={e => setForm({ ...form, warehouse: e.target.value })} />
+          <Input label="Packing date" type="date" required value={form.packingDate ? form.packingDate.slice(0, 10) : ''} onChange={e => setForm({ ...form, packingDate: new Date(e.target.value).toISOString() })} />
+          <Input label="Supervisor" required value={form.supervisor || ''} onChange={e => setForm({ ...form, supervisor: e.target.value })} />
+          <Select label="Priority" options={[{value: 'LOW', label: 'Low'}, {value: 'NORMAL', label: 'Normal'}, {value: 'HIGH', label: 'High'}, {value: 'URGENT', label: 'Urgent'}]} value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value as any })} />
+          <Textarea label="Remarks" containerClassName="sm:col-span-2" value={form.remarks || ''} onChange={e => setForm({ ...form, remarks: e.target.value })} />
+        </div>
+      </Modal>
 
       <Card className="mt-4">
         <CardHeader title="Six stages, three gates" description="The gates are what stop a half-ready consignment reaching the loading bay" />

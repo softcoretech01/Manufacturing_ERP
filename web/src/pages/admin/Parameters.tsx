@@ -1,216 +1,149 @@
 import { useMemo, useState } from 'react'
-import { Eye, EyeOff, RotateCcw, SlidersHorizontal } from 'lucide-react'
+import { RotateCcw, SlidersHorizontal } from 'lucide-react'
+import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/Button'
-import { Card, CardBody, CardHeader } from '@/components/ui/Card'
+import { Card, CardHeader } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
-import { Modal } from '@/components/ui/Modal'
 import { Alert, PageHeader } from '@/components/ui/Misc'
 import { Input, SearchInput, Select, Switch } from '@/components/ui/Input'
 import { useToast } from '@/components/ui/Toast'
-import { cn } from '@/lib/cn'
-import { systemParameters } from '@/mock/data2'
-import type { SystemParameter } from '@/types'
+import { ProblemError } from '@/api/client'
+import { useSession } from '@/api/session'
+import type { Parameter } from '@/api/parameters'
+import { useParameters, useUpdateParameters } from '@/hooks/useParameters'
 
-function ParameterControl({ p, onChange }: { p: SystemParameter; onChange: () => void }) {
-  const [reveal, setReveal] = useState(false)
-
-  if (p.valueType === 'BOOLEAN') {
-    return <Switch checked={p.value === 'true'} onChange={onChange} />
-  }
-  if (p.valueType === 'ENUM') {
-    return (
-      <Select
-        sizeVariant="sm"
-        defaultValue={p.value}
-        onChange={onChange}
-        options={(p.options ?? []).map((o) => ({ value: o, label: o.replace(/_/g, ' ').toLowerCase() }))}
-        className="w-56"
-      />
-    )
-  }
-  if (p.isSensitive) {
-    return (
-      <div className="flex items-center gap-1.5">
-        <Input
-          sizeVariant="sm"
-          type={reveal ? 'text' : 'password'}
-          defaultValue={p.value}
-          onChange={onChange}
-          className="w-56 font-mono"
-        />
-        <Button variant="ghost" size="icon-sm" onClick={() => setReveal((v) => !v)} aria-label={reveal ? 'Hide' : 'Reveal'}>
-          {reveal ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-        </Button>
-      </div>
-    )
-  }
-  return (
-    <Input
-      sizeVariant="sm"
-      type={p.valueType === 'NUMBER' ? 'number' : 'text'}
-      defaultValue={p.value}
-      onChange={onChange}
-      className={cn('w-56', p.valueType === 'JSON' && 'font-mono')}
-    />
-  )
-}
+/** Wired to the live backend `sys_parameter` store. Typed values, grouped by
+ *  area; changes are validated server-side (number/boolean/option). */
 
 export function ParametersPage() {
   const toast = useToast()
+  const companyUid = useSession((s) => s.companyUid)
+  const { data, isLoading, error, refetch } = useParameters()
+  const update = useUpdateParameters()
+
+  const params = data ?? []
   const [q, setQ] = useState('')
-  const [scope, setScope] = useState('')
-  const [dirty, setDirty] = useState<Set<string>>(new Set())
-  const [resetOpen, setResetOpen] = useState(false)
+  // Pending edits keyed by param_key.
+  const [edits, setEdits] = useState<Record<string, string>>({})
 
-  const filtered = systemParameters.filter((p) => {
-    if (scope && p.scope !== scope) return false
-    if (!q) return true
-    const s = q.toLowerCase()
-    return p.name.toLowerCase().includes(s) || p.key.toLowerCase().includes(s) || p.description.toLowerCase().includes(s)
-  })
+  const valueOf = (p: Parameter) => edits[p.param_key] ?? p.value
+  const isDirty = (p: Parameter) => edits[p.param_key] !== undefined && edits[p.param_key] !== p.value
+  const setVal = (p: Parameter, v: string) => setEdits((e) => ({ ...e, [p.param_key]: v }))
 
+  const dirtyCount = params.filter(isDirty).length
+
+  const filtered = params.filter(
+    (p) =>
+      !q ||
+      p.name.toLowerCase().includes(q.toLowerCase()) ||
+      p.param_key.toLowerCase().includes(q.toLowerCase()),
+  )
   const grouped = useMemo(() => {
-    const map = new Map<string, SystemParameter[]>()
+    const m = new Map<string, Parameter[]>()
     for (const p of filtered) {
-      const list = map.get(p.group) ?? []
+      const list = m.get(p.param_group) ?? []
       list.push(p)
-      map.set(p.group, list)
+      m.set(p.param_group, list)
     }
-    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
   }, [filtered])
 
-  const overridden = systemParameters.filter((p) => p.value !== p.defaultValue)
+  function save() {
+    const changes = params
+      .filter(isDirty)
+      .map((p) => ({ param_key: p.param_key, value: edits[p.param_key] }))
+    if (!changes.length) return
+    update.mutate(changes, {
+      onSuccess: () => {
+        toast.success('Parameters saved', `${changes.length} value${changes.length > 1 ? 's' : ''} updated.`)
+        setEdits({})
+      },
+      onError: (e) =>
+        toast.error('Save failed', e instanceof ProblemError ? e.problem.detail : 'Could not save parameters.'),
+    })
+  }
 
   return (
     <div>
       <PageHeader
         title="System parameters"
-        description="Behaviour that differs between installations lives here, not in code. Changing a parameter is an audited event with the old and new value recorded."
-        breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Compliance & ops' }, { label: 'System parameters' }]}
+        description="Configurable behaviour without code changes. Typed values are validated server-side on save."
+        breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Compliance & Ops' }, { label: 'System parameters' }]}
         actions={
           <>
-            <Button variant="outline" size="sm" icon={<RotateCcw className="h-4 w-4" />} onClick={() => setResetOpen(true)}>
-              Reset to defaults
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={dirty.size === 0}
-              onClick={() => { toast.success(`${dirty.size} parameter(s) saved`, 'Changes take effect on the next request; cached values are invalidated immediately.'); setDirty(new Set()) }}
-            >
-              Save {dirty.size > 0 && `(${dirty.size})`}
+            {dirtyCount > 0 && <Button variant="outline" size="sm" onClick={() => setEdits({})}>Discard ({dirtyCount})</Button>}
+            <Button variant="primary" size="sm" icon={<SlidersHorizontal className="h-4 w-4" />} onClick={save} loading={update.isPending} disabled={dirtyCount === 0}>
+              {dirtyCount > 0 ? `Save ${dirtyCount}` : 'Save'}
             </Button>
           </>
         }
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <SearchInput
-          placeholder="Parameter name, key or description…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          className="w-full max-w-sm"
-          sizeVariant="sm"
-        />
-        <Select
-          sizeVariant="sm"
-          value={scope}
-          onChange={(e) => setScope(e.target.value)}
-          options={[
-            { value: '', label: 'All scopes' },
-            { value: 'INSTALLATION', label: 'Installation-wide' },
-            { value: 'COMPANY', label: 'Per company' },
-          ]}
-        />
-      </div>
-
-      {dirty.size > 0 && (
-        <Alert tone="warning" className="mb-4" title={`${dirty.size} unsaved change(s)`}>
-          Parameter changes affect every user immediately once saved. Some — approval thresholds,
-          self-approval, period locks — change what people are allowed to do, so they are recorded
-          on the audit trail with your name against them.
+      {!companyUid && <Alert tone="warning" title="Not signed in to the backend">Sign in first so the app has an API session.</Alert>}
+      {error && (
+        <Alert tone="danger" title="Could not load parameters">
+          {error instanceof ProblemError ? error.problem.detail : 'Is the backend running?'}{' '}
+          <button className="underline" onClick={() => refetch()}>Retry</button>
         </Alert>
       )}
 
-      <div className="space-y-4">
-        {grouped.map(([group, params]) => (
-          <Card key={group}>
-            <CardHeader title={group} description={`${params.length} parameter${params.length > 1 ? 's' : ''}`} />
-            <CardBody className="divide-y divide-border p-0">
-              {params.map((p) => (
-                <div key={p.uid} className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-medium text-fg">{p.name}</span>
-                      <Badge tone={p.scope === 'COMPANY' ? 'progress' : 'neutral'} size="sm" dot={false}>
-                        {p.scope === 'COMPANY' ? 'per company' : 'installation'}
-                      </Badge>
-                      {p.value !== p.defaultValue && <Badge tone="warning" size="sm" dot={false}>changed</Badge>}
-                      {p.isSensitive && <Badge tone="danger" size="sm" dot={false}>sensitive</Badge>}
-                    </div>
-                    <p className="mt-0.5 font-mono text-2xs text-fg-subtle">{p.key}</p>
-                    <p className="mt-1 max-w-2xl text-xs text-fg-muted">{p.description}</p>
-                    {p.value !== p.defaultValue && (
-                      <p className="mt-1 text-2xs text-fg-subtle">
-                        Default: <span className="font-mono">{p.defaultValue}</span>
-                      </p>
-                    )}
-                  </div>
-                  <div className="shrink-0">
-                    <ParameterControl p={p} onChange={() => setDirty((d) => new Set([...d, p.uid]))} />
-                  </div>
-                </div>
-              ))}
-            </CardBody>
-          </Card>
-        ))}
-        {grouped.length === 0 && (
-          <Card>
-            <CardBody>
-              <p className="py-8 text-center text-sm text-fg-muted">No parameters match "{q}".</p>
-            </CardBody>
-          </Card>
-        )}
+      <div className="mb-3 max-w-sm">
+        <SearchInput sizeVariant="sm" placeholder="Search parameters…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
 
-      <Modal
-        open={resetOpen}
-        onClose={() => setResetOpen(false)}
-        title="Reset parameters to defaults"
-        size="sm"
-        footer={
-          <>
-            <Button variant="outline" onClick={() => setResetOpen(false)}>Cancel</Button>
-            <Button variant="danger" onClick={() => { toast.success('Parameters reset'); setResetOpen(false) }}>
-              Reset {overridden.length} parameter(s)
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-3">
-          <p className="text-sm text-fg-muted">
-            {overridden.length} parameter{overridden.length === 1 ? '' : 's'} currently differ from
-            the shipped default and would be reverted.
-          </p>
-          <div className="max-h-52 overflow-auto rounded border border-border">
-            <table className="grid-table">
-              <tbody>
-                {overridden.map((p) => (
-                  <tr key={p.uid}>
-                    <td className="font-mono text-2xs">{p.key}</td>
-                    <td className="text-2xs text-danger">{p.isSensitive ? '••••' : p.value}</td>
-                    <td className="text-2xs text-success">{p.isSensitive ? '••••' : p.defaultValue}</td>
-                  </tr>
+      {isLoading ? (
+        <p className="py-10 text-center text-sm text-fg-subtle">Loading parameters…</p>
+      ) : (
+        <div className="space-y-4">
+          {grouped.map(([group, list]) => (
+            <Card key={group}>
+              <CardHeader title={group} description={`${list.length} parameter${list.length > 1 ? 's' : ''}`} />
+              <div className="divide-y divide-border">
+                {list.map((p) => (
+                  <div key={p.param_key} className={cn('flex flex-wrap items-center gap-3 px-4 py-3', isDirty(p) && 'bg-brand-500/[0.04]')}>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-medium text-fg">{p.name}</span>
+                        <span className="rounded bg-surface-3 px-1 py-0.5 font-mono text-[10px] text-fg-subtle">{p.param_key}</span>
+                        <Badge tone="neutral" size="sm" dot={false}>{p.scope === 'INSTALLATION' ? 'installation' : 'company'}</Badge>
+                        {isDirty(p) && <Badge tone="warning" size="sm">unsaved</Badge>}
+                      </div>
+                      {p.description && <p className="mt-0.5 text-2xs text-fg-muted">{p.description}</p>}
+                    </div>
+                    <div className="flex w-56 shrink-0 items-center justify-end gap-2">
+                      <ParamEditor param={p} value={valueOf(p)} onChange={(v) => setVal(p, v)} />
+                      {valueOf(p) !== p.default_value && (
+                        <Button size="xs" variant="ghost" title="Reset to default" onClick={() => setVal(p, p.default_value)}>
+                          <RotateCcw className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
                 ))}
-              </tbody>
-            </table>
-          </div>
-          <Alert tone="danger" title="This changes what users can do">
-            Resetting re-enables shipped defaults such as blocking self-approval and locking closed
-            periods. Confirm with the process owners before doing this on a live system.
-          </Alert>
+              </div>
+            </Card>
+          ))}
+          {grouped.length === 0 && (
+            <Card className="p-8 text-center text-sm text-fg-subtle">No parameters match “{q}”.</Card>
+          )}
         </div>
-      </Modal>
+      )}
     </div>
   )
+}
+
+function ParamEditor({ param, value, onChange }: { param: Parameter; value: string; onChange: (v: string) => void }) {
+  if (param.value_type === 'BOOLEAN') {
+    return <Switch checked={value === 'true'} onChange={(v) => onChange(v ? 'true' : 'false')} label={value === 'true' ? 'On' : 'Off'} />
+  }
+  if (param.options && param.options.length > 0) {
+    return (
+      <Select sizeVariant="sm" value={value} onChange={(e) => onChange(e.target.value)}
+        options={param.options.map((o) => ({ value: o, label: o.replace(/_/g, ' ') }))} />
+    )
+  }
+  if (param.value_type === 'NUMBER') {
+    return <Input sizeVariant="sm" type="number" value={value} onChange={(e) => onChange(e.target.value)} />
+  }
+  return <Input sizeVariant="sm" value={value} onChange={(e) => onChange(e.target.value)} />
 }

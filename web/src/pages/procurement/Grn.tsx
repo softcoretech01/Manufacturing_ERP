@@ -13,20 +13,27 @@ import { useToast } from '@/components/ui/Toast'
 import { ApprovalTrail, DelayChip, DetailBlock, ProcStatusBadge } from '@/components/procurement/ProcShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/format'
-import { newUid, useCollection } from '@/store/data'
-import { grns as seedGrns, inspections as seedInspections, purchaseOrders as seedOrders } from '@/mock/procurement'
+import { useEffect } from 'react'
+import { useCollection, newUid } from '@/store/data'
+import { grns as seedGrns, inspections as seedIqcs, purchaseOrders as seedOrders } from '@/mock/procurement'
+import { plants as seedPlants, warehouses as seedWarehouses } from '@/mock/data'
 import { receivableOrders } from '@/lib/procFlow'
 import type { Grn, IncomingInspection, PurchaseOrder } from '@/types/procurement'
 import { cn } from '@/lib/cn'
 
 export function GrnPage() {
   const toast = useToast()
-  const grnSeed = useMemo(() => seedGrns, [])
-  const iqcSeed = useMemo(() => seedInspections, [])
-  const { rows: grns, create, update, remove } = useCollection<Grn>('proc:grn', grnSeed)
-  const { rows: inspections, update: updateIqc } = useCollection<IncomingInspection>('proc:iqc', iqcSeed)
-  const poSeed = useMemo(() => seedOrders, [])
-  const { rows: orders } = useCollection<PurchaseOrder>('proc:po', poSeed)
+  const gSeed = useMemo(() => seedGrns, [])
+  const { rows: grns, create: createGrn, update: updateGrn, remove: deleteGrn } = useCollection<Grn>('proc:grns', gSeed)
+
+  const iSeed = useMemo(() => seedIqcs, [])
+  const { rows: inspections, update: updateIqc } = useCollection<IncomingInspection>('proc:iqc', iSeed)
+
+  const oSeed = useMemo(() => seedOrders, [])
+  const { rows: orders } = useCollection<PurchaseOrder>('proc:po', oSeed)
+
+  const warehouses = seedWarehouses
+  const plants = seedPlants
 
   /** Only an approved order can be received against. */
   const receivable = receivableOrders(orders)
@@ -119,7 +126,7 @@ export function GrnPage() {
     }
   }
 
-  function save() {
+  async function save() {
     const e: Record<string, string> = {}
     if (!form.invoiceNo.trim()) e.invoiceNo = 'Supplier invoice number is required.'
     if (!form.invoiceDate) e.invoiceDate = 'Invoice date is required.'
@@ -133,47 +140,57 @@ export function GrnPage() {
       poNo: form.poNo,
       supplierName: form.supplierName,
       warehouse: form.warehouse,
-      invoiceNo: form.invoiceNo.trim(),
+      invoiceNo: form.invoiceNo,
       invoiceDate: form.invoiceDate,
-      invoiceValue: v,
-      vehicleNo: form.vehicleNo.trim(),
-      receivedBy: form.receivedBy.trim(),
+      invoiceValue: Number(form.invoiceValue),
+      vehicleNo: form.vehicleNo,
+      receivedBy: form.receivedBy,
       plant: form.plant,
     }
 
-    if (editing) {
-      update(editing.uid, { ...patch, version: editing.version + 1 })
-      toast.success('Receipt updated', `${editing.docNo} saved.`)
-    } else {
-      const next = Math.max(...grns.map((g) => Number(g.docNo.slice(-5)) || 0)) + 1
-      const docNo = `GRN/26-27/${String(next).padStart(5, '0')}`
-      create({
-        uid: newUid('grn'),
-        docNo,
-        docDate: new Date().toISOString().slice(0, 10),
-        status: 'PENDING_APPROVAL',
-        supplierUid: 'sup-new',
-        gateEntryNo: `GE/26-27/${1190 + next}`,
-        gateEntryAt: new Date().toISOString(),
-        lrNo: '—',
-        qcStatus: 'PENDING',
-        totalReceived: 0,
-        totalAccepted: 0,
-        totalRejected: 0,
-        grnValue: v,
-        delayDays: 0,
-        createdBy: form.receivedBy.trim(),
-        createdAt: new Date().toISOString(),
-        version: 1,
-        attachments: 0,
-        comments: 0,
-        approvals: [{ level: 1, role: 'Stores In-charge', approver: 'M. Lakshmi', status: 'PENDING' }],
-        lines: [],
-        ...patch,
-      } as Grn)
-      toast.success('Receipt created', `${docNo} raised against ${form.poNo}.`)
+    try {
+      if (editing) {
+        updateGrn(editing.uid, { ...editing, ...patch })
+        toast.success('GRN updated', `${editing.docNo} saved successfully.`)
+      } else {
+        const po = orders.find((o) => o.docNo === form.poNo)
+        const docNo = `GRN/26-27/${(grns.length + 1).toString().padStart(4, '0')}`
+        
+        createGrn({
+          docNo,
+          docDate: new Date().toISOString().slice(0, 10),
+          status: 'PENDING_APPROVAL',
+          poNo: form.poNo,
+          supplierUid: 'sup-new',
+          supplierName: form.supplierName,
+          warehouse: form.warehouse,
+          gateEntryNo: `GE/26-27/${1190 + grns.length + 1}`,
+          gateEntryAt: new Date().toISOString(),
+          invoiceNo: form.invoiceNo,
+          invoiceDate: form.invoiceDate,
+          invoiceValue: Number(form.invoiceValue),
+          vehicleNo: form.vehicleNo,
+          lrNo: '—',
+          receivedBy: form.receivedBy.trim(),
+          qcStatus: 'PENDING',
+          totalReceived: 0,
+          totalAccepted: 0,
+          totalRejected: 0,
+          grnValue: Number(form.invoiceValue),
+          delayDays: 0,
+          version: 1,
+          attachments: 0,
+          comments: 0,
+          approvals: [{ level: 1, role: 'Stores In-charge', approver: 'M. Lakshmi', status: 'PENDING', actedAt: null, remarks: null }],
+          lines: [],
+          uid: newUid(),
+        } as Grn)
+        toast.success('Receipt created', `${docNo} raised against ${form.poNo}.`)
+      }
+      setFormOpen(false)
+    } catch (e) {
+      toast.error('Error', 'Failed to save GRN')
     }
-    setFormOpen(false)
   }
 
   return (
@@ -244,9 +261,13 @@ export function GrnPage() {
                   icon={<Check />}
                   separatorBefore
                   disabled={g.status !== 'PENDING_APPROVAL'}
-                  onClick={() => {
-                    update(g.uid, { status: 'APPROVED', approvals: g.approvals.map((a) => (a.status === 'PENDING' ? { ...a, status: 'APPROVED' as const, actedAt: new Date().toISOString() } : a)) })
-                    toast.success('Approved', `${g.docNo} approved — stock posted to ${g.warehouse}.`)
+                  onClick={async () => {
+                    try {
+                      updateGrn(g.uid, { ...g, status: 'APPROVED', approvals: g.approvals.map((a) => (a.status === 'PENDING' ? { ...a, status: 'APPROVED' as const, actedAt: new Date().toISOString() } : a)) })
+                      toast.success('GRN approved', `${g.docNo} has been approved and moved to QC.`)
+                    } catch (e) {
+                      toast.error('Error', 'Failed to approve receipt')
+                    }
                   }}
                 />
                 <MenuItem
@@ -260,9 +281,13 @@ export function GrnPage() {
                   danger
                   separatorBefore
                   disabled={g.status === 'CANCELLED'}
-                  onClick={() => {
-                    update(g.uid, { status: 'CANCELLED', remarks: 'Cancelled by stores with a reason code.' })
-                    toast.success('Cancelled', `${g.docNo} cancelled; stock posting reversed.`)
+                  onClick={async () => {
+                    try {
+                      updateGrn(g.uid, { ...g, status: 'CANCELLED', remarks: 'Cancelled by stores with a reason code.' })
+                      toast.success('GRN cancelled', `${g.docNo} has been cancelled.`)
+                    } catch (e) {
+                      toast.error('Error', 'Failed to cancel receipt')
+                    }
                   }}
                 />
                 <MenuItem label="Delete" danger disabled={g.status === 'APPROVED'} onClick={() => setConfirmDelete(g)} />
@@ -285,27 +310,39 @@ export function GrnPage() {
               <MenuItem
                 label="Accept lot"
                 disabled={i.status !== 'PENDING' && i.status !== 'IN_PROGRESS'}
-                onClick={() => {
-                  updateIqc(i.uid, { status: 'ACCEPTED', acceptedQty: i.lotQty, rejectedQty: 0 })
-                  toast.success('Accepted', `${i.docNo} — ${i.lotQty.toLocaleString('en-IN')} units released to stores.`)
+                onClick={async () => {
+                  try {
+                    updateIqc(i.uid, { ...i, status: 'ACCEPTED', acceptedQty: i.lotQty, rejectedQty: 0 })
+                    toast.success('Lot accepted', `${i.docNo} marked as accepted.`)
+                  } catch (e) {
+                    toast.error('Error', 'Failed to accept lot')
+                  }
                 }}
               />
               <MenuItem
                 label="Reject lot"
                 danger
                 disabled={i.status !== 'PENDING' && i.status !== 'IN_PROGRESS'}
-                onClick={() => {
-                  updateIqc(i.uid, { status: 'REJECTED', acceptedQty: 0, rejectedQty: i.lotQty, ncrNo: `NCR/26-27/00${Math.floor(40 + Math.random() * 9)}` })
-                  toast.success('Rejected', `${i.docNo} rejected; an NCR has been raised and the supplier notified.`)
+                onClick={async () => {
+                  try {
+                    updateIqc(i.uid, { ...i, status: 'REJECTED', acceptedQty: 0, rejectedQty: i.lotQty, ncrNo: `NCR/26-27/00${Math.floor(40 + Math.random() * 9)}` })
+                    toast.success('Lot rejected', `${i.docNo} rejected and NCR raised.`)
+                  } catch (e) {
+                    toast.error('Error', 'Failed to reject lot')
+                  }
                 }}
               />
               <MenuItem
                 label="Accept under deviation"
                 separatorBefore
                 disabled={i.status === 'ACCEPTED'}
-                onClick={() => {
-                  updateIqc(i.uid, { status: 'DEVIATION_ACCEPTED', deviationApprovedBy: 'V. Ramanathan' })
-                  toast.warning('Deviation accepted', 'Requires plant-head approval and is reported in the monthly quality review.')
+                onClick={async () => {
+                  try {
+                    updateIqc(i.uid, { ...i, status: 'DEVIATION_ACCEPTED', deviationApprovedBy: 'V. Ramanathan' })
+                    toast.success('Deviation accepted', `${i.docNo} accepted with deviation.`)
+                  } catch (e) {
+                    toast.error('Error', 'Failed to accept deviation')
+                  }
                 }}
               />
             </>
@@ -329,10 +366,14 @@ export function GrnPage() {
                   <Button
                     variant="success"
                     size="sm"
-                    onClick={() => {
-                      update(detail.uid, { status: 'APPROVED' })
-                      toast.success('Approved', `${detail.docNo} approved.`)
-                      setDetail(null)
+                    onClick={async () => {
+                      try {
+                        updateGrn(detail.uid, { ...detail, status: 'APPROVED' })
+                        toast.success('Approved', `${detail.docNo} approved.`)
+                        setDetail(null)
+                      } catch (e) {
+                        toast.error('Error', 'Failed to approve receipt')
+                      }
                     }}
                   >
                     Approve
@@ -578,13 +619,13 @@ export function GrnPage() {
             ]}
           />
           <Input label="Supplier" readOnly value={form.supplierName} className="bg-surface-2" />
-          <Select label="Warehouse" value={form.warehouse} onChange={(e) => setForm({ ...form, warehouse: e.target.value })} options={['RM Store — Chennai', 'Packing Store — Chennai', 'Spares Store — Chennai', 'Tool Room — Hosur', 'WIP Store — Hosur'].map((v) => ({ value: v, label: v }))} />
+          <Select label="Warehouse" value={form.warehouse} onChange={(e) => setForm({ ...form, warehouse: e.target.value })} options={warehouses.length ? warehouses.map((v) => ({ value: v.name, label: v.name })) : [{ value: 'RM Store — Chennai', label: 'RM Store — Chennai' }]} />
           <Input label="Supplier invoice no" required value={form.invoiceNo} error={errors.invoiceNo} onChange={(e) => setForm({ ...form, invoiceNo: e.target.value })} />
           <Input label="Invoice date" type="date" required value={form.invoiceDate} error={errors.invoiceDate} onChange={(e) => setForm({ ...form, invoiceDate: e.target.value })} />
           <Input label="Invoice value (₹)" type="number" required value={form.invoiceValue} error={errors.invoiceValue} onChange={(e) => setForm({ ...form, invoiceValue: e.target.value })} />
           <Input label="Vehicle number" value={form.vehicleNo} placeholder="TN 38 BQ 4471" onChange={(e) => setForm({ ...form, vehicleNo: e.target.value })} />
           <Input label="Received by" required value={form.receivedBy} error={errors.receivedBy} onChange={(e) => setForm({ ...form, receivedBy: e.target.value })} />
-          <Select label="Plant" value={form.plant} onChange={(e) => setForm({ ...form, plant: e.target.value })} options={[{ value: 'Chennai — Unit 1', label: 'Chennai — Unit 1' }, { value: 'Hosur — Unit 2', label: 'Hosur — Unit 2' }]} />
+          <Select label="Plant" value={form.plant} onChange={(e) => setForm({ ...form, plant: e.target.value })} options={plants.length ? plants.map((v) => ({ value: v.name, label: v.name })) : [{ value: 'Chennai — Unit 1', label: 'Chennai — Unit 1' }]} />
           <Textarea label="Notes" containerClassName="sm:col-span-2" rows={2} placeholder="Seal condition, packing state, anything the inspector should know." />
         </div>
       </Modal>
@@ -599,10 +640,14 @@ export function GrnPage() {
             <Button variant="outline" onClick={() => setConfirmDelete(null)}>Cancel</Button>
             <Button
               variant="danger"
-              onClick={() => {
+              onClick={async () => {
                 if (confirmDelete) {
-                  remove(confirmDelete.uid)
-                  toast.success('Deleted', `${confirmDelete.docNo} soft-deleted.`)
+                  try {
+                    deleteGrn(confirmDelete.uid)
+                    toast.success('GRN deleted', `${confirmDelete.docNo} has been removed.`)
+                  } catch (e) {
+                    toast.error('Error', 'Failed to delete receipt')
+                  }
                 }
                 setConfirmDelete(null)
               }}

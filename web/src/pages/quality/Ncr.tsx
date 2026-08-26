@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { ArrowRight, Plus, Shield, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type Column } from '@/components/ui/DataTable'
@@ -15,6 +15,8 @@ import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatAmount, formatDate, formatQty } from '@/lib/format'
 import { CAUSE_CATEGORIES, CAUSE_LABEL, NCR_FLOW, NCR_STATUS_LABEL, ncrStepBlockers, overdueDays } from '@/lib/qmsFlow'
 import { newUid } from '@/store/data'
+import { ncrsApi } from '@/api/ncrs'
+import { capasApi } from '@/api/capas'
 import type { CauseCategory, DefectSeverity, Ncr, NcrSource, WhyStep } from '@/types/quality'
 
 /**
@@ -57,8 +59,32 @@ interface FormState {
 
 export function NcrPage() {
   const toast = useToast()
-  const { ncrs, capas, defects, inspections } = useQualityData()
-  const { rows, create, update, remove } = ncrs
+  const { defects, inspections } = useQualityData()
+  const [rows, setRows] = useState<Ncr[]>([])
+
+  
+  const updateWrapper = async (id: number | undefined, patch: any) => {
+    if (!id) return;
+    try {
+      await ncrsApi.update(id, patch);
+      fetchNcrs();
+    } catch (e: any) {
+      toast.error('Error', e.message || 'Update failed');
+    }
+  }
+
+  const fetchNcrs = async () => {
+    try {
+      const data = await ncrsApi.getAll()
+      setRows(data || [])
+    } catch (e) {
+      toast.error('Error', 'Failed to fetch NCRs')
+    }
+  }
+
+  useEffect(() => {
+    fetchNcrs()
+  }, [])
 
   const [tab, setTab] = useState('open')
   const [detail, setDetail] = useState<Ncr | null>(null)
@@ -125,10 +151,10 @@ export function NcrPage() {
   function openEdit(n: Ncr) {
     setEditing(n)
     setForm({
-      source: n.source, severity: n.severity, title: n.title, description: n.description, itemCode: n.itemCode,
-      batchNo: n.batchNo, originDocNo: n.originDocNo, supplierCode: n.supplierCode,
-      quantityAffected: String(n.quantityAffected), quantityScrapped: String(n.quantityScrapped),
-      quantityReworked: String(n.quantityReworked), owner: n.owner, dueOn: n.dueOn,
+      source: n.source, severity: n.severity, title: n.title ?? '', description: n.description ?? '', itemCode: n.itemCode ?? '',
+      batchNo: n.batchNo ?? '', originDocNo: n.originDocNo ?? '', supplierCode: n.supplierCode ?? '',
+      quantityAffected: String(n.quantityAffected ?? 0), quantityScrapped: String(n.quantityScrapped ?? 0),
+      quantityReworked: String(n.quantityReworked ?? 0), owner: n.owner ?? '', dueOn: n.dueOn ?? '',
     })
     setErrors({})
     setFormOpen(true)
@@ -158,7 +184,7 @@ export function NcrPage() {
     return Object.keys(e).length === 0
   }
 
-  function save() {
+  async function save() {
     if (!validate()) return
     const scrapped = Number(form.quantityScrapped) || 0
     const reworked = Number(form.quantityReworked) || 0
@@ -180,30 +206,34 @@ export function NcrPage() {
       costImpact: estimateCost(form.itemCode.trim(), scrapped, reworked),
     }
     if (editing) {
-      update(editing.uid, { ...patch, version: editing.version + 1 })
+      updateWrapper((editing as any)?.id, { ...patch, version: editing.version + 1 })
       toast.success('NCR updated', `${editing.docNo} saved.`)
     } else {
-      const seq = rows.length + 21
-      const docNo = `NCR/26-27/${String(seq).padStart(4, '0')}`
-      create({
-        ...patch,
-        uid: newUid('ncr'),
-        docNo,
-        uom: 'NOS',
-        containment: '',
-        containedAt: null,
-        rootCause: '',
-        causeCategory: null,
-        fiveWhys: emptyWhys(),
-        status: 'OPEN',
-        raisedBy: 'S. Meena',
-        raisedOn: new Date().toISOString().slice(0, 10),
-        closedOn: null,
-        capaDocNo: null,
-        remarks: '',
-        version: 1,
-      } as Ncr)
-      toast.success('NCR raised', `${docNo} — record the containment action next; nothing else can start until the material is stopped.`)
+      try {
+        const nextCode = await ncrsApi.getNextCode()
+        const docNo = nextCode.code
+        await ncrsApi.create({
+          ...patch,
+          docNo,
+          uom: 'NOS',
+          containment: '',
+          containedAt: null,
+          rootCause: '',
+          causeCategory: null,
+          fiveWhys: emptyWhys(),
+          status: 'OPEN',
+          raisedBy: 'S. Meena',
+          raisedOn: new Date().toISOString().slice(0, 10),
+          closedOn: null,
+          capaDocNo: null,
+          remarks: '',
+          version: 1,
+        } as any)
+        fetchNcrs()
+        toast.success('NCR raised', `${docNo} — record the containment action next; nothing else can start until the material is stopped.`)
+      } catch (e: any) {
+        toast.error('Error', e.message || 'Failed to create NCR')
+      }
     }
     setFormOpen(false)
   }
@@ -218,52 +248,54 @@ export function NcrPage() {
     const patch: Partial<Ncr> = { status: to, version: n.version + 1 }
     if (to === 'CONTAINED') patch.containedAt = new Date().toISOString().slice(0, 10)
     if (to === 'CLOSED') patch.closedOn = new Date().toISOString().slice(0, 10)
-    update(n.uid, patch)
+    updateWrapper((n as any)?.id, patch)
     toast.success(NCR_STATUS_LABEL[to], `${n.docNo} moved to ${NCR_STATUS_LABEL[to].toLowerCase()}.`)
     setMoving(null)
     setDetail(null)
   }
 
   function setWhy(n: Ncr, level: number, patch: Partial<WhyStep>) {
-    update(n.uid, { fiveWhys: n.fiveWhys.map((w) => (w.level === level ? { ...w, ...patch } : w)), version: n.version + 1 })
+    updateWrapper((n as any)?.id, { fiveWhys: n.fiveWhys.map((w) => (w.level === level ? { ...w, ...patch } : w)), version: n.version + 1 })
   }
 
-  function raiseCapa(n: Ncr) {
-    if (!n.rootCause.trim() || !n.causeCategory) {
+  async function raiseCapa(n: Ncr) {
+    if (!(n.rootCause ?? '').trim() || !n.causeCategory) {
       toast.error('Not ready for a CAPA', 'A CAPA starts from a root cause. Complete the investigation first.')
       return
     }
-    const seq = capas.rows.length + 11
-    const docNo = `CAPA/26-27/${String(seq).padStart(4, '0')}`
-    capas.create({
-      uid: newUid('cap'),
-      docNo,
-      title: `Action on ${n.title}`,
-      ncrDocNo: n.docNo,
-      itemCode: n.itemCode,
-      rootCause: n.rootCause,
-      causeCategory: n.causeCategory,
-      correctiveAction: '',
-      preventiveAction: '',
-      owner: n.owner,
-      raisedOn: new Date().toISOString().slice(0, 10),
-      dueOn: n.dueOn,
-      status: 'DRAFT',
-      verificationMethod: '',
-      verificationResult: '',
-      verifiedBy: null,
-      verifiedOn: null,
-      closedOn: null,
-      recurrenceChecked: false,
-      effectivenessPct: null,
-      version: 1,
-    })
-    update(n.uid, { capaDocNo: docNo, version: n.version + 1 })
-    toast.success('CAPA raised', `${docNo} created from ${n.docNo}, carrying the root cause across.`)
+    try {
+      const nextCode = await capasApi.getNextCode()
+      const docNo = nextCode.code
+      await capasApi.create({
+        title: `Action on ${n.title}`,
+        ncrDocNo: n.docNo,
+        itemCode: n.itemCode,
+        rootCause: n.rootCause,
+        causeCategory: n.causeCategory,
+        correctiveAction: '',
+        preventiveAction: '',
+        owner: n.owner,
+        raisedOn: new Date().toISOString().slice(0, 10),
+        dueOn: n.dueOn,
+        status: 'DRAFT',
+        verificationMethod: '',
+        verificationResult: '',
+        verifiedBy: null,
+        verifiedOn: null,
+        closedOn: null,
+        recurrenceChecked: false,
+        effectivenessPct: null,
+        version: 1,
+      } as any)
+      updateWrapper((n as any)?.id, { capaDocNo: docNo, version: n.version + 1 })
+      toast.success('CAPA raised', `${docNo} created from ${n.docNo}, carrying the root cause across.`)
+    } catch (e: any) {
+      toast.error('Error', e.message || 'Failed to raise CAPA')
+    }
   }
 
   const nextSteps = live ? NCR_FLOW[live.status].filter((s) => s !== 'CANCELLED') : []
-  const answeredWhys = live ? live.fiveWhys.filter((w) => w.answer.trim()).length : 0
+  const answeredWhys = live ? live.fiveWhys.filter((w) => (w.answer ?? '').trim()).length : 0
 
   return (
     <div>
@@ -300,7 +332,7 @@ export function NcrPage() {
       <DataTable
         rows={filtered}
         columns={columns}
-        rowKey={(n) => n.uid}
+        rowKey={(n) => String((n as any).id ?? n.uid)}
         searchPlaceholder="Search NCR, title, item or owner…"
         onExport={(f: ExportFormat) => {
           const n = exportRows(f, 'ncr-register', 'NCR register', columnsFromTable(columns), filtered)
@@ -316,7 +348,7 @@ export function NcrPage() {
             {NCR_FLOW[n.status].filter((s) => s !== 'CANCELLED').map((to) => (
               <MenuItem key={to} label={`Move to ${NCR_STATUS_LABEL[to].toLowerCase()}`} separatorBefore={to === NCR_FLOW[n.status][0]} onClick={() => setMoving({ ncr: n, to })} />
             ))}
-            <MenuItem label="Raise a CAPA" icon={<ArrowRight />} separatorBefore disabled={!!n.capaDocNo || !n.rootCause.trim()} onClick={() => raiseCapa(n)} />
+            <MenuItem label="Raise a CAPA" icon={<ArrowRight />} separatorBefore disabled={!!n.capaDocNo || !(n.rootCause ?? '').trim()} onClick={() => raiseCapa(n)} />
             <MenuItem label={n.status === 'CLOSED' ? 'Delete — blocked (closed)' : 'Delete'} icon={<Trash2 />} danger separatorBefore disabled={n.status === 'CLOSED'} onClick={() => setConfirmDelete(n)} />
           </>
         )}
@@ -336,7 +368,7 @@ export function NcrPage() {
                 Raised by {live.raisedBy} on {formatDate(live.raisedOn)} · owner {live.owner}
               </span>
               <div className="flex gap-2">
-                {!live.capaDocNo && live.rootCause.trim() && (
+                {!live.capaDocNo && (live.rootCause ?? '').trim() && (
                   <Button variant="outline" size="sm" onClick={() => raiseCapa(live)}>
                     Raise a CAPA
                   </Button>
@@ -399,7 +431,7 @@ export function NcrPage() {
                 value={live.containment}
                 disabled={live.status === 'CLOSED'}
                 placeholder="What was done immediately to stop the non-conforming material moving. Required before the investigation can start."
-                onChange={(e) => update(live.uid, { containment: e.target.value, version: live.version + 1 })}
+                onChange={(e) => updateWrapper((live as any)?.id, { containment: e.target.value, version: live.version + 1 })}
               />
               {live.containedAt && <p className="mt-1 text-2xs text-fg-subtle">Contained on {formatDate(live.containedAt)}.</p>}
             </DetailBlock>
@@ -441,13 +473,13 @@ export function NcrPage() {
                   value={live.rootCause}
                   disabled={live.status === 'CLOSED'}
                   placeholder="The cause that, if removed, would have prevented this."
-                  onChange={(e) => update(live.uid, { rootCause: e.target.value, version: live.version + 1 })}
+                  onChange={(e) => updateWrapper((live as any)?.id, { rootCause: e.target.value, version: live.version + 1 })}
                 />
                 <Select
                   label="Cause category"
                   value={live.causeCategory ?? ''}
                   disabled={live.status === 'CLOSED'}
-                  onChange={(e) => update(live.uid, { causeCategory: (e.target.value || null) as CauseCategory | null, version: live.version + 1 })}
+                  onChange={(e) => updateWrapper((live as any)?.id, { causeCategory: (e.target.value || null) as CauseCategory | null, version: live.version + 1 })}
                   options={[{ value: '', label: 'Not classified' }, ...CAUSE_CATEGORIES.map((c) => ({ value: c, label: CAUSE_LABEL[c] }))]}
                 />
               </div>
@@ -542,7 +574,7 @@ export function NcrPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setConfirmDelete(null)}>Cancel</Button>
-            <Button variant="danger" onClick={() => { if (confirmDelete) { remove(confirmDelete.uid); toast.success('Deleted', `${confirmDelete.docNo} was soft-deleted.`) } setConfirmDelete(null) }}>Delete</Button>
+            <Button variant="danger" onClick={() => { if (confirmDelete) { ncrsApi.remove((confirmDelete as any).id).then(() => { fetchNcrs(); toast.success('Deleted', `${confirmDelete.docNo} was soft-deleted.`) }).catch((e: any) => toast.error('Error', e.message)) } setConfirmDelete(null) }}>Delete</Button>
           </>
         }
       >

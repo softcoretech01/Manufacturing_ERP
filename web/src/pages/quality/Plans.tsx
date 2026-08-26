@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { Copy, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type Column } from '@/components/ui/DataTable'
@@ -13,7 +13,7 @@ import { DetailBlock, QmsStatusBadge, SeverityBadge, StageBadge, useQualityData 
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDate } from '@/lib/format'
 import { SUPPORTED_AQL, STAGE_LABEL, aqlPlan, instrumentStatus, samplingFor } from '@/lib/qmsFlow'
-import { newUid } from '@/store/data'
+import { plansApi } from '@/api/quality_plans'
 import type { CharacteristicType, DefectSeverity, InspectionPlan, InspectionStage, PlanCharacteristic, SamplingMethod } from '@/types/quality'
 
 /**
@@ -55,15 +55,31 @@ interface FormState {
 }
 
 const newChar = (seq: number): CharEntry => ({
-  uid: `pch-${Date.now().toString(36)}-${seq}`, seq, name: '', type: 'MEASURED', uom: '',
+  id: 0, planId: 0, uid: `pch-${Date.now().toString(36)}-${seq}`, seq, name: '', type: 'MEASURED', uom: '',
   target: '', lowerLimit: '', upperLimit: '', instrumentCode: '', severity: 'MAJOR',
   isMandatory: true, requiresPhoto: false, method: '',
 })
 
 export function PlansPage() {
   const toast = useToast()
-  const { plans, instruments, inspections } = useQualityData()
-  const { rows, create, update, remove } = plans
+  const { instruments, inspections } = useQualityData()
+  const [rows, setRows] = useState<InspectionPlan[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const fetchPlans = async () => {
+    try {
+      const data = await plansApi.getAll()
+      setRows(data || [])
+    } catch (e) {
+      toast.error('Error', 'Failed to fetch plans')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchPlans()
+  }, [])
 
   const [tab, setTab] = useState('active')
   const [detail, setDetail] = useState<InspectionPlan | null>(null)
@@ -79,7 +95,14 @@ export function PlansPage() {
   const [confirmDelete, setConfirmDelete] = useState<InspectionPlan | null>(null)
   const [previewLot, setPreviewLot] = useState('500')
 
-  const usageOf = (docNo: string) => inspections.rows.filter((i) => i.planDocNo === docNo).length
+  const maxId = rows.reduce((max, r) => {
+    const parts = r.planCode.split('/')
+    const num = parseInt(parts[parts.length - 1], 10)
+    return isNaN(num) ? max : Math.max(max, num)
+  }, 0)
+  const nextPlanCode = `QIP/26-27/${String(maxId + 1).padStart(4, '0')}`
+
+  const usageOf = (planCode: string) => inspections.rows.filter((i) => i.planDocNo === planCode).length
 
   const counts = {
     active: rows.filter((p) => p.status === 'ACTIVE').length,
@@ -96,7 +119,7 @@ export function PlansPage() {
   })
 
   const columns: Column<InspectionPlan>[] = [
-    { key: 'docNo', header: 'Plan', sortable: true, width: '11rem', render: (p) => <span className="font-mono text-xs font-medium text-brand-600">{p.docNo}</span> },
+    { key: 'planCode', header: 'Plan', sortable: true, width: '11rem', render: (p) => <span className="font-mono text-xs font-medium text-brand-600">{p.planCode}</span> },
     { key: 'revision', header: 'Rev', align: 'right', width: '4.5rem', accessor: (p) => p.revision, render: (p) => <span className="font-mono text-2xs">R{p.revision}</span> },
     { key: 'stage', header: 'Stage', sortable: true, width: '7.5rem', accessor: (p) => STAGE_LABEL[p.stage], render: (p) => <StageBadge stage={p.stage} /> },
     { key: 'name', header: 'Plan', sortable: true, render: (p) => (<><p className="text-xs font-medium text-fg">{p.name}</p><p className="font-mono text-2xs text-fg-subtle">{p.itemCode}{p.operationCode && ` · ${p.operationCode}`}</p></>) },
@@ -104,7 +127,7 @@ export function PlansPage() {
     { key: 'critical', header: 'Critical', align: 'right', width: '6.5rem', accessor: (p) => p.characteristics.filter((c) => c.severity === 'CRITICAL').length },
     { key: 'samplingMethod', header: 'Sampling', sortable: true, width: '11rem', accessor: (p) => METHOD_LABEL[p.samplingMethod], render: (p) => <span className="text-xs text-fg-muted">{p.samplingMethod === 'AQL' ? `AQL ${p.aql}` : METHOD_LABEL[p.samplingMethod]}</span> },
     { key: 'frequency', header: 'Frequency', width: '12rem', render: (p) => <span className="text-2xs text-fg-muted">{p.frequency}</span> },
-    { key: 'usage', header: 'Used', align: 'right', width: '5.5rem', accessor: (p) => usageOf(p.docNo), render: (p) => <span className="text-xs tabular text-fg-muted">{usageOf(p.docNo)}</span> },
+    { key: 'usage', header: 'Used', align: 'right', width: '5.5rem', accessor: (p) => usageOf(p.planCode), render: (p) => <span className="text-xs tabular text-fg-muted">{usageOf(p.planCode)}</span> },
     { key: 'effectiveFrom', header: 'Effective', sortable: true, width: '8rem', accessor: (p) => p.effectiveFrom, render: (p) => formatDate(p.effectiveFrom) },
     { key: 'status', header: 'Status', sortable: true, width: '8.5rem', render: (p) => <QmsStatusBadge status={p.status} /> },
   ]
@@ -169,7 +192,7 @@ export function PlansPage() {
     }))
   }
 
-  function save(activate: boolean) {
+  async function save(activate: boolean) {
     if (!validate()) return
     const common = {
       name: form.name.trim(), stage: form.stage, itemCode: form.itemCode.trim(), itemName: form.itemName.trim() || form.itemCode.trim(),
@@ -181,17 +204,17 @@ export function PlansPage() {
       approvedBy: activate ? 'Meera Rajan' : null,
     }
     if (editing) {
-      update(editing.uid, { ...common, version: editing.version + 1 })
-      toast.success('Plan saved', `${editing.docNo} updated.`)
+      await plansApi.update(editing.id as number, { ...common }); await fetchPlans()
+      toast.success('Plan saved', `${editing.planCode} updated.`)
     } else if (revisingFrom) {
       // Superseding rather than overwriting: results already taken keep their plan.
-      update(revisingFrom.uid, { status: 'SUPERSEDED', version: revisingFrom.version + 1 })
-      create({ ...common, uid: newUid('qip'), docNo: revisingFrom.docNo, revision: revisingFrom.revision + 1, createdBy: 'S. Meena', createdAt: new Date().toISOString(), version: 1 } as InspectionPlan)
-      toast.success(`Revision ${revisingFrom.revision + 1} created`, `${revisingFrom.docNo} R${revisingFrom.revision} is superseded. Inspections already taken keep the revision they were taken to.`)
+      await plansApi.update(revisingFrom.id as number, { status: 'SUPERSEDED' })
+      await plansApi.create({ ...common, planCode: revisingFrom.planCode, revision: revisingFrom.revision + 1 })
+      await fetchPlans()
+      toast.success(`Revision ${revisingFrom.revision + 1} created`, `${revisingFrom.planCode} R${revisingFrom.revision} is superseded. Inspections already taken keep the revision they were taken to.`)
     } else {
-      const docNo = `QIP/26-27/${String(rows.length + 1).padStart(4, '0')}`
-      create({ ...common, uid: newUid('qip'), docNo, revision: 1, createdBy: 'S. Meena', createdAt: new Date().toISOString(), version: 1 } as InspectionPlan)
-      toast.success('Plan created', `${docNo} R1 saved as ${activate ? 'active' : 'a draft'}.`)
+      const response = await plansApi.create({ ...common, revision: 1 }); await fetchPlans()
+      toast.success('Plan created', `${response.planCode} R1 saved as ${activate ? 'active' : 'a draft'}.`)
     }
     setFormOpen(false)
   }
@@ -220,7 +243,7 @@ export function PlansPage() {
       <DataTable
         rows={filtered}
         columns={columns}
-        rowKey={(p) => p.uid}
+        rowKey={(p) => String(p.id)}
         searchPlaceholder="Search plan, item, stage or operation…"
         onExport={(f: ExportFormat) => { const n = exportRows(f, 'inspection-plans', 'Inspection plans', columnsFromTable(columns), filtered); toast.success('Export ready', `${n} rows written.`) }}
         onRowClick={setDetail}
@@ -230,17 +253,17 @@ export function PlansPage() {
           <>
             <MenuItem label="Edit" disabled={p.status === 'ACTIVE'} onClick={() => openEdit(p)} />
             <MenuItem label="Create next revision" icon={<Copy />} disabled={p.status !== 'ACTIVE'} onClick={() => openRevision(p)} />
-            <MenuItem label="Activate" separatorBefore disabled={p.status !== 'DRAFT'} onClick={() => { update(p.uid, { status: 'ACTIVE', approvedBy: 'Meera Rajan', version: p.version + 1 }); toast.success('Activated', `${p.docNo} R${p.revision} can now be inspected against.`) }} />
-            <MenuItem label="Make obsolete" disabled={p.status !== 'ACTIVE'} onClick={() => { update(p.uid, { status: 'OBSOLETE', version: p.version + 1 }); toast.success('Obsolete', `${p.docNo} withdrawn. Existing inspections are unaffected.`) }} />
-            <MenuItem label={usageOf(p.docNo) ? `Delete — blocked (${usageOf(p.docNo)} inspections)` : 'Delete'} icon={<Trash2 />} danger separatorBefore disabled={usageOf(p.docNo) > 0} onClick={() => setConfirmDelete(p)} />
+            <MenuItem label="Activate" separatorBefore disabled={p.status !== 'DRAFT'} onClick={() => { plansApi.update(p.id as number, { status: 'ACTIVE', approvedBy: 'Meera Rajan' }).then(fetchPlans); toast.success('Activated', `${p.planCode} R${p.revision} can now be inspected against.`) }} />
+            <MenuItem label="Make obsolete" disabled={p.status !== 'ACTIVE'} onClick={() => { plansApi.update(p.id as number, { status: 'OBSOLETE' }).then(fetchPlans); toast.success('Obsolete', `${p.planCode} withdrawn. Existing inspections are unaffected.`) }} />
+            <MenuItem label={usageOf(p.planCode) ? `Delete — blocked (${usageOf(p.planCode)} inspections)` : 'Delete'} icon={<Trash2 />} danger separatorBefore disabled={usageOf(p.planCode) > 0} onClick={() => setConfirmDelete(p)} />
           </>
         )}
       />
 
-      <Drawer open={!!detail} onClose={() => setDetail(null)} title={detail ? `${detail.docNo} · revision ${detail.revision}` : ''} description={detail?.name} width="max-w-4xl"
+      <Drawer open={!!detail} onClose={() => setDetail(null)} title={detail ? `${detail.planCode} · revision ${detail.revision}` : ''} description={detail?.name} width="max-w-4xl"
         footer={detail && (
           <div className="flex w-full items-center justify-between gap-2">
-            <span className="text-2xs text-fg-subtle">{detail.characteristics.length} characteristics · {usageOf(detail.docNo)} inspections raised · {detail.inspectorRole}</span>
+            <span className="text-2xs text-fg-subtle">{detail.characteristics.length} characteristics · {usageOf(detail.planCode)} inspections raised · {detail.inspectorRole}</span>
             {detail.status === 'ACTIVE' && <Button variant="outline" size="sm" icon={<Copy className="h-3.5 w-3.5" />} onClick={() => openRevision(detail)}>Create next revision</Button>}
           </div>
         )}
@@ -282,7 +305,7 @@ export function PlansPage() {
                       const inst = c.instrumentCode ? instruments.rows.find((x) => x.code === c.instrumentCode) : undefined
                       const bad = c.instrumentCode && (!inst || ['OVERDUE', 'CONDEMNED'].includes(instrumentStatus(inst)))
                       return (
-                        <tr key={c.uid}>
+                        <tr key={c.id}>
                           <td className="text-2xs text-fg-subtle">{c.seq}</td>
                           <td><p className="text-xs font-medium text-fg">{c.name}</p>{c.method && <p className="text-2xs text-fg-subtle">{c.method}</p>}</td>
                           <td className="text-2xs text-fg-muted">{c.type.toLowerCase()}</td>
@@ -303,11 +326,12 @@ export function PlansPage() {
         )}
       </Drawer>
 
-      <Modal open={formOpen} onClose={() => setFormOpen(false)} title={revisingFrom ? `${revisingFrom.docNo} — revision ${revisingFrom.revision + 1}` : editing ? `Edit ${editing.docNo}` : 'New inspection plan'} size="full"
+      <Modal open={formOpen} onClose={() => setFormOpen(false)} title={revisingFrom ? `${revisingFrom.planCode} — revision ${revisingFrom.revision + 1}` : editing ? `Edit ${editing.planCode}` : 'New inspection plan'} size="full"
         footer={<><Button variant="ghost" onClick={() => setFormOpen(false)}>Cancel</Button><Button variant="outline" onClick={() => save(false)}>Save draft</Button><Button variant="primary" onClick={() => save(true)}>Save and activate</Button></>}
       >
         <div className="grid gap-3.5 sm:grid-cols-4">
-          <Input label="Plan name" required containerClassName="sm:col-span-2" value={form.name} error={errors.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <Input label="Plan code" disabled value={editing ? editing.planCode : revisingFrom ? revisingFrom.planCode : nextPlanCode} />
+          <Input label="Plan name" required value={form.name} error={errors.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <Select label="Stage" value={form.stage} onChange={(e) => setForm({ ...form, stage: e.target.value as InspectionStage })} options={STAGES.map((s) => ({ value: s, label: STAGE_LABEL[s] }))} />
           <Input label="Effective from" type="date" value={form.effectiveFrom} onChange={(e) => setForm({ ...form, effectiveFrom: e.target.value })} />
           <Input label="Item code" required value={form.itemCode} error={errors.itemCode} placeholder="RM-SS304-050" onChange={(e) => setForm({ ...form, itemCode: e.target.value })} />
@@ -348,7 +372,7 @@ export function PlansPage() {
               </tr></thead>
               <tbody>
                 {form.characteristics.map((c, i) => (
-                  <tr key={c.uid}>
+                  <tr key={c.id || c.uid || i}>
                     <td><input value={c.name} aria-label={`Name on row ${i + 1}`} onChange={(e) => setChar(i, { name: e.target.value })} className="h-7 w-full rounded border border-border bg-surface px-2 text-xs text-fg focus:border-brand-500 focus:outline-none" /></td>
                     <td><select value={c.type} aria-label={`Type on row ${i + 1}`} onChange={(e) => setChar(i, { type: e.target.value as CharacteristicType })} className="h-7 w-full rounded border border-border bg-surface px-1 text-xs text-fg focus:border-brand-500 focus:outline-none">{TYPES.map((t) => (<option key={t} value={t}>{t.toLowerCase()}</option>))}</select></td>
                     <td><input value={c.uom} disabled={c.type !== 'MEASURED'} aria-label={`Unit on row ${i + 1}`} onChange={(e) => setChar(i, { uom: e.target.value })} className="h-7 w-full rounded border border-border bg-surface px-1.5 text-xs text-fg focus:border-brand-500 focus:outline-none disabled:bg-surface-3" /></td>
@@ -382,9 +406,9 @@ export function PlansPage() {
       </Modal>
 
       <Modal open={!!confirmDelete} onClose={() => setConfirmDelete(null)} title="Delete inspection plan" size="sm"
-        footer={<><Button variant="ghost" onClick={() => setConfirmDelete(null)}>Cancel</Button><Button variant="danger" onClick={() => { if (confirmDelete) { remove(confirmDelete.uid); toast.success('Deleted', `${confirmDelete.docNo} was soft-deleted.`) } setConfirmDelete(null) }}>Delete</Button></>}
+        footer={<><Button variant="ghost" onClick={() => setConfirmDelete(null)}>Cancel</Button><Button variant="danger" onClick={() => { if (confirmDelete) { plansApi.remove(confirmDelete.id as number).then(fetchPlans); toast.success('Deleted', `${confirmDelete.planCode} was soft-deleted.`) } setConfirmDelete(null) }}>Delete</Button></>}
       >
-        <p className="text-sm text-fg-muted">{confirmDelete?.docNo} will be marked deleted, not physically removed. No inspection has been raised against it.</p>
+        <p className="text-sm text-fg-muted">{confirmDelete?.planCode} will be marked deleted, not physically removed. No inspection has been raised against it.</p>
       </Modal>
     </div>
   )

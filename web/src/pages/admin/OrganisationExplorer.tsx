@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Building2,
   ChevronDown,
@@ -8,41 +9,57 @@ import {
   Factory,
   GitBranch,
   ListTree,
+  Pencil,
   Settings2,
   Warehouse as WarehouseIcon,
-  Wrench,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/Button'
-import { Card, CardBody, CardHeader, DataRow } from '@/components/ui/Card'
-import { Badge, StatusBadge } from '@/components/ui/Badge'
-import { Alert, PageHeader, ProgressBar } from '@/components/ui/Misc'
+import { Card, CardBody, CardHeader, DataRow, EmptyState } from '@/components/ui/Card'
+import { Badge } from '@/components/ui/Badge'
+import { Alert, PageHeader } from '@/components/ui/Misc'
 import { useToast } from '@/components/ui/Toast'
-import { formatCompact, formatCurrency, formatDate } from '@/lib/format'
-import {
-  branches,
-  companies,
-  costCentres,
-  departments,
-  plants,
-  productionLines,
-  registrations,
-  warehouses,
-  workCentres,
-} from '@/mock/data'
+import { ProblemError } from '@/api/client'
+import { exportRows, type ExportColumn, type ExportFormat } from '@/lib/export'
+import { useOrgStructure } from '@/hooks/useOrganisation'
+import { useSession } from '@/api/session'
+import type {
+  OrgStructure,
+  StructureBranch,
+  StructurePlant,
+  StructureUnit,
+  StructureWarehouse,
+} from '@/api/organisation'
+import { CompanySetupWizard } from './CompanySetupWizard'
 
-type NodeKind = 'company' | 'branch' | 'plant' | 'line' | 'workcentre' | 'warehouse'
+/** Live organisation structure — company → branch → plant → warehouse, plus
+ *  departments and cost centres, all from the backend `/structure` read model. */
+
+type NodeKind = 'company' | 'branch' | 'plant' | 'warehouse' | 'department' | 'cost_centre'
 interface Selection {
   kind: NodeKind
   uid: string
 }
 
+// Each editable kind maps to the master screen that owns it.
+const EDIT_ROUTE: Partial<Record<NodeKind, string>> = {
+  company: '/admin/company',
+  branch: '/admin/branches',
+  plant: '/admin/plants',
+  warehouse: '/admin/warehouses',
+  department: '/admin/departments',
+  cost_centre: '/admin/cost-centres',
+}
+
 export function OrganisationExplorerPage() {
   const toast = useToast()
-  const [expanded, setExpanded] = useState<Set<string>>(
-    new Set(['cmp-01', 'brn-01', 'plt-01', 'wh-group-brn-01']),
-  )
-  const [sel, setSel] = useState<Selection>({ kind: 'plant', uid: 'plt-01' })
+  const companyUid = useSession((s) => s.companyUid)
+  const { data, isLoading, error, refetch } = useOrgStructure()
+
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [seeded, setSeeded] = useState(false)
+  const [sel, setSel] = useState<Selection | null>(null)
+  const [wizardOpen, setWizardOpen] = useState(false)
 
   const toggle = (id: string) =>
     setExpanded((s) => {
@@ -51,204 +68,297 @@ export function OrganisationExplorerPage() {
       return n
     })
 
+  // Seed the initial expansion (company + groups + first branch) ONCE when the
+  // data first lands. Previously this was a fallback used only while `expanded`
+  // was empty, so the first toggle discarded every default and collapsed the
+  // whole tree to the company row. Seeding into state keeps the defaults and lets
+  // the user toggle from there.
+  useEffect(() => {
+    if (seeded || !data?.company) return
+    const s = new Set<string>([data.company.uid, 'group:departments', 'group:cost_centres'])
+    if (data.branches[0]) s.add(data.branches[0].uid)
+    setExpanded(s)
+    setSeeded(true)
+  }, [seeded, data])
+
+  const eff = expanded
+
+  function doExport(format: ExportFormat) {
+    if (!data) return
+    try {
+      const rows = flatten(data)
+      const columns: ExportColumn<FlatRow>[] = [
+        { header: 'Level', value: (r) => r.level },
+        { header: 'Type', value: (r) => r.type },
+        { header: 'Code', value: (r) => r.code },
+        { header: 'Name', value: (r) => r.name },
+        { header: 'Parent', value: (r) => r.parent ?? '' },
+        { header: 'Detail', value: (r) => r.detail ?? '' },
+        { header: 'Status', value: (r) => r.status },
+      ]
+      const n = exportRows(format, 'organisation-structure', 'Organisation structure', columns, rows)
+      toast.success('Export ready', `${n} rows saved as ${format === 'xlsx' ? 'Excel' : format.toUpperCase()}.`)
+    } catch (e) {
+      toast.error('Export failed', e instanceof Error ? e.message : 'Unknown error.')
+    }
+  }
+
   return (
     <div>
       <PageHeader
         title="Organisation structure"
-        description="Company → branch → plant → line → work centre, and the warehouse hierarchy beneath each branch. Every transaction is posted against this skeleton."
+        description="Company → branch → plant → warehouse, plus departments and cost centres. Live from the backend."
         breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Organisation' }, { label: 'Structure explorer' }]}
         actions={
           <>
-            <Button variant="outline" size="sm" icon={<Download className="h-4 w-4" />} onClick={() => toast.success('Export queued', 'Organisation Structure report — the artefact given to auditors.')}>
+            <Button variant="outline" size="sm" icon={<Download className="h-4 w-4" />} onClick={() => doExport('xlsx')} disabled={!data}>
               Export structure
             </Button>
-            <Button variant="primary" size="sm" icon={<Settings2 className="h-4 w-4" />} onClick={() => toast.info('Company setup wizard', 'A guided walkthrough for standing up a new company, branch and plant structure.')}>Company setup wizard</Button>
+            <Button variant="primary" size="sm" icon={<Settings2 className="h-4 w-4" />} onClick={() => setWizardOpen(true)}>
+              Company setup wizard
+            </Button>
           </>
         }
       />
+
+      {!companyUid && <Alert tone="warning" title="Not signed in to the backend">Sign in first so the app has an API session.</Alert>}
+      {error && (
+        <Alert tone="danger" title="Could not load the structure">
+          {error instanceof ProblemError ? error.problem.detail : 'Is the backend running?'}{' '}
+          <button className="underline" onClick={() => refetch()}>Retry</button>
+        </Alert>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-[380px_1fr]">
         {/* ── Tree ─────────────────────────────────────────────────────── */}
         <Card className="h-fit">
           <CardHeader title="Hierarchy" description="Click any node to inspect it" />
           <div className="max-h-[70vh] overflow-y-auto p-2 text-sm">
-            {companies.map((c) => {
-              const cBranches = branches.filter((b) => b.companyUid === c.uid)
-              const open = expanded.has(c.uid)
-              return (
-                <div key={c.uid}>
-                  <TreeRow
-                    icon={<Building2 className="h-3.5 w-3.5" />}
-                    label={c.legalName}
-                    meta={c.code}
-                    depth={0}
-                    expandable
-                    expanded={open}
-                    onToggle={() => toggle(c.uid)}
-                    active={sel.kind === 'company' && sel.uid === c.uid}
-                    onClick={() => setSel({ kind: 'company', uid: c.uid })}
-                  />
-                  {open &&
-                    cBranches.map((b) => {
-                      const bOpen = expanded.has(b.uid)
-                      const bPlants = plants.filter((p) => p.branchUid === b.uid)
-                      const bWarehouses = warehouses.filter((w) => w.branchUid === b.uid)
-                      return (
-                        <div key={b.uid}>
-                          <TreeRow
-                            icon={<GitBranch className="h-3.5 w-3.5" />}
-                            label={b.name}
-                            meta={b.gstin ?? b.code}
-                            depth={1}
-                            expandable
-                            expanded={bOpen}
-                            onToggle={() => toggle(b.uid)}
-                            active={sel.kind === 'branch' && sel.uid === b.uid}
-                            onClick={() => setSel({ kind: 'branch', uid: b.uid })}
-                          />
-                          {bOpen && (
-                            <>
-                              {bPlants.map((p) => {
-                                const pOpen = expanded.has(p.uid)
-                                const pLines = productionLines.filter((l) => l.plantUid === p.uid)
-                                const shared = workCentres.filter((w) => w.plantUid === p.uid && !w.lineUid)
-                                return (
-                                  <div key={p.uid}>
-                                    <TreeRow
-                                      icon={<Factory className="h-3.5 w-3.5" />}
-                                      label={p.name}
-                                      meta={p.code}
-                                      depth={2}
-                                      expandable
-                                      expanded={pOpen}
-                                      onToggle={() => toggle(p.uid)}
-                                      active={sel.kind === 'plant' && sel.uid === p.uid}
-                                      onClick={() => setSel({ kind: 'plant', uid: p.uid })}
-                                    />
-                                    {pOpen && (
-                                      <>
-                                        {pLines.map((l) => {
-                                          const lOpen = expanded.has(l.uid)
-                                          const lwc = workCentres.filter((w) => w.lineUid === l.uid)
-                                          return (
-                                            <div key={l.uid}>
-                                              <TreeRow
-                                                icon={<Wrench className="h-3.5 w-3.5" />}
-                                                label={l.name}
-                                                meta={l.status}
-                                                depth={3}
-                                                expandable={lwc.length > 0}
-                                                expanded={lOpen}
-                                                onToggle={() => toggle(l.uid)}
-                                                active={sel.kind === 'line' && sel.uid === l.uid}
-                                                onClick={() => setSel({ kind: 'line', uid: l.uid })}
-                                                tone={l.status === 'MAINTENANCE' ? 'warning' : l.status === 'IDLE' ? 'neutral' : 'success'}
-                                              />
-                                              {lOpen &&
-                                                lwc.map((w) => (
-                                                  <TreeRow
-                                                    key={w.uid}
-                                                    icon={<span className="text-[10px]">·</span>}
-                                                    label={w.name}
-                                                    meta={w.code}
-                                                    depth={4}
-                                                    active={sel.kind === 'workcentre' && sel.uid === w.uid}
-                                                    onClick={() => setSel({ kind: 'workcentre', uid: w.uid })}
-                                                  />
-                                                ))}
-                                            </div>
-                                          )
-                                        })}
-                                        {shared.map((w) => (
-                                          <TreeRow
-                                            key={w.uid}
-                                            icon={<Wrench className="h-3.5 w-3.5" />}
-                                            label={`${w.name} (shared)`}
-                                            meta={w.code}
-                                            depth={3}
-                                            active={sel.kind === 'workcentre' && sel.uid === w.uid}
-                                            onClick={() => setSel({ kind: 'workcentre', uid: w.uid })}
-                                          />
-                                        ))}
-                                      </>
-                                    )}
-                                  </div>
-                                )
-                              })}
-                              {bWarehouses.length > 0 && (
-                                <>
-                                  <TreeRow
-                                    icon={<WarehouseIcon className="h-3.5 w-3.5" />}
-                                    label="Warehouses"
-                                    meta={String(bWarehouses.length)}
-                                    depth={2}
-                                    expandable
-                                    expanded={expanded.has(`wh-group-${b.uid}`)}
-                                    onToggle={() => toggle(`wh-group-${b.uid}`)}
-                                  />
-                                  {expanded.has(`wh-group-${b.uid}`) &&
-                                    bWarehouses.map((w) => (
-                                      <TreeRow
-                                        key={w.uid}
-                                        icon={<span className="text-[10px]">·</span>}
-                                        label={`${w.code} — ${w.name}`}
-                                        meta={w.isSystemManaged ? 'system' : ''}
-                                        depth={3}
-                                        active={sel.kind === 'warehouse' && sel.uid === w.uid}
-                                        onClick={() => setSel({ kind: 'warehouse', uid: w.uid })}
-                                      />
-                                    ))}
-                                </>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      )
-                    })}
-                </div>
-              )
-            })}
+            {isLoading && <p className="px-2 py-6 text-center text-xs text-fg-subtle">Loading structure…</p>}
+            {!isLoading && !data?.company && (
+              <p className="px-2 py-6 text-center text-xs text-fg-subtle">No company found.</p>
+            )}
+            {data?.company && (
+              <Tree
+                data={data}
+                expanded={eff}
+                onToggle={toggle}
+                sel={sel}
+                onSelect={setSel}
+              />
+            )}
           </div>
         </Card>
 
         {/* ── Detail pane ──────────────────────────────────────────────── */}
         <div className="min-w-0">
-          <DetailPane sel={sel} />
+          {data ? (
+            <DetailPane sel={sel} data={data} />
+          ) : (
+            <Card className="p-8 text-center text-sm text-fg-subtle">Loading…</Card>
+          )}
         </div>
       </div>
+
+      <CompanySetupWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
     </div>
   )
 }
 
-function TreeRow({
-  icon,
-  label,
-  meta,
-  depth,
-  expandable,
+/* ─────────────────────────── Tree ─────────────────────────── */
+function Tree({
+  data,
   expanded,
   onToggle,
-  onClick,
-  active,
-  tone,
+  sel,
+  onSelect,
 }: {
-  icon: React.ReactNode
+  data: OrgStructure
+  expanded: Set<string>
+  onToggle: (id: string) => void
+  sel: Selection | null
+  onSelect: (s: Selection) => void
+}) {
+  const c = data.company!
+  const isOpen = (id: string) => expanded.has(id)
+  const active = (kind: NodeKind, uid: string) => sel?.kind === kind && sel.uid === uid
+
+  return (
+    <div>
+      {/* Company */}
+      <Row
+        depth={0}
+        label={c.legal_name}
+        meta={c.code}
+        icon={<Building2 className="h-4 w-4" />}
+        expandable
+        expanded={isOpen(c.uid)}
+        active={active('company', c.uid)}
+        onToggle={() => onToggle(c.uid)}
+        onClick={() => onSelect({ kind: 'company', uid: c.uid })}
+      />
+      {isOpen(c.uid) && (
+        <>
+          {data.branches.map((b) => (
+            <BranchNode key={b.uid} branch={b} depth={1} expanded={expanded} onToggle={onToggle} sel={sel} onSelect={onSelect} />
+          ))}
+
+          {/* Departments group */}
+          <GroupNode
+            id="group:departments"
+            label="Departments"
+            count={data.departments.length}
+            icon={<ListTree className="h-4 w-4" />}
+            expanded={isOpen('group:departments')}
+            onToggle={() => onToggle('group:departments')}
+          />
+          {isOpen('group:departments') &&
+            data.departments.map((d) => (
+              <Row key={d.uid} depth={2} label={d.name} meta={d.code} icon={<ListTree className="h-3.5 w-3.5" />}
+                active={active('department', d.uid)} onClick={() => onSelect({ kind: 'department', uid: d.uid })} />
+            ))}
+
+          {/* Cost centres group */}
+          <GroupNode
+            id="group:cost_centres"
+            label="Cost centres"
+            count={data.cost_centres.length}
+            icon={<Coins className="h-4 w-4" />}
+            expanded={isOpen('group:cost_centres')}
+            onToggle={() => onToggle('group:cost_centres')}
+          />
+          {isOpen('group:cost_centres') &&
+            data.cost_centres.map((cc) => (
+              <Row key={cc.uid} depth={2} label={cc.name} meta={cc.code} icon={<Coins className="h-3.5 w-3.5" />}
+                active={active('cost_centre', cc.uid)} onClick={() => onSelect({ kind: 'cost_centre', uid: cc.uid })} />
+            ))}
+        </>
+      )}
+    </div>
+  )
+}
+
+function BranchNode({
+  branch,
+  depth,
+  expanded,
+  onToggle,
+  sel,
+  onSelect,
+}: {
+  branch: StructureBranch
+  depth: number
+  expanded: Set<string>
+  onToggle: (id: string) => void
+  sel: Selection | null
+  onSelect: (s: Selection) => void
+}) {
+  const open = expanded.has(branch.uid)
+  const hasChildren = branch.plants.length > 0 || branch.warehouses.length > 0
+  return (
+    <>
+      <Row
+        depth={depth}
+        label={branch.name}
+        meta={branch.code}
+        icon={<GitBranch className="h-4 w-4" />}
+        expandable={hasChildren}
+        expanded={open}
+        active={sel?.kind === 'branch' && sel.uid === branch.uid}
+        dim={!branch.is_active}
+        onToggle={() => onToggle(branch.uid)}
+        onClick={() => onSelect({ kind: 'branch', uid: branch.uid })}
+      />
+      {open && (
+        <>
+          {branch.plants.map((p) => (
+            <PlantNode key={p.uid} plant={p} depth={depth + 1} expanded={expanded} onToggle={onToggle} sel={sel} onSelect={onSelect} />
+          ))}
+          {branch.warehouses.map((w) => (
+            <Row key={w.uid} depth={depth + 1} label={w.name} meta={w.code} icon={<WarehouseIcon className="h-3.5 w-3.5" />}
+              dim={!w.is_active} active={sel?.kind === 'warehouse' && sel.uid === w.uid}
+              onClick={() => onSelect({ kind: 'warehouse', uid: w.uid })} />
+          ))}
+        </>
+      )}
+    </>
+  )
+}
+
+function PlantNode({
+  plant,
+  depth,
+  expanded,
+  onToggle,
+  sel,
+  onSelect,
+}: {
+  plant: StructurePlant
+  depth: number
+  expanded: Set<string>
+  onToggle: (id: string) => void
+  sel: Selection | null
+  onSelect: (s: Selection) => void
+}) {
+  const open = expanded.has(plant.uid)
+  return (
+    <>
+      <Row
+        depth={depth}
+        label={plant.name}
+        meta={plant.code}
+        icon={<Factory className="h-4 w-4" />}
+        expandable={plant.warehouses.length > 0}
+        expanded={open}
+        dim={!plant.is_active}
+        active={sel?.kind === 'plant' && sel.uid === plant.uid}
+        onToggle={() => onToggle(plant.uid)}
+        onClick={() => onSelect({ kind: 'plant', uid: plant.uid })}
+      />
+      {open &&
+        plant.warehouses.map((w) => (
+          <Row key={w.uid} depth={depth + 1} label={w.name} meta={w.code} icon={<WarehouseIcon className="h-3.5 w-3.5" />}
+            dim={!w.is_active} active={sel?.kind === 'warehouse' && sel.uid === w.uid}
+            onClick={() => onSelect({ kind: 'warehouse', uid: w.uid })} />
+        ))}
+    </>
+  )
+}
+
+function GroupNode({ id, label, count, icon, expanded, onToggle }: { id: string; label: string; count: number; icon: ReactNode; expanded: boolean; onToggle: () => void }) {
+  return (
+    <Row depth={1} label={label} meta={String(count)} icon={icon} expandable={count > 0} expanded={expanded} onToggle={onToggle} onClick={onToggle} muted />
+  )
+}
+
+function Row({
+  depth,
+  label,
+  meta,
+  icon,
+  expandable,
+  expanded,
+  active,
+  dim,
+  muted,
+  onToggle,
+  onClick,
+}: {
+  depth: number
   label: string
   meta?: string
-  depth: number
+  icon: ReactNode
   expandable?: boolean
   expanded?: boolean
+  active?: boolean
+  dim?: boolean
+  muted?: boolean
   onToggle?: () => void
   onClick?: () => void
-  active?: boolean
-  tone?: 'success' | 'warning' | 'neutral'
 }) {
   return (
     <div
-      className={cn(
-        'group flex items-center gap-1 rounded px-1 py-1 transition-colors',
-        active ? 'bg-brand-500/10' : 'hover:bg-surface-3',
-      )}
+      className={cn('group flex items-center gap-1 rounded px-1 py-1 transition-colors', active ? 'bg-brand-500/10' : 'hover:bg-surface-3')}
       style={{ paddingLeft: `${depth * 14 + 4}px` }}
     >
       <button
@@ -260,271 +370,131 @@ function TreeRow({
       </button>
       <button onClick={onClick} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
         <span className={cn('shrink-0', active ? 'text-brand-600' : 'text-fg-subtle')}>{icon}</span>
-        <span className={cn('truncate text-xs', active ? 'font-medium text-brand-600' : 'text-fg')}>{label}</span>
-      </button>
-      {meta && (
-        <span
-          className={cn(
-            'shrink-0 truncate font-mono text-[9px]',
-            tone === 'warning' ? 'text-warning' : tone === 'success' ? 'text-success' : 'text-fg-subtle',
-          )}
-        >
-          {meta}
+        <span className={cn('truncate text-xs', muted ? 'font-semibold uppercase tracking-wide text-fg-subtle' : active ? 'font-medium text-brand-600' : dim ? 'text-fg-subtle line-through' : 'text-fg')}>
+          {label}
         </span>
-      )}
+      </button>
+      {meta && <span className="shrink-0 font-mono text-[10px] text-fg-subtle">{meta}</span>}
     </div>
   )
 }
 
-function DetailPane({ sel }: { sel: Selection }) {
-  const toast = useToast()
-  if (sel.kind === 'company') {
-    const c = companies.find((x) => x.uid === sel.uid)!
-    const regs = registrations.filter((r) => r.companyUid === c.uid)
-    return (
-      <div className="space-y-4">
-        <Card>
-          <CardHeader title={c.legalName} description={`${c.tradeName} · ${c.entityType.replace('_', ' ')}`}
-            actions={<Button size="sm" variant="outline" onClick={() => toast.info('Edit company', `${c.legalName} (${c.code}) — edit the company master.`)}>Edit</Button>} />
-          <CardBody className="grid gap-x-8 sm:grid-cols-2">
-            <DataRow label="Code" value={c.code} mono />
-            <DataRow label="CIN" value={c.cin} mono />
-            <DataRow label="PAN" value={c.pan} mono />
-            <DataRow label="TAN" value={c.tan} mono />
-            <DataRow label="Base currency" value={c.baseCurrency} />
-            <DataRow label="FY start" value="April" />
-            <DataRow label="Address" value={`${c.addressLine1}, ${c.city}`} />
-            <DataRow label="State" value={`${c.state} (${c.stateCode})`} />
-            <DataRow label="Phone" value={c.phone} />
-            <DataRow label="Email" value={c.email} />
-          </CardBody>
-        </Card>
-        <Card>
-          <CardHeader title="Statutory registrations" description={`${regs.length} registrations`} />
-          <table className="grid-table">
-            <thead><tr><th>Type</th><th>Number</th><th className="w-32">Valid to</th><th className="w-24">Status</th></tr></thead>
-            <tbody>
-              {regs.map((r) => {
-                const days = r.validTo ? Math.ceil((new Date(r.validTo).getTime() - Date.now()) / 86400000) : null
-                return (
-                  <tr key={r.uid}>
-                    <td className="text-xs">{r.type.replace(/_/g, ' ')}</td>
-                    <td className="font-mono text-[11px]">{r.number}</td>
-                    <td className="text-xs">{r.validTo ? formatDate(r.validTo) : 'Perpetual'}</td>
-                    <td>
-                      {days === null ? <Badge tone="success" size="sm">Valid</Badge>
-                        : days <= 7 ? <Badge tone="danger" size="sm">{days}d left</Badge>
-                        : days <= 90 ? <Badge tone="warning" size="sm">{days}d left</Badge>
-                        : <Badge tone="success" size="sm">Valid</Badge>}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </Card>
-      </div>
-    )
-  }
+/* ─────────────────────────── Detail pane ─────────────────────────── */
+function DetailPane({ sel, data }: { sel: Selection | null; data: OrgStructure }) {
+  const navigate = useNavigate()
 
-  if (sel.kind === 'branch') {
-    const b = branches.find((x) => x.uid === sel.uid)!
-    const bPlants = plants.filter((p) => p.branchUid === b.uid)
-    const bWh = warehouses.filter((w) => w.branchUid === b.uid)
-    return (
-      <div className="space-y-4">
-        <Card>
-          <CardHeader title={b.name} description={b.branchType.replace(/_/g, ' ')}
-            actions={<Button size="sm" variant="outline" onClick={() => toast.info('Edit branch', `${b.name} (${b.code}) — edit the branch master.`)}>Edit</Button>} />
-          <CardBody className="grid gap-x-8 sm:grid-cols-2">
-            <DataRow label="Code" value={b.code} mono />
-            <DataRow label="Type" value={b.branchType.replace(/_/g, ' ')} />
-            <DataRow label="GSTIN" value={b.gstin ?? '— uses head office GSTIN —'} mono />
-            <DataRow label="Separate registration" value={b.hasSeparateGstin ? 'Yes' : 'No'} />
-            <DataRow label="City" value={b.city} />
-            <DataRow label="State" value={`${b.state} (${b.stateCode})`} />
-            <DataRow label="Contact" value={b.contactPerson} />
-            <DataRow label="Phone" value={b.phone} />
-            <DataRow label="Plants" value={String(bPlants.length)} />
-            <DataRow label="Warehouses" value={String(bWh.length)} />
-          </CardBody>
-        </Card>
-        {b.hasSeparateGstin && (
-          <Alert tone="warning" title="This branch holds its own GST registration">
-            Stock movements between this branch and another branch with a different GSTIN are branch
-            transfers under GST — they generate a tax invoice or delivery challan and an e-way bill
-            where the threshold is crossed. They cannot be posted as a plain internal transfer.
-          </Alert>
-        )}
-      </div>
-    )
-  }
+  const found = useMemo(() => (sel ? findNode(data, sel) : null), [sel, data])
 
-  if (sel.kind === 'plant') {
-    const p = plants.find((x) => x.uid === sel.uid)!
-    const lines = productionLines.filter((l) => l.plantUid === p.uid)
-    const wc = workCentres.filter((w) => w.plantUid === p.uid)
-    const wh = warehouses.filter((w) => w.plantUid === p.uid)
-    const branch = branches.find((b) => b.uid === p.branchUid)
-    return (
-      <div className="space-y-4">
-        <Card>
-          <CardHeader title={p.name} description={`${branch?.name} · Plant head ${p.plantHead}`}
-            actions={
-              <>
-                <Button size="sm" variant="outline" onClick={() => toast.info('Add line', `Add a production line to ${p.name}.`)}>Add line</Button>
-                <Button size="sm" variant="outline" onClick={() => toast.info('Edit plant', `${p.name} (${p.code}) — edit the plant master.`)}>Edit</Button>
-              </>
-            } />
-          <CardBody className="grid gap-x-8 sm:grid-cols-2">
-            <DataRow label="Code" value={p.code} mono />
-            <DataRow label="Branch" value={branch?.name ?? '—'} />
-            <DataRow label="Plant head" value={p.plantHead} />
-            <DataRow label="Factory licence" value={p.factoryLicence} mono />
-            <DataRow label="Licence valid to" value={formatDate(p.factoryLicenceValidTo)} />
-            <DataRow label="Shift pattern" value={p.shiftPattern} />
-            <DataRow label="Installed capacity" value={`${p.installedCapacityPerDay.toLocaleString('en-IN')} ${p.capacityUom}/day`} />
-            <DataRow label="City" value={`${p.city}, ${p.state}`} />
-            <DataRow label="Production lines" value={String(lines.length)} />
-            <DataRow label="Work centres" value={String(wc.length)} />
-          </CardBody>
-        </Card>
-
-        <Card>
-          <CardHeader title="Production lines" description={`${lines.length} lines`} />
-          <table className="grid-table">
-            <thead><tr><th>Line</th><th className="w-28">Type</th><th className="w-32">Capacity range</th><th className="w-28 text-right">Rated/hr</th><th className="w-28">Status</th></tr></thead>
-            <tbody>
-              {lines.map((l) => (
-                <tr key={l.uid}>
-                  <td className="text-xs"><span className="font-mono text-[10px] text-fg-subtle">{l.code}</span> {l.name}</td>
-                  <td className="text-xs">{l.lineType}</td>
-                  <td className="text-xs tabular">{l.minCapacityMl}–{l.maxCapacityMl} ml</td>
-                  <td className="text-right text-xs tabular">{l.ratedOutputPerHour}</td>
-                  <td><StatusBadge status={l.status} size="sm" /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
-
-        <Card>
-          <CardHeader title="Work centres" description="Capacity and rates used by routing and finite-capacity planning" />
-          <table className="grid-table">
-            <thead><tr><th>Work centre</th><th className="w-24">Type</th><th className="w-24 text-right">Cap/hr</th><th className="w-24 text-right">Efficiency</th><th className="w-28 text-right">M/c hr rate</th><th className="w-24">Bottleneck</th></tr></thead>
-            <tbody>
-              {wc.map((w) => (
-                <tr key={w.uid}>
-                  <td className="text-xs"><span className="font-mono text-[10px] text-fg-subtle">{w.code}</span> {w.name}</td>
-                  <td className="text-xs">{w.type}</td>
-                  <td className="text-right text-xs tabular">{w.capacityPerHour}</td>
-                  <td className="text-right text-xs tabular">{w.efficiencyPct}%</td>
-                  <td className="text-right text-xs tabular">{formatCurrency(w.machineHourRate)}</td>
-                  <td>{w.isBottleneck && <Badge tone="danger" size="sm">Bottleneck</Badge>}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
-
-        <Card>
-          <CardHeader title="Default warehouses" description={`${wh.length} stores linked to this plant`} />
-          <CardBody className="grid gap-2 sm:grid-cols-2">
-            {wh.map((w) => (
-              <div key={w.uid} className="rounded border border-border bg-surface-2 p-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-xs font-medium text-fg">{w.code}</span>
-                  <span className="text-xs text-fg-muted tabular">{formatCompact(w.stockValue)}</span>
-                </div>
-                <p className="mt-0.5 truncate text-2xs text-fg-subtle">{w.name}</p>
-              </div>
-            ))}
-          </CardBody>
-        </Card>
-      </div>
-    )
-  }
-
-  if (sel.kind === 'line') {
-    const l = productionLines.find((x) => x.uid === sel.uid)!
-    const lwc = workCentres.filter((w) => w.lineUid === l.uid)
-    return (
-      <div className="space-y-4">
-        <Card>
-          <CardHeader title={l.name} description={`${l.lineType} line`} actions={<Button size="sm" variant="outline" onClick={() => toast.info('Edit line', `${l.name} (${l.code}) — edit the production line.`)}>Edit</Button>} />
-          <CardBody className="grid gap-x-8 sm:grid-cols-2">
-            <DataRow label="Code" value={l.code} mono />
-            <DataRow label="Status" value={<StatusBadge status={l.status} size="sm" />} />
-            <DataRow label="Capacity range" value={`${l.minCapacityMl}–${l.maxCapacityMl} ml`} />
-            <DataRow label="Standard cycle time" value={`${l.cycleTimeSec} s`} />
-            <DataRow label="Rated output" value={`${l.ratedOutputPerHour}/hr`} />
-            <DataRow label="Work centres" value={String(lwc.length)} />
-          </CardBody>
-        </Card>
-        {l.status === 'MAINTENANCE' && (
-          <Alert tone="warning" title="Line is under maintenance">
-            Capacity planning excludes this line until it returns to RUNNING. Open production orders
-            scheduled on it will be flagged for rescheduling.
-          </Alert>
-        )}
-      </div>
-    )
-  }
-
-  if (sel.kind === 'workcentre') {
-    const w = workCentres.find((x) => x.uid === sel.uid)!
+  if (!sel || !found) {
     return (
       <Card>
-        <CardHeader title={w.name} description={`${w.type} work centre`} actions={<Button size="sm" variant="outline" onClick={() => toast.info('Edit work centre', `${w.name} (${w.code}) — edit the work centre.`)}>Edit</Button>} />
-        <CardBody className="grid gap-x-8 sm:grid-cols-2">
-          <DataRow label="Code" value={w.code} mono />
-          <DataRow label="Type" value={w.type} />
-          <DataRow label="Capacity" value={`${w.capacityPerHour}/hr`} />
-          <DataRow label="Efficiency" value={`${w.efficiencyPct}%`} />
-          <DataRow label="Machine hour rate" value={formatCurrency(w.machineHourRate)} />
-          <DataRow label="Bottleneck" value={w.isBottleneck ? 'Yes' : 'No'} />
-        </CardBody>
-        {w.isBottleneck && (
-          <CardBody className="border-t border-border pt-3">
-            <Alert tone="warning" title="Flagged as a bottleneck">
-              Finite-capacity scheduling anchors the plan to this resource. Effective capacity is{' '}
-              {Math.round(w.capacityPerHour * (w.efficiencyPct / 100))}/hr after efficiency.
-            </Alert>
-          </CardBody>
-        )}
+        <EmptyState icon={<ListTree className="h-5 w-5" />} title="Select a node" description="Pick anything in the tree to see its details." />
       </Card>
     )
   }
 
-  const w = warehouses.find((x) => x.uid === sel.uid)!
+  const route = EDIT_ROUTE[sel.kind]
+  const title = 'legal_name' in found ? found.legal_name : found.name
+  const code = found.code
+
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader title={`${w.code} — ${w.name}`} description={w.warehouseType.replace(/_/g, ' ')}
-          actions={<Button size="sm" variant="outline" onClick={() => toast.info('Edit warehouse', `${w.code} — ${w.name}.`)}>Edit</Button>} />
-        <CardBody className="grid gap-x-8 sm:grid-cols-2">
-          <DataRow label="Type" value={w.warehouseType.replace(/_/g, ' ')} />
-          <DataRow label="Storekeeper" value={w.storekeeper} />
-          <DataRow label="Bin managed" value={w.isBinManaged ? `Yes — ${w.binCount} bins` : 'No'} />
-          <DataRow label="Batch mandatory" value={w.isBatchMandatory ? 'Yes' : 'No'} />
-          <DataRow label="Negative stock" value={w.allowNegativeStock ? 'Permitted' : 'Rejected'} />
-          <DataRow label="Valuation" value={w.valuationMethod.replace('_', ' ')} />
-          <DataRow label="Stock value" value={formatCurrency(w.stockValue)} />
-          <DataRow label="System managed" value={w.isSystemManaged ? 'Yes' : 'No'} />
-        </CardBody>
-      </Card>
-      {w.isSystemManaged && (
-        <Alert tone="info" title="System-managed warehouse">
-          Postings into this store come only from transfer or subcontract documents. Manual entry is
-          not permitted.
-        </Alert>
-      )}
-      {w.warehouseType === 'QUARANTINE' && (
-        <Alert tone="warning" title="Quarantine stock is not available">
-          Stock here cannot be issued, allocated, reserved or sold. It moves out only via a QC
-          decision document.
-        </Alert>
-      )}
-    </div>
+    <Card>
+      <CardHeader
+        title={title}
+        description={`${label(sel.kind)} · ${code}`}
+        actions={
+          route && (
+            <Button size="sm" variant="outline" icon={<Pencil className="h-4 w-4" />} onClick={() => navigate(route)}>
+              Edit in {label(sel.kind)} screen
+            </Button>
+          )
+        }
+      />
+      <CardBody className="divide-y divide-border/60 py-1">{detailRows(sel.kind, found)}</CardBody>
+    </Card>
   )
+}
+
+function label(kind: NodeKind): string {
+  return {
+    company: 'Company',
+    branch: 'Branch',
+    plant: 'Plant',
+    warehouse: 'Warehouse',
+    department: 'Department',
+    cost_centre: 'Cost centre',
+  }[kind]
+}
+
+type AnyNode =
+  | OrgStructure['company']
+  | StructureBranch
+  | StructurePlant
+  | StructureWarehouse
+  | StructureUnit
+
+function detailRows(kind: NodeKind, node: NonNullable<AnyNode>) {
+  const n = node as unknown as Record<string, unknown>
+  const status = 'is_active' in n ? (n.is_active ? <Badge tone="success" size="sm">Active</Badge> : <Badge tone="neutral" size="sm">Inactive</Badge>) : null
+  const rows: [string, ReactNode][] = [['Code', <span key="c" className="font-mono">{String(n.code)}</span>]]
+  if (kind === 'company') {
+    rows.push(['Legal name', String(n.legal_name)], ['Trade name', (n.trade_name as string) || '—'], ['GST state code', (n.gst_state_code as string) || '—'])
+  } else if (kind === 'branch') {
+    rows.push(['Name', String(n.name)], ['Type', String(n.branch_type).replace(/_/g, ' ').toLowerCase()], ['Status', status])
+  } else if (kind === 'plant') {
+    rows.push(
+      ['Name', String(n.name)],
+      ['Capacity / day', n.installed_capacity_per_day != null ? Number(n.installed_capacity_per_day).toLocaleString('en-IN') : '—'],
+      ['Warehouses', String((n.warehouses as unknown[] | undefined)?.length ?? 0)],
+      ['Status', status],
+    )
+  } else if (kind === 'warehouse') {
+    rows.push(['Name', String(n.name)], ['Type', String(n.warehouse_type).replace(/_/g, ' ').toLowerCase()], ['Status', status])
+  } else {
+    rows.push(['Name', String(n.name)], ['Type', String(n.type).replace(/_/g, ' ').toLowerCase()], ['Level', String(n.level)], ['Status', status])
+  }
+  return rows.map(([k, v]) => <DataRow key={k} label={k} value={v} />)
+}
+
+/* ─────────────────────────── helpers ─────────────────────────── */
+function findNode(data: OrgStructure, sel: Selection): NonNullable<AnyNode> | null {
+  if (sel.kind === 'company') return data.company
+  if (sel.kind === 'department') return data.departments.find((d) => d.uid === sel.uid) ?? null
+  if (sel.kind === 'cost_centre') return data.cost_centres.find((c) => c.uid === sel.uid) ?? null
+  for (const b of data.branches) {
+    if (sel.kind === 'branch' && b.uid === sel.uid) return b
+    for (const w of b.warehouses) if (sel.kind === 'warehouse' && w.uid === sel.uid) return w
+    for (const p of b.plants) {
+      if (sel.kind === 'plant' && p.uid === sel.uid) return p
+      for (const w of p.warehouses) if (sel.kind === 'warehouse' && w.uid === sel.uid) return w
+    }
+  }
+  return null
+}
+
+interface FlatRow {
+  level: number
+  type: string
+  code: string
+  name: string
+  parent: string | null
+  detail: string | null
+  status: string
+}
+
+function flatten(data: OrgStructure): FlatRow[] {
+  const rows: FlatRow[] = []
+  const st = (a: boolean) => (a ? 'Active' : 'Inactive')
+  if (data.company) rows.push({ level: 0, type: 'Company', code: data.company.code, name: data.company.legal_name, parent: null, detail: data.company.gst_state_code ?? null, status: 'Active' })
+  for (const b of data.branches) {
+    rows.push({ level: 1, type: 'Branch', code: b.code, name: b.name, parent: data.company?.code ?? null, detail: b.branch_type, status: st(b.is_active) })
+    for (const w of b.warehouses) rows.push({ level: 2, type: 'Warehouse', code: w.code, name: w.name, parent: b.code, detail: w.warehouse_type, status: st(w.is_active) })
+    for (const p of b.plants) {
+      rows.push({ level: 2, type: 'Plant', code: p.code, name: p.name, parent: b.code, detail: p.installed_capacity_per_day != null ? `${p.installed_capacity_per_day}/day` : null, status: st(p.is_active) })
+      for (const w of p.warehouses) rows.push({ level: 3, type: 'Warehouse', code: w.code, name: w.name, parent: p.code, detail: w.warehouse_type, status: st(w.is_active) })
+    }
+  }
+  for (const d of data.departments) rows.push({ level: 1, type: 'Department', code: d.code, name: d.name, parent: data.company?.code ?? null, detail: d.type, status: st(d.is_active) })
+  for (const c of data.cost_centres) rows.push({ level: 1, type: 'Cost centre', code: c.code, name: c.name, parent: data.company?.code ?? null, detail: c.type, status: st(c.is_active) })
+  return rows
 }

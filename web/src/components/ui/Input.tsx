@@ -168,6 +168,8 @@ export function SearchInput({ className, ...props }: InputProps) {
       leftIcon={<Search className="h-3.5 w-3.5" />}
       placeholder="Search…"
       className={className}
+      autoComplete="off"
+      name={`search-${Math.random().toString(36).substring(2, 7)}`}
       {...props}
     />
   )
@@ -321,7 +323,13 @@ export function Switch({
   className?: string
 }) {
   return (
-    <label className={cn('inline-flex cursor-pointer items-center gap-2', disabled && 'opacity-50', className)}>
+    <label
+      className={cn(
+        'inline-flex items-center gap-2.5',
+        disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+        className,
+      )}
+    >
       <button
         type="button"
         role="switch"
@@ -329,14 +337,15 @@ export function Switch({
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(
-          'relative h-5 w-9 shrink-0 rounded-full transition-colors',
-          checked ? 'bg-brand-600' : 'bg-border-strong',
+          'relative inline-flex h-[18px] w-8 shrink-0 items-center rounded-full border transition-colors',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 focus-visible:ring-offset-1',
+          checked ? 'border-brand-600 bg-brand-600' : 'border-border-strong bg-surface-3',
         )}
       >
         <span
           className={cn(
-            'absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform',
-            checked ? 'translate-x-4' : 'translate-x-0.5',
+            'inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm ring-1 ring-black/5 transition-transform duration-150 ease-out',
+            checked ? 'translate-x-[15px]' : 'translate-x-0.5',
           )}
         />
       </button>

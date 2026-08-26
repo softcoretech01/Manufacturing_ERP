@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -10,7 +10,10 @@ import { Input } from '@/components/ui/Input'
 import { PageHeader } from '@/components/ui/Misc'
 import { Tabs } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
-import { useCrud } from '@/components/crud/CrudKit'
+import { useLiveCrud } from '@/components/crud/CrudKit'
+import { shipmentApi } from '@/api/shipmentApi'
+import { vehicleApi } from '@/api/vehicleApi'
+import { useEffect, useState } from 'react'
 import {
   DispatchStatusBadge,
   DocCell,
@@ -24,7 +27,7 @@ import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatCurrency, formatDateTime, formatQty } from '@/lib/format'
 import { cn } from '@/lib/cn'
 import { useCollection } from '@/store/data'
-import { pods as seedPods, shipments as seedShipments, vehicles as seedVehicles } from '@/mock/dispatch'
+import { pods as seedPods } from '@/mock/dispatch'
 import type { Pod, Shipment, ShipmentType, Vehicle } from '@/types/dispatch'
 
 const TABS = [
@@ -44,13 +47,30 @@ export function ShipmentsPage() {
   const toast = useToast()
   const navigate = useNavigate()
   const canSeeValue = useCanSeeFreight()
-  const seed = useMemo(() => seedShipments, [])
   const podSeed = useMemo(() => seedPods, [])
-  const vehicleSeed = useMemo(() => seedVehicles, [])
 
-  const crud = useCrud<Shipment>({
+  const [shipments, setShipments] = useState<Shipment[]>([])
+  const [vehicles, setVehicles] = useState<Vehicle[]>([])
+
+  const fetchData = async () => {
+    try {
+      const [sData, vData] = await Promise.all([
+        shipmentApi.getAll(),
+        vehicleApi.getAll()
+      ])
+      setShipments(sData)
+      setVehicles(vData)
+    } catch (err) {
+      toast.error('Failed to load data', err instanceof Error ? err.message : 'Unknown error')
+    }
+  }
+
+  useEffect(() => {
+    fetchData()
+  }, [])
+
+  const crud = useLiveCrud<Shipment>({
     key: 'dispatch:shipment',
-    seed,
     entity: 'Shipment',
     titleOf: (s) => s.docNo,
     fields: [
@@ -72,7 +92,7 @@ export function ShipmentsPage() {
       { name: 'vehicleNo', label: 'Vehicle', required: true, upper: true },
       { name: 'transporter', label: 'Transporter', required: true },
       { name: 'driver', label: 'Driver', required: true },
-      { name: 'driverPhone', label: 'Driver phone', type: 'tel' },
+      { name: 'driverPhone', label: 'Driver phone', type: 'tel', required: true, maxLength: 10, validate: (v) => !/^\d{10}$/.test(v) ? 'Phone number must be exactly 10 digits.' : undefined },
       { name: 'cartons', label: 'Cartons', type: 'number', required: true },
       { name: 'pallets', label: 'Pallets', type: 'number' },
       { name: 'weightKg', label: 'Weight (kg)', type: 'number', required: true },
@@ -81,7 +101,6 @@ export function ShipmentsPage() {
     ],
     fromForm: (v, existing) => ({
       ...(existing ?? {
-        docNo: v.docNo,
         status: 'PLANNED' as const,
         dispatchPlanNo: '—',
         customerCode: 'CUS-NEW',
@@ -118,11 +137,9 @@ export function ShipmentsPage() {
         : s.status === 'IN_TRANSIT'
           ? `${s.docNo} is in transit on ${s.vehicleNo}. It cannot be deleted while the goods are on the road.`
           : undefined,
-  })
+  }, shipments, shipmentApi, fetchData)
 
-  const shipments = crud.rows
   const { rows: pods, update: updatePod } = useCollection<Pod>('dispatch:pod', podSeed)
-  const { rows: vehicles, update: updateVehicle } = useCollection<Vehicle>('dispatch:vehicle', vehicleSeed)
 
   const [tab, setTab] = useState('ALL')
   const [dispatching, setDispatching] = useState<Shipment | null>(null)
@@ -238,7 +255,7 @@ export function ShipmentsPage() {
       <DataTable
         rows={visible}
         columns={columns}
-        rowKey={(s) => s.uid}
+        rowKey={(s) => String((s as any).id || s.uid)}
         searchPlaceholder="Search shipment, challan, invoice, customer or vehicle…"
         onExport={doExport}
         emptyTitle="No shipments"
@@ -261,15 +278,16 @@ export function ShipmentsPage() {
               label="Confirm delivery"
               disabled={s.status !== 'IN_TRANSIT' && s.status !== 'DISPATCHED'}
               onClick={() => {
-                crud.update(s.uid, {
+                shipmentApi.update((s as any).id, {
+                  ...s,
                   status: 'DELIVERED',
                   deliveredAt: new Date().toISOString(),
                   lastLocation: `Delivered — ${s.destination}`,
                   lastUpdatedAt: new Date().toISOString(),
                   podStatus: 'PENDING',
-                })
+                }).then(fetchData)
                 const v = vehicles.find((x) => x.vehicleNo === s.vehicleNo)
-                if (v) updateVehicle(v.uid, { state: 'RETURNING', currentShipmentNo: null })
+                if (v) vehicleApi.update((v as any).id, { ...v, state: 'RETURNING', currentShipmentNo: null }).then(fetchData)
                 const pod = pods.find((p) => p.shipmentNo === s.docNo)
                 if (pod) updatePod(pod.uid, { status: 'PENDING' })
                 toast.success(
@@ -289,9 +307,9 @@ export function ShipmentsPage() {
               danger
               disabled={s.status === 'DELIVERED' || s.status === 'CLOSED' || s.status === 'CANCELLED'}
               onClick={() => {
-                crud.update(s.uid, { status: 'CANCELLED' })
+                shipmentApi.update((s as any).id, { ...s, status: 'CANCELLED' }).then(fetchData)
                 const v = vehicles.find((x) => x.vehicleNo === s.vehicleNo)
-                if (v) updateVehicle(v.uid, { state: 'AVAILABLE', currentShipmentNo: null })
+                if (v) vehicleApi.update((v as any).id, { ...v, state: 'AVAILABLE', currentShipmentNo: null }).then(fetchData)
                 toast.success('Shipment cancelled', `${s.docNo} cancelled with a reason recorded against it. ${s.vehicleNo} is back in the pool.`)
               }}
             />
@@ -324,7 +342,8 @@ export function ShipmentsPage() {
                 }
                 const now = new Date()
                 const eta = new Date(now.getTime() + (dispatching.isExport ? 30 : dispatching.region === 'South' ? 1 : 3) * 86_400_000)
-                crud.update(dispatching.uid, {
+                shipmentApi.update((dispatching as any).id, {
+                  ...dispatching,
                   status: 'DISPATCHED',
                   dispatchedAt: now.toISOString(),
                   etaAt: eta.toISOString(),
@@ -333,9 +352,9 @@ export function ShipmentsPage() {
                   lastLocation: 'Left the plant',
                   lastUpdatedAt: now.toISOString(),
                   podStatus: 'PENDING',
-                })
+                }).then(fetchData)
                 const v = vehicles.find((x) => x.vehicleNo === dispatching.vehicleNo)
-                if (v) updateVehicle(v.uid, { state: 'IN_TRANSIT', currentShipmentNo: dispatching.docNo })
+                if (v) vehicleApi.update((v as any).id, { ...v, state: 'IN_TRANSIT', currentShipmentNo: dispatching.docNo }).then(fetchData)
                 toast.success(
                   'Shipment dispatched',
                   `${dispatching.docNo} has left on ${dispatching.vehicleNo}. Expected at ${dispatching.destination} by ${eta.toLocaleDateString('en-IN')}.`,

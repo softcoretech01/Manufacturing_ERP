@@ -9,13 +9,15 @@ import { MenuItem } from '@/components/ui/Menu'
 import { Input } from '@/components/ui/Input'
 import { PageHeader, ProgressBar } from '@/components/ui/Misc'
 import { useToast } from '@/components/ui/Toast'
-import { useCrud } from '@/components/crud/CrudKit'
+import { useLiveCrud } from '@/components/crud/CrudKit'
+import { loadingSheetApi } from '@/api/loadingSheetApi'
+import { dispatchPlanApi } from '@/api/dispatchPlanApi'
+import { vehicleApi } from '@/api/vehicleApi'
+import { useEffect } from 'react'
 import { CountBar, DispatchStatusBadge, DocCell, PartyCell, WeightCell } from '@/components/dispatch/DispatchShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDateTime, formatQty } from '@/lib/format'
 import { cn } from '@/lib/cn'
-import { useCollection } from '@/store/data'
-import { dispatchPlans as seedPlans, loadingSheets as seedSheets, vehicles as seedVehicles } from '@/mock/dispatch'
 import type { DispatchPlan, LoadingSheet, Vehicle } from '@/types/dispatch'
 
 /** Staging → verify → load → seal → dispatch, in that order. */
@@ -35,13 +37,30 @@ const STEPS: { state: LoadingSheet['status']; label: string; detail: string }[] 
 export function LoadingPage() {
   const toast = useToast()
   const navigate = useNavigate()
-  const seed = useMemo(() => seedSheets, [])
-  const planSeed = useMemo(() => seedPlans, [])
-  const vehicleSeed = useMemo(() => seedVehicles, [])
+  const [sheets, setSheets] = useState<LoadingSheet[]>([])
+  const [plans, setPlans] = useState<DispatchPlan[]>([])
+  const [vehicles, setVehicles] = useState<Vehicle[]>([])
 
-  const crud = useCrud<LoadingSheet>({
-    key: 'dispatch:loading-sheet',
-    seed,
+  const fetchData = async () => {
+    try {
+      const [lData, pData, vData] = await Promise.all([
+        loadingSheetApi.getAll(),
+        dispatchPlanApi.getAll(),
+        vehicleApi.getAll()
+      ])
+      setSheets(lData)
+      setPlans(pData)
+      setVehicles(vData)
+    } catch (err) {
+      toast.error('Failed to load data', err instanceof Error ? err.message : 'Unknown error')
+    }
+  }
+
+  useEffect(() => {
+    fetchData()
+  }, [])
+
+  const crud = useLiveCrud<LoadingSheet>({
     entity: 'Loading sheet',
     titleOf: (l) => l.docNo,
     fields: [
@@ -92,11 +111,7 @@ export function LoadingPage() {
       l.status === 'DISPATCHED'
         ? `${l.docNo} has been dispatched and the gate pass issued. A dispatched loading sheet is part of the delivery record.`
         : undefined,
-  })
-
-  const sheets = crud.rows
-  const { rows: plans, update: updatePlan } = useCollection<DispatchPlan>('dispatch:plan', planSeed)
-  const { rows: vehicles, update: updateVehicle } = useCollection<Vehicle>('dispatch:vehicle', vehicleSeed)
+  }, sheets, loadingSheetApi, fetchData)
 
   const [loading, setLoading] = useState<LoadingSheet | null>(null)
   const [loadedCount, setLoadedCount] = useState('')
@@ -225,7 +240,7 @@ export function LoadingPage() {
             const stepIdx = STEPS.findIndex((s) => s.state === l.status)
             const blocker = dispatchBlocker(l)
             return (
-              <Card key={l.uid}>
+              <Card key={(l as any).id || l.uid}>
                 <CardHeader
                   title={`${l.vehicleNo} · ${l.stagingBay}`}
                   description={`${l.customer} → ${l.destination} · ${l.driver}`}
@@ -268,7 +283,7 @@ export function LoadingPage() {
                         variant="primary"
                         size="sm"
                         onClick={() => {
-                          crud.update(l.uid, { status: 'VERIFYING' })
+                          loadingSheetApi.update((l as any).id, { ...l, status: 'VERIFYING' }).then(() => fetchData())
                           toast.success('Verification started', `Count the pallets at ${l.stagingBay} against ${l.dispatchPlanNo} before anything goes on the vehicle.`)
                         }}
                       >
@@ -280,7 +295,7 @@ export function LoadingPage() {
                         variant="primary"
                         size="sm"
                         onClick={() => {
-                          crud.update(l.uid, { status: 'LOADING', startedAt: new Date().toISOString() })
+                          loadingSheetApi.update((l as any).id, { ...l, status: 'LOADING', startedAt: new Date().toISOString() }).then(() => fetchData())
                           toast.success('Loading started', `${l.vehicleNo} loading at ${l.stagingBay}. Count the cartons as they go on.`)
                         }}
                       >
@@ -305,7 +320,7 @@ export function LoadingPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        crud.update(l.uid, { photosAttached: l.photosAttached + 1 })
+                        loadingSheetApi.update((l as any).id, { ...l, photosAttached: l.photosAttached + 1 }).then(() => fetchData())
                         toast.success('Photo attached', `Photo ${l.photosAttached + 1} attached to ${l.docNo}. Loading photos settle most transit-damage arguments.`)
                       }}
                     >
@@ -320,15 +335,18 @@ export function LoadingPage() {
                             toast.error('Cannot dispatch', `${blocker}.`)
                             return
                           }
-                          crud.update(l.uid, { status: 'DISPATCHED', completedAt: new Date().toISOString() })
-                          const plan = plans.find((p) => p.docNo === l.dispatchPlanNo)
-                          if (plan) updatePlan(plan.uid, { status: 'DISPATCHED' })
-                          const v = vehicles.find((x) => x.vehicleNo === l.vehicleNo)
-                          if (v) updateVehicle(v.uid, { state: 'IN_TRANSIT' })
-                          toast.success(
+                          loadingSheetApi.update((l as any).id, { ...l, status: 'DISPATCHED', completedAt: new Date().toISOString() })
+                            .then(async () => {
+                              const plan = plans.find((p) => p.docNo === l.dispatchPlanNo)
+                              if (plan) await dispatchPlanApi.update((plan as any).id, { ...plan, status: 'DISPATCHED' })
+                              const v = vehicles.find((x) => x.vehicleNo === l.vehicleNo)
+                              if (v) await vehicleApi.update((v as any).id, { ...v, state: 'IN_TRANSIT' })
+                              fetchData()
+                              toast.success(
                             'Dispatched',
                             `${l.vehicleNo} has left with ${l.cartonsLoaded} cartons on seal ${l.sealNo}. Gate pass issued and the shipment is now trackable.`,
                           )
+                            })
                         }}
                       >
                         Dispatch the vehicle
@@ -346,7 +364,7 @@ export function LoadingPage() {
       <DataTable
         rows={sheets}
         columns={columns}
-        rowKey={(l) => l.uid}
+        rowKey={(l) => String((l as any).id || l.uid)}
         searchPlaceholder="Search sheet, plan, vehicle, driver or customer…"
         onExport={doExport}
         emptyTitle="No loading sheets"
@@ -378,10 +396,13 @@ export function LoadingPage() {
               danger
               disabled={l.status === 'DISPATCHED' || l.status === 'CANCELLED'}
               onClick={() => {
-                crud.update(l.uid, { status: 'CANCELLED' })
-                const v = vehicles.find((x) => x.vehicleNo === l.vehicleNo)
-                if (v) updateVehicle(v.uid, { state: 'AVAILABLE', currentShipmentNo: null })
-                toast.success('Loading cancelled', `${l.docNo} cancelled and ${l.vehicleNo} released back to the pool.`)
+                loadingSheetApi.update((l as any).id, { ...l, status: 'CANCELLED' })
+                  .then(async () => {
+                    const v = vehicles.find((x) => x.vehicleNo === l.vehicleNo)
+                    if (v) await vehicleApi.update((v as any).id, { ...v, state: 'AVAILABLE', currentShipmentNo: null })
+                    fetchData()
+                    toast.success('Loading cancelled', `${l.docNo} cancelled and ${l.vehicleNo} released back to the pool.`)
+                  })
               }}
             />
           </>
@@ -413,10 +434,11 @@ export function LoadingPage() {
                   )
                   return
                 }
-                crud.update(loading.uid, {
+                loadingSheetApi.update((loading as any).id, {
+                  ...loading,
                   cartonsLoaded: n,
                   palletsLoaded: Math.ceil(n / Math.max(1, Math.round(loading.cartonsPlanned / Math.max(1, loading.palletsLoaded || 1)))) || loading.palletsLoaded,
-                })
+                }).then(() => fetchData())
                 toast.success(
                   n < loading.cartonsPlanned ? 'Loaded short' : 'Count recorded',
                   n < loading.cartonsPlanned
@@ -465,13 +487,14 @@ export function LoadingPage() {
                   return
                 }
                 const variance = ((w - sealing.plannedWeightKg) / sealing.plannedWeightKg) * 100
-                crud.update(sealing.uid, {
+                loadingSheetApi.update((sealing as any).id, {
+                  ...sealing,
                   sealNo: seal.trim(),
                   sealVerified: Math.abs(variance) <= 2,
                   actualWeightKg: w,
                   status: Math.abs(variance) <= 2 ? 'SEALED' : 'LOADING',
                   photosAttached: sealing.photosAttached + 1,
-                })
+                }).then(() => fetchData())
                 if (Math.abs(variance) > 2) {
                   toast.error(
                     'Weight does not agree',

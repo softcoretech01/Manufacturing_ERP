@@ -10,13 +10,14 @@ import { Select } from '@/components/ui/Input'
 import { PageHeader, ProgressBar } from '@/components/ui/Misc'
 import { Tabs } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
-import { useCrud } from '@/components/crud/CrudKit'
+import { useLiveCrud } from '@/components/crud/CrudKit'
+import { dispatchPlanApi } from '@/api/dispatchPlanApi'
+import { vehicleApi } from '@/api/vehicleApi'
+import { useEffect } from 'react'
 import { DispatchStatusBadge, DocCell, EtaChip, PartyCell, WeightCell } from '@/components/dispatch/DispatchShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDate, formatQty } from '@/lib/format'
 import { cn } from '@/lib/cn'
-import { useCollection } from '@/store/data'
-import { dispatchPlans as seedPlans, vehicles as seedVehicles } from '@/mock/dispatch'
 import type { DispatchPlan, Vehicle } from '@/types/dispatch'
 
 const BASIS_LABEL: Record<string, string> = {
@@ -43,12 +44,33 @@ const TABS = [
 export function DispatchPlanningPage() {
   const toast = useToast()
   const navigate = useNavigate()
-  const seed = useMemo(() => seedPlans, [])
-  const vehicleSeed = useMemo(() => seedVehicles, [])
+  const [plans, setPlans] = useState<DispatchPlan[]>([])
+  const [vehicles, setVehicles] = useState<Vehicle[]>([])
 
-  const crud = useCrud<DispatchPlan>({
-    key: 'dispatch:plan',
-    seed,
+  const fetchPlans = async () => {
+    try {
+      const data = await dispatchPlanApi.getAll()
+      setPlans(data)
+    } catch (err) {
+      toast.error('Failed to load plans', err instanceof Error ? err.message : 'Unknown error')
+    }
+  }
+
+  const fetchVehicles = async () => {
+    try {
+      const data = await vehicleApi.getAll()
+      setVehicles(data)
+    } catch (err) {
+      toast.error('Failed to load vehicles', err instanceof Error ? err.message : 'Unknown error')
+    }
+  }
+
+  useEffect(() => {
+    fetchPlans()
+    fetchVehicles()
+  }, [])
+
+  const crud = useLiveCrud<DispatchPlan>({
     entity: 'Dispatch plan',
     titleOf: (p) => p.docNo,
     fields: [
@@ -114,10 +136,7 @@ export function DispatchPlanningPage() {
         : p.status === 'LOADING'
           ? `${p.docNo} is being loaded right now. Stop the loading first.`
           : undefined,
-  })
-
-  const plans = crud.rows
-  const { rows: vehicles, update: updateVehicle } = useCollection<Vehicle>('dispatch:vehicle', vehicleSeed)
+  }, plans, dispatchPlanApi, fetchPlans)
 
   const [tab, setTab] = useState('ALL')
   const [allocating, setAllocating] = useState<DispatchPlan | null>(null)
@@ -268,7 +287,7 @@ export function DispatchPlanningPage() {
       <DataTable
         rows={visible}
         columns={columns}
-        rowKey={(p) => p.uid}
+        rowKey={(p) => String((p as any).id || p.uid)}
         searchPlaceholder="Search plan, customer, route or transporter…"
         onExport={doExport}
         emptyTitle="No dispatch plans"
@@ -291,9 +310,12 @@ export function DispatchPlanningPage() {
               label="Release the pick list"
               disabled={p.status !== 'DRAFT' && p.status !== 'PLANNED'}
               onClick={() => {
-                crud.update(p.uid, { status: 'PICKING' })
-                toast.success('Pick list released', `${p.docNo} released to the warehouse. ${formatQty(p.cartons)} cartons to pick — the picker sees it on the pick list screen now.`)
-                navigate('/dispatch/pick-lists')
+                dispatchPlanApi.update((p as any).id, { ...p, status: 'PICKING' })
+                  .then(() => {
+                    toast.success('Pick list released', `${p.docNo} released to the warehouse. ${formatQty(p.cartons)} cartons to pick — the picker sees it on the pick list screen now.`)
+                    fetchPlans()
+                    navigate('/dispatch/pick-lists')
+                  })
               }}
             />
             <MenuItem
@@ -304,9 +326,12 @@ export function DispatchPlanningPage() {
                   toast.error('No vehicle allocated', `${p.docNo} has no vehicle. Allocate one before loading — a loading sheet needs a vehicle and a driver on it.`)
                   return
                 }
-                crud.update(p.uid, { status: 'LOADING' })
-                toast.success('Loading started', `${p.docNo} is at the bay. A loading sheet has been raised against ${p.vehicleNo}.`)
-                navigate('/dispatch/loading')
+                dispatchPlanApi.update((p as any).id, { ...p, status: 'LOADING' })
+                  .then(() => {
+                    toast.success('Loading started', `${p.docNo} is at the bay. A loading sheet has been raised against ${p.vehicleNo}.`)
+                    fetchPlans()
+                    navigate('/dispatch/loading')
+                  })
               }}
             />
             <MenuItem label="Print the dispatch plan" onClick={() => doExport('pdf')} />
@@ -315,13 +340,15 @@ export function DispatchPlanningPage() {
               label="Cancel the plan"
               danger
               disabled={p.status === 'DISPATCHED' || p.status === 'CANCELLED'}
-              onClick={() => {
+              onClick={async () => {
                 if (p.vehicleNo) {
                   const v = vehicles.find((x) => x.vehicleNo === p.vehicleNo)
-                  if (v) updateVehicle(v.uid, { state: 'AVAILABLE', currentShipmentNo: null })
+                  if (v) await vehicleApi.update((v as any).id, { ...v, state: 'AVAILABLE', currentShipmentNo: null })
                 }
-                crud.update(p.uid, { status: 'CANCELLED', vehicleNo: null, vehicleCapacityKg: 0 })
+                await dispatchPlanApi.update((p as any).id, { ...p, status: 'CANCELLED', vehicleNo: null, vehicleCapacityKg: 0 })
                 toast.success('Plan cancelled', `${p.docNo} cancelled${p.vehicleNo ? ` and ${p.vehicleNo} released back to the pool` : ''}.`)
+                fetchPlans()
+                fetchVehicles()
               }}
             />
           </>
@@ -338,7 +365,7 @@ export function DispatchPlanningPage() {
             <Button variant="outline" onClick={() => setAllocating(null)}>Cancel</Button>
             <Button
               variant="primary"
-              onClick={() => {
+              onClick={async () => {
                 if (!allocating) return
                 const v = vehicles.find((x) => x.vehicleNo === pickVehicle)
                 if (!v) {
@@ -355,10 +382,11 @@ export function DispatchPlanningPage() {
                 // Release whatever vehicle was allocated before.
                 if (allocating.vehicleNo && allocating.vehicleNo !== v.vehicleNo) {
                   const old = vehicles.find((x) => x.vehicleNo === allocating.vehicleNo)
-                  if (old) updateVehicle(old.uid, { state: 'AVAILABLE', currentShipmentNo: null })
+                  if (old) await vehicleApi.update((old as any).id, { ...old, state: 'AVAILABLE', currentShipmentNo: null })
                 }
-                updateVehicle(v.uid, { state: 'LOADING' })
-                crud.update(allocating.uid, {
+                await vehicleApi.update((v as any).id, { ...v, state: 'LOADING' })
+                await dispatchPlanApi.update((allocating as any).id, {
+                  ...allocating,
                   vehicleNo: v.vehicleNo,
                   transporter: v.transporter,
                   vehicleCapacityKg: v.capacityKg,
@@ -368,6 +396,8 @@ export function DispatchPlanningPage() {
                   'Vehicle allocated',
                   `${v.vehicleNo} (${v.driver}) allocated to ${allocating.docNo} — ${((allocating.weightKg / v.capacityKg) * 100).toFixed(0)}% of its rated capacity.`,
                 )
+                fetchPlans()
+                fetchVehicles()
                 setAllocating(null)
               }}
             >

@@ -22,16 +22,23 @@ import { Input } from '@/components/ui/Input'
 import { Alert, Avatar } from '@/components/ui/Misc'
 import { HeroSection } from '@/components/auth/HeroSection'
 import { useAuth } from '@/store/auth'
+import { useSession } from '@/api/session'
 import { users } from '@/mock/data'
 import { PORTALS, portalOf, type PortalCode } from '@/config/portals'
 import type { User } from '@/types'
+import { login as apiLogin } from '@/api/organisation'
+import { ProblemError } from '@/api/client'
 
 type Step = 'credentials' | 'forgot' | 'otp' | 'reset' | 'pin'
 
 export function LoginPage() {
   const [params] = useSearchParams()
   const navigate = useNavigate()
-  const { userUid, login, loginAsDemo, portal, setPortal } = useAuth()
+  const { userUid, loginAsDemo, portal, setPortal } = useAuth()
+  // A real API token is required, not just the mock routing user: otherwise a
+  // stale mock session (or an expired token) would bounce the user off the login
+  // page and trap them on API-backed screens that 401 with no way to re-auth.
+  const apiToken = useSession((s) => s.accessToken)
   const [darkMode, setDarkMode] = useState(false)
 
   const switching = Boolean(params.get('switch'))
@@ -39,7 +46,7 @@ export function LoginPage() {
 
   const chosen = portalOf(portal)
 
-  if (userUid && !switching) return <Navigate to={chosen.home} replace />
+  if (userUid && apiToken && !switching) return <Navigate to={chosen.home} replace />
 
   const handlePortalPick = (code: PortalCode) => {
     setPortal(code)
@@ -95,9 +102,13 @@ export function LoginPage() {
                   {step === 'credentials' && (
                     <Credentials
                       onNext={setStep}
-                      login={login}
                       portal={chosen}
-                      onSuccess={() => navigate(chosen.home)}
+                      onSuccess={() => {
+                        // The backend authenticated the user; drive the mock UI
+                        // shell (nav, portals, permissions) with the sysadmin.
+                        loginAsDemo('usr-16')
+                        navigate(chosen.home)
+                      }}
                     />
                   )}
                   {step === 'forgot' && (
@@ -260,32 +271,38 @@ function PortalChooser({ active, onPick }: { active: PortalCode; onPick: (c: Por
 
 function Credentials({
   onNext,
-  login,
   onSuccess,
   portal,
 }: {
   onNext: (s: Step) => void
-  login: (id: string) => { ok: boolean; error?: string }
   onSuccess: () => void
   portal: { name: string; icon: LucideIcon; gradient: string }
 }) {
-  const [loginId, setLoginId] = useState('admin@gmail.com')
+  const [loginId, setLoginId] = useState('admin')
   const [password, setPassword] = useState('admin123')
   const [show, setShow] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [remember, setRemember] = useState(false)
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
     setBusy(true)
-    setTimeout(() => {
-      const r = login(loginId)
-      setBusy(false)
-      if (!r.ok) { setError(r.error ?? 'Incorrect login ID or password.'); return }
+    try {
+      // Authenticate against the real FastAPI backend; this stores the JWT +
+      // active company in the session, so the Organisation screens can load.
+      await apiLogin(loginId.trim(), password)
       onSuccess()
-    }, 400)
+    } catch (err) {
+      setError(
+        err instanceof ProblemError
+          ? (Array.isArray(err.problem.detail) ? err.problem.detail.map((d: any) => d.msg).join(', ') : err.problem.detail) || 'Incorrect login id or password.'
+          : 'Cannot reach the backend. Check it is running and VITE_API_BASE_URL is correct.',
+      )
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (

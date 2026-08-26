@@ -29,6 +29,7 @@ import {
   rollUpCost,
   toolNeedsAttention,
 } from '@/lib/engFlow'
+import { useEngineeringCollection } from '@/store/engData'
 import { useCollection } from '@/store/data'
 import {
   boms as seedBoms,
@@ -42,6 +43,7 @@ import {
 } from '@/mock/engineering'
 import { items as masterItems } from '@/mock/masters'
 import type { Bom, EngChange, EngDocument, EngProduct, EngWorkCentre, Routing, Tool } from '@/types/engineering'
+import { engineeringApi as api } from '@/api/engineering'
 
 /**
  * Product engineering dashboard (Ch 21).
@@ -56,13 +58,13 @@ const OPEN_CHANGE_STATES: EngChange['status'][] = ['DRAFT', 'UNDER_REVIEW', 'PEN
 
 export function EngineeringDashboardPage() {
   const navigate = useNavigate()
-  const { rows: products } = useCollection<EngProduct>('eng:products', useMemo(() => seedProducts, []))
-  const { rows: boms } = useCollection<Bom>('eng:boms', useMemo(() => seedBoms, []))
-  const { rows: routings } = useCollection<Routing>('eng:routings', useMemo(() => seedRoutings, []))
-  const { rows: workCentres } = useCollection<EngWorkCentre>('eng:workcentres', useMemo(() => seedWorkCentres, []))
-  const { rows: tools } = useCollection<Tool>('eng:tools', useMemo(() => seedTools, []))
-  const { rows: changes } = useCollection<EngChange>('eng:changes', useMemo(() => seedChanges, []))
-  const { rows: documents } = useCollection<EngDocument>('eng:documents', useMemo(() => seedDocs, []))
+  const { rows: products } = useEngineeringCollection<EngProduct>('eng:products', useMemo(() => seedProducts, []))
+  const { rows: boms } = useEngineeringCollection<Bom>('eng:boms', useMemo(() => seedBoms, []))
+  const { rows: routings } = useEngineeringCollection<Routing>('eng:routings', useMemo(() => seedRoutings, []))
+  const { rows: workCentres } = useEngineeringCollection<EngWorkCentre>('eng:workcentres', useMemo(() => seedWorkCentres, []))
+  const { rows: tools } = useEngineeringCollection<Tool>('eng:tools', useMemo(() => seedTools, []))
+  const { rows: changes } = useEngineeringCollection<EngChange>('eng:changes', useMemo(() => seedChanges, []))
+  const { rows: documents } = useEngineeringCollection<EngDocument>('eng:documents', useMemo(() => seedDocs, []))
 
   const ctx = { boms, routings, workCentres, tools, items: masterItems, products }
 

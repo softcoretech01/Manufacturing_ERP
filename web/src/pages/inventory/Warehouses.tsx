@@ -10,15 +10,68 @@ import { useCanSeeValue } from '@/components/inventory/InvShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatCompact, formatCurrency } from '@/lib/format'
 import { cn } from '@/lib/cn'
-import { warehouseSummaries } from '@/mock/inventory'
+import { useWarehouses } from '@/hooks/useOrganisation'
 
-type Warehouse = (typeof warehouseSummaries)[number]
+/** Warehouse register — what each store is for and how it behaves. Live data
+ *  from the backend warehouse master (Organisation → Warehouses). Operational
+ *  metrics (plant, storekeeper, occupancy, stock value, strategies, open moves)
+ *  have no backend yet and show as placeholders until the Inventory module. */
 
-/** Warehouse register — what each store is for and how it behaves. */
+interface Warehouse {
+  uid: string
+  code: string
+  name: string
+  warehouseType: string
+  plant: string
+  isBinManaged: boolean
+  batchMandatory: boolean
+  allowNegative: boolean
+  putawayStrategy: string
+  pickStrategy: string
+  storekeeper: string
+  valuationMethod: string
+  binCount: number
+  binsOccupied: number
+  stockValue: number
+  openMovements: number
+  includeInAtp: boolean
+}
+
+const VALUATION_LABEL: Record<string, string> = {
+  WEIGHTED_AVG: 'Weighted average',
+  FIFO: 'FIFO',
+  STANDARD: 'Standard cost',
+}
+
 export function WarehousesPage() {
   const toast = useToast()
   const navigate = useNavigate()
   const canSeeValue = useCanSeeValue()
+
+  const { data, isLoading, error } = useWarehouses({ page_size: 200 })
+  // Live warehouse master → the register's shape. Operational fields are
+  // placeholders until the Inventory module provides them.
+  const warehouseSummaries: Warehouse[] = (data?.data ?? [])
+    .filter((w) => w.is_active)
+    .map((w) => ({
+      uid: w.uid,
+      code: w.code,
+      name: w.name,
+      warehouseType: w.warehouse_type,
+      plant: '—',
+      isBinManaged: w.is_bin_managed,
+      batchMandatory: w.is_batch_mandatory,
+      allowNegative: w.allow_negative_stock,
+      putawayStrategy: '—',
+      pickStrategy: '—',
+      storekeeper: '—',
+      valuationMethod: VALUATION_LABEL[w.valuation_method] ?? w.valuation_method,
+      binCount: 0,
+      binsOccupied: 0,
+      stockValue: 0,
+      openMovements: 0,
+      includeInAtp: false,
+    }))
 
   const totalValue = warehouseSummaries.reduce((s, w) => s + w.stockValue, 0)
   const binManaged = warehouseSummaries.filter((w) => w.isBinManaged)
@@ -79,6 +132,12 @@ export function WarehousesPage() {
         }
       />
 
+      {error && (
+        <div className="mb-4 rounded-md border border-danger-border bg-danger-surface p-3 text-sm text-danger-fg">
+          Failed to load warehouses from API.
+        </div>
+      )}
+
       <p className="mb-3 text-xs text-fg-muted">
         <span className="font-medium text-fg">{warehouseSummaries.length}</span> stores ·{' '}
         <span className="font-medium text-fg">{binManaged.length}</span> bin-managed ·{' '}
@@ -92,6 +151,7 @@ export function WarehousesPage() {
         rows={warehouseSummaries}
         columns={columns}
         rowKey={(w) => w.uid}
+        loading={isLoading}
         searchPlaceholder="Search warehouse, type, plant or storekeeper…"
         onExport={doExport}
         onRowClick={(w) => (w.isBinManaged ? navigate('/inventory/bin-map') : navigate('/inventory/stock'))}

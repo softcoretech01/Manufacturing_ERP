@@ -6,8 +6,7 @@ import { navigationFor, type NavItem } from '@/config/navigation'
 import { portalOf } from '@/config/portals'
 import { useAuth, usePermissions } from '@/store/auth'
 import { useUi } from '@/store/ui'
-import { isApprovable } from '@/lib/procFlow'
-import { approvalTasks } from '@/mock/data2'
+import { useInboxCount } from '@/hooks/useWorkflow'
 
 export function Sidebar() {
   const collapsed = useUi((s) => s.sidebarCollapsed)
@@ -30,7 +29,8 @@ export function Sidebar() {
     }
   }, [pathname, navigation])
 
-  const pendingCount = approvalTasks.filter((t) => t.status === 'PENDING' && isApprovable(t.documentType)).length
+  // Real pending-approval count for this user (V1-WFL S-WFL-03).
+  const pendingCount = useInboxCount().data?.count ?? 0
 
   const visible = (item: NavItem) => !item.permission || has(item.permission)
 

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Plus, Trash2, Wrench } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type Column } from '@/components/ui/DataTable'
@@ -12,20 +12,9 @@ import { EngStatusBadge, ToolLifeBar } from '@/components/engineering/EngShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatAmount, formatDate } from '@/lib/format'
 import { toolLifePct, toolNeedsAttention } from '@/lib/engFlow'
-import { newUid, useCollection } from '@/store/data'
-import { routings as seedRoutings, tools as seedTools } from '@/mock/engineering'
 import { machines } from '@/mock/masters'
 import type { Routing, Tool, ToolType } from '@/types/engineering'
-
-/**
- * Tool register (Ch 14).
- *
- * Tools are tracked for two reasons that pull in different directions. The shop
- * floor needs to know when a die is near the end of its life; costing needs the
- * replacement value spread over the pieces the die will produce. Both come off
- * the same two numbers, so they are captured once and used twice — the per-piece
- * amortisation shown here is exactly what the cost roll-up charges.
- */
+import { engineeringApi as api } from '@/api/engineering'
 
 const TOOL_TYPES: ToolType[] = ['DIE', 'PUNCH', 'MOULD', 'FIXTURE', 'JIG', 'WHEEL', 'GAUGE']
 const TOOL_TYPE_LABEL: Record<ToolType, string> = {
@@ -69,9 +58,10 @@ const emptyForm: FormState = {
 
 export function ToolsPage() {
   const toast = useToast()
-  const seed = useMemo(() => seedTools, [])
-  const { rows, create, update, remove } = useCollection<Tool>('eng:tools', seed)
-  const { rows: routings } = useCollection<Routing>('eng:routings', useMemo(() => seedRoutings, []))
+  
+  const [rows, setRows] = useState<Tool[]>([])
+  const [routings, setRoutings] = useState<Routing[]>([])
+  const [isLoading, setIsLoading] = useState(true)
 
   const [tab, setTab] = useState('all')
   const [formOpen, setFormOpen] = useState(false)
@@ -80,9 +70,27 @@ export function ToolsPage() {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [confirmDelete, setConfirmDelete] = useState<Tool | null>(null)
 
+  async function loadData() {
+    try {
+      const [tls, rts] = await Promise.all([
+        api.getEngTools(),
+        api.getRoutings().catch(() => [])
+      ])
+      setRows(tls)
+      setRoutings(rts)
+    } catch (err) {
+      toast.error('Error', 'Failed to load tools')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadData()
+  }, [])
+
   const usageOf = (code: string) => routings.reduce((n, r) => n + r.operations.filter((o) => o.toolCode === code).length, 0)
 
-  /** What one piece is charged for this tool — replacement value over rated life. */
   const perPiece = (t: Tool) => (t.lifeStrokes > 0 ? t.replacementCost / t.lifeStrokes : 0)
 
   const counts = {
@@ -112,11 +120,16 @@ export function ToolsPage() {
     { key: 'status', header: 'Status', sortable: true, width: '8rem', render: (t) => <EngStatusBadge status={t.status} size="sm" /> },
   ]
 
-  function openCreate() {
+  async function openCreate() {
     setEditing(null)
-    setForm(emptyForm)
     setErrors({})
-    setFormOpen(true)
+    try {
+      const res = await api.getEngToolsNextCode()
+      setForm({ ...emptyForm, code: res.nextCode })
+      setFormOpen(true)
+    } catch (err) {
+      toast.error('Error', 'Failed to generate code')
+    }
   }
 
   function openEdit(t: Tool) {
@@ -140,9 +153,6 @@ export function ToolsPage() {
 
   function validate() {
     const e: Record<string, string> = {}
-    const code = form.code.trim().toUpperCase()
-    if (!code) e.code = 'A code is required.'
-    else if (rows.some((t) => t.code === code && t.uid !== editing?.uid)) e.code = `${code} is already in use.`
     if (!form.name.trim()) e.name = 'A name is required.'
     if (Number(form.lifeStrokes) < 0) e.lifeStrokes = 'Rated life cannot be negative.'
     if (Number(form.usedStrokes) < 0) e.usedStrokes = 'Strokes used cannot be negative.'
@@ -153,10 +163,10 @@ export function ToolsPage() {
     return Object.keys(e).length === 0
   }
 
-  function save() {
+  async function save() {
     if (!validate()) return
     const patch = {
-      code: form.code.trim().toUpperCase(),
+      code: form.code,
       name: form.name.trim(),
       toolType: form.toolType,
       machineCode: form.machineCode,
@@ -168,14 +178,54 @@ export function ToolsPage() {
       location: form.location,
       status: form.status,
     }
-    if (editing) {
-      update(editing.uid, { ...patch, version: editing.version + 1 })
-      toast.success('Tool updated', `${patch.code} saved. Routings that call for it re-cost immediately.`)
-    } else {
-      create({ ...patch, uid: newUid('tol'), createdAt: new Date().toISOString(), version: 1 })
-      toast.success('Tool registered', `${patch.code} is available to routing operations.`)
+    
+    try {
+      if (editing) {
+        await api.updateEngTool(editing.uid, patch)
+        toast.success('Tool updated', `${patch.code} saved. Routings that call for it re-cost immediately.`)
+      } else {
+        await api.createEngTool(patch)
+        toast.success('Tool registered', `${patch.code} is available to routing operations.`)
+      }
+      setFormOpen(false)
+      loadData()
+    } catch (err) {
+      toast.error('Error', 'Failed to save tool')
     }
-    setFormOpen(false)
+  }
+
+  async function recordMaintenance(t: Tool) {
+    try {
+      const today = new Date().toISOString().slice(0, 10)
+      await api.updateEngTool(t.uid, { ...t, lastMaintenanceOn: today, status: 'AVAILABLE' })
+      toast.success('Maintenance recorded', `${t.code} is back in the available pool.`)
+      loadData()
+    } catch (err) {
+      toast.error('Error', 'Failed to update tool')
+    }
+  }
+
+  async function retireTool(t: Tool) {
+    try {
+      await api.updateEngTool(t.uid, { ...t, status: 'RETIRED' })
+      toast.success('Retired', `${t.code} will not be offered on new routings.`)
+      loadData()
+    } catch (err) {
+      toast.error('Error', 'Failed to retire tool')
+    }
+  }
+
+  async function doDelete() {
+    if (!confirmDelete) return
+    try {
+      await api.deleteEngTool(confirmDelete.uid)
+      toast.success('Deleted', `${confirmDelete.code} was soft-deleted.`)
+      loadData()
+    } catch (err) {
+      toast.error('Error', 'Failed to delete tool')
+    } finally {
+      setConfirmDelete(null)
+    }
   }
 
   const draftPerPiece = Number(form.lifeStrokes) > 0 ? Number(form.replacementCost) / Number(form.lifeStrokes) : 0
@@ -216,6 +266,7 @@ export function ToolsPage() {
         rows={filtered}
         columns={columns}
         rowKey={(t) => t.uid}
+        isLoading={isLoading}
         searchPlaceholder="Search code, name, machine or location…"
         onExport={(f: ExportFormat) => {
           const n = exportRows(f, 'tools', 'Tool register', columnsFromTable(columns), filtered)
@@ -231,18 +282,12 @@ export function ToolsPage() {
             <MenuItem
               label="Record maintenance"
               icon={<Wrench />}
-              onClick={() => {
-                update(t.uid, { lastMaintenanceOn: new Date().toISOString().slice(0, 10), status: 'AVAILABLE' })
-                toast.success('Maintenance recorded', `${t.code} is back in the available pool.`)
-              }}
+              onClick={() => recordMaintenance(t)}
             />
             <MenuItem
               label="Retire"
               disabled={t.status === 'RETIRED'}
-              onClick={() => {
-                update(t.uid, { status: 'RETIRED' })
-                toast.success('Retired', `${t.code} will not be offered on new routings.`)
-              }}
+              onClick={() => retireTool(t)}
             />
             <MenuItem
               label={usageOf(t.code) ? `Delete — blocked (${usageOf(t.code)} operations)` : 'Delete'}
@@ -273,8 +318,8 @@ export function ToolsPage() {
         }
       >
         <div className="grid gap-3.5 sm:grid-cols-2">
-          <Input label="Code" required value={form.code} error={errors.code} placeholder="TL-0011" onChange={(e) => setForm({ ...form, code: e.target.value })} />
-          <Input label="Name" required value={form.name} error={errors.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <Input maxLength={255} label="Code" required disabled value={form.code} hint="Auto-generated" onChange={(e) => setForm({ ...form, code: e.target.value })} />
+          <Input maxLength={255} label="Name" required value={form.name} error={errors.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <Select label="Type" value={form.toolType} onChange={(e) => setForm({ ...form, toolType: e.target.value as ToolType })} options={TOOL_TYPES.map((t) => ({ value: t, label: TOOL_TYPE_LABEL[t] }))} />
           <Select
             label="Machine"
@@ -282,13 +327,13 @@ export function ToolsPage() {
             onChange={(e) => setForm({ ...form, machineCode: e.target.value })}
             options={[{ value: '', label: 'Not machine-specific' }, ...machines.map((m) => ({ value: m.code, label: `${m.code} — ${m.name}` }))]}
           />
-          <Input label="Rated life (pieces)" type="number" value={form.lifeStrokes} error={errors.lifeStrokes} hint="Zero means the tool is not life-tracked and is not amortised." onChange={(e) => setForm({ ...form, lifeStrokes: e.target.value })} />
-          <Input label="Pieces produced so far" type="number" value={form.usedStrokes} error={errors.usedStrokes} onChange={(e) => setForm({ ...form, usedStrokes: e.target.value })} />
-          <Input label="Replacement cost (₹)" type="number" required value={form.replacementCost} error={errors.replacementCost} onChange={(e) => setForm({ ...form, replacementCost: e.target.value })} />
+          <Input maxLength={255} label="Rated life (pieces)" type="number" value={form.lifeStrokes} error={errors.lifeStrokes} hint="Zero means the tool is not life-tracked and is not amortised." onChange={(e) => setForm({ ...form, lifeStrokes: e.target.value })} />
+          <Input maxLength={255} label="Pieces produced so far" type="number" value={form.usedStrokes} error={errors.usedStrokes} onChange={(e) => setForm({ ...form, usedStrokes: e.target.value })} />
+          <Input maxLength={255} label="Replacement cost (₹)" type="number" required value={form.replacementCost} error={errors.replacementCost} onChange={(e) => setForm({ ...form, replacementCost: e.target.value })} />
           <Select label="Status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as Tool['status'] })} options={STATUSES.map((s) => ({ value: s, label: s.charAt(0) + s.slice(1).toLowerCase().replace('_', ' ') }))} />
-          <Input label="Last maintenance" type="date" value={form.lastMaintenanceOn} onChange={(e) => setForm({ ...form, lastMaintenanceOn: e.target.value })} />
-          <Input label="Calibration due" type="date" value={form.nextCalibrationOn} onChange={(e) => setForm({ ...form, nextCalibrationOn: e.target.value })} />
-          <Input label="Location" containerClassName="sm:col-span-2" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
+          <Input maxLength={255} label="Last maintenance" type="date" value={form.lastMaintenanceOn} onChange={(e) => setForm({ ...form, lastMaintenanceOn: e.target.value })} />
+          <Input maxLength={255} label="Calibration due" type="date" value={form.nextCalibrationOn} onChange={(e) => setForm({ ...form, nextCalibrationOn: e.target.value })} />
+          <Input maxLength={255} label="Location" containerClassName="sm:col-span-2" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
         </div>
 
         {draftPerPiece > 0 && (
@@ -311,16 +356,7 @@ export function ToolsPage() {
             <Button variant="outline" onClick={() => setConfirmDelete(null)}>
               Cancel
             </Button>
-            <Button
-              variant="danger"
-              onClick={() => {
-                if (confirmDelete) {
-                  remove(confirmDelete.uid)
-                  toast.success('Deleted', `${confirmDelete.code} was soft-deleted.`)
-                }
-                setConfirmDelete(null)
-              }}
-            >
+            <Button variant="danger" onClick={doDelete}>
               Delete
             </Button>
           </>

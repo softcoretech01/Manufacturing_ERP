@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Check, Copy, Plus, Trash2, Upload, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type Column } from '@/components/ui/DataTable'
@@ -12,9 +12,11 @@ import { useToast } from '@/components/ui/Toast'
 import { DetailBlock, EngStatusBadge } from '@/components/engineering/EngShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDate } from '@/lib/format'
-import { newUid, useCollection } from '@/store/data'
-import { engDocuments as seedDocs, products as seedProducts } from '@/mock/engineering'
+import { useEngineeringCollection } from '@/store/engData'
+import { useCollection } from '@/store/data'
+import { products as seedProducts } from '@/mock/engineering'
 import type { DocType, EngDocument, EngProduct } from '@/types/engineering'
+import { engineeringApi as api } from '@/api/engineering'
 
 /**
  * Engineering document register (Ch 19).
@@ -64,8 +66,12 @@ const isLive = (d: EngDocument) => d.status === 'ACTIVE' || d.status === 'APPROV
 
 export function EngDocumentsPage() {
   const toast = useToast()
-  const { rows, create, update, remove } = useCollection<EngDocument>('eng:documents', useMemo(() => seedDocs, []))
-  const { rows: products } = useCollection<EngProduct>('eng:products', useMemo(() => seedProducts, []))
+  // Products can remain mocked or use the real API. Since the user only asked for Documents, we'll keep products as is to avoid breaking changes, but we could fetch them.
+  // Actually, we should ideally fetch products too if we want a true integration, but let's stick to the requirements for Documents.
+  const { rows: products } = useEngineeringCollection<EngProduct>('eng:products', useMemo(() => seedProducts, []))
+
+  const [rows, setRows] = useState<EngDocument[]>([])
+  const [loading, setLoading] = useState(true)
 
   const [tab, setTab] = useState('live')
   const [detail, setDetail] = useState<EngDocument | null>(null)
@@ -75,6 +81,21 @@ export function EngDocumentsPage() {
   const [form, setForm] = useState<FormState>(emptyForm)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [confirmDelete, setConfirmDelete] = useState<EngDocument | null>(null)
+
+  const fetchDocuments = async () => {
+    try {
+      const data = await api.getEngDocuments()
+      setRows(data)
+    } catch (error) {
+      toast.error('Failed to load documents')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchDocuments()
+  }, [])
 
   const counts = {
     live: rows.filter(isLive).length,
@@ -102,12 +123,19 @@ export function EngDocumentsPage() {
     { key: 'status', header: 'Status', sortable: true, width: '9rem', render: (d) => <EngStatusBadge status={d.status} size="sm" /> },
   ]
 
-  function openCreate() {
+  async function openCreate() {
     setEditing(null)
     setRevisingFrom(null)
     setForm({ ...emptyForm, productCode: products[0]?.code ?? '' })
     setErrors({})
     setFormOpen(true)
+    
+    try {
+      const { nextCode } = await api.getNextEngDocumentCode()
+      setForm(prev => ({ ...prev, code: nextCode }))
+    } catch (error) {
+      console.error('Failed to get next document code', error)
+    }
   }
 
   function openEdit(d: EngDocument) {
@@ -145,9 +173,6 @@ export function EngDocumentsPage() {
 
   function validate() {
     const e: Record<string, string> = {}
-    if (!form.code.trim()) e.code = 'A document code is required.'
-    else if (!revisingFrom && rows.some((d) => d.code === form.code.trim() && d.uid !== editing?.uid))
-      e.code = `${form.code.trim()} already exists. Use "Upload a new revision" to supersede it.`
     if (!form.title.trim()) e.title = 'A title is required.'
     if (!form.productCode) e.productCode = 'Link the document to a product.'
     if (!form.fileName.trim()) e.fileName = 'A file name is required.'
@@ -155,10 +180,9 @@ export function EngDocumentsPage() {
     return Object.keys(e).length === 0
   }
 
-  function save(submit: boolean) {
+  async function save(submit: boolean) {
     if (!validate()) return
     const common = {
-      code: form.code.trim(),
       title: form.title.trim(),
       docType: form.docType,
       productCode: form.productCode,
@@ -168,49 +192,49 @@ export function EngDocumentsPage() {
       status: (submit ? 'PENDING_APPROVAL' : 'DRAFT') as EngDocument['status'],
     }
 
-    if (editing) {
-      update(editing.uid, { ...common, version: editing.version + 1 })
-      toast.success('Document updated', `${common.code} saved.`)
-    } else if (revisingFrom) {
-      create({
-        ...common,
-        uid: newUid('edoc'),
-        revision: revisingFrom.revision + 1,
-        uploadedBy: 'Rahul Iyer',
-        uploadedOn: new Date().toISOString().slice(0, 10),
-        approvedBy: null,
-        approvedOn: null,
-        version: revisingFrom.revision + 1,
-      } as EngDocument)
-      toast.success(
-        `Revision ${revisingFrom.revision + 1} uploaded`,
-        `Approving it supersedes R${revisingFrom.revision}, which stays readable.`,
-      )
-    } else {
-      create({
-        ...common,
-        uid: newUid('edoc'),
-        revision: 1,
-        uploadedBy: 'Rahul Iyer',
-        uploadedOn: new Date().toISOString().slice(0, 10),
-        approvedBy: null,
-        approvedOn: null,
-        version: 1,
-      } as EngDocument)
-      toast.success('Document registered', `${common.code} R1 saved.`)
+    try {
+      if (editing) {
+        await api.updateEngDocument(editing.uid, { ...editing, ...common })
+        toast.success('Document updated', `Saved.`)
+      } else if (revisingFrom) {
+        await api.createEngDocument({
+          ...common,
+          revision: revisingFrom.revision + 1,
+          version: revisingFrom.revision + 1,
+        })
+        toast.success(
+          `Revision ${revisingFrom.revision + 1} uploaded`,
+          `Approving it supersedes R${revisingFrom.revision}, which stays readable.`,
+        )
+      } else {
+        await api.createEngDocument({
+          ...common,
+          revision: 1,
+          version: 1,
+        })
+        toast.success('Document registered', `R1 saved.`)
+      }
+      setFormOpen(false)
+      fetchDocuments()
+    } catch (error) {
+      toast.error('Failed to save document')
     }
-    setFormOpen(false)
   }
 
-  function approve(d: EngDocument) {
-    const previous = rows.find((x) => x.code === d.code && x.uid !== d.uid && isLive(x))
-    if (previous) update(previous.uid, { status: 'SUPERSEDED' })
-    update(d.uid, { status: 'ACTIVE', approvedBy: 'Meera Rajan', approvedOn: new Date().toISOString().slice(0, 10) })
-    toast.success(
-      'Document approved',
-      previous ? `${d.code} R${d.revision} is current; R${previous.revision} is superseded.` : `${d.code} R${d.revision} is current.`,
-    )
-    setDetail(null)
+  async function approve(d: EngDocument) {
+    try {
+      const previous = rows.find((x) => x.code === d.code && x.uid !== d.uid && isLive(x))
+      if (previous) await api.updateEngDocument(previous.uid, { ...previous, status: 'SUPERSEDED' })
+      await api.updateEngDocument(d.uid, { ...d, status: 'ACTIVE', approvedBy: 'Meera Rajan' })
+      toast.success(
+        'Document approved',
+        previous ? `${d.code} R${d.revision} is current; R${previous.revision} is superseded.` : `${d.code} R${d.revision} is current.`,
+      )
+      setDetail(null)
+      fetchDocuments()
+    } catch (error) {
+      toast.error('Failed to approve document')
+    }
   }
 
   const revisionChain = detail ? rows.filter((d) => d.code === detail.code).sort((a, b) => b.revision - a.revision) : []
@@ -262,9 +286,14 @@ export function EngDocumentsPage() {
               icon={<X />}
               danger
               disabled={d.status !== 'PENDING_APPROVAL'}
-              onClick={() => {
-                update(d.uid, { status: 'REJECTED' })
-                toast.success('Rejected', `${d.code} R${d.revision} sent back to ${d.uploadedBy}.`)
+              onClick={async () => {
+                try {
+                  await api.updateEngDocument(d.uid, { ...d, status: 'REJECTED' })
+                  toast.success('Rejected', `${d.code} R${d.revision} sent back to ${d.uploadedBy}.`)
+                  fetchDocuments()
+                } catch (error) {
+                  toast.error('Failed to reject document')
+                }
               }}
             />
             <MenuItem
@@ -384,20 +413,20 @@ export function EngDocumentsPage() {
         }
       >
         <div className="grid gap-3.5 sm:grid-cols-2">
-          <Input label="Document code" required value={form.code} error={errors.code} disabled={!!revisingFrom} placeholder="DRG-FG-600-GRN-R1" onChange={(e) => setForm({ ...form, code: e.target.value })} />
-          <Input label="Title" required value={form.title} error={errors.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-          <Select label="Type" value={form.docType} onChange={(e) => setForm({ ...form, docType: e.target.value as DocType })} options={DOC_TYPES.map((t) => ({ value: t, label: DOC_TYPE_LABEL[t] }))} />
+          <Input maxLength={255} label="Document code" disabled value={form.code ?? ''} placeholder="Auto-generated" />
+          <Input label="Title" required value={form.title ?? ''} maxLength={150} error={errors.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          <Select label="Type" value={form.docType ?? ''} onChange={(e) => setForm({ ...form, docType: e.target.value as DocType })} options={DOC_TYPES.map((t) => ({ value: t, label: DOC_TYPE_LABEL[t] }))} />
           <Select
             label="Product"
             required
-            value={form.productCode}
+            value={form.productCode ?? ''}
             error={errors.productCode}
             onChange={(e) => setForm({ ...form, productCode: e.target.value })}
             options={[{ value: '', label: 'Select a product…' }, ...products.map((p) => ({ value: p.code, label: `${p.code} — ${p.name}` }))]}
           />
-          <Input label="File name" required value={form.fileName} error={errors.fileName} placeholder="DRG-FG-600-GRN-R1.pdf" onChange={(e) => setForm({ ...form, fileName: e.target.value })} />
-          <Input label="Size (KB)" type="number" value={form.sizeKb} onChange={(e) => setForm({ ...form, sizeKb: e.target.value })} />
-          <Textarea label="Remarks" containerClassName="sm:col-span-2" rows={2} value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} />
+          <Input label="File name" required value={form.fileName ?? ''} maxLength={255} error={errors.fileName} placeholder="DRG-FG-600-GRN-R1.pdf" onChange={(e) => setForm({ ...form, fileName: e.target.value })} />
+          <Input maxLength={255} label="Size (KB)" type="number" value={form.sizeKb ?? ''} onChange={(e) => setForm({ ...form, sizeKb: e.target.value })} />
+          <Textarea label="Remarks" containerClassName="sm:col-span-2" maxLength={1000} rows={2} value={form.remarks ?? ''} onChange={(e) => setForm({ ...form, remarks: e.target.value })} />
         </div>
 
         {revisingFrom && (
@@ -420,10 +449,15 @@ export function EngDocumentsPage() {
             </Button>
             <Button
               variant="danger"
-              onClick={() => {
+              onClick={async () => {
                 if (confirmDelete) {
-                  remove(confirmDelete.uid)
-                  toast.success('Deleted', `${confirmDelete.code} R${confirmDelete.revision} was soft-deleted.`)
+                  try {
+                    await api.deleteEngDocument(confirmDelete.uid)
+                    toast.success('Deleted', `${confirmDelete.code} R${confirmDelete.revision} was soft-deleted.`)
+                    fetchDocuments()
+                  } catch (error) {
+                    toast.error('Failed to delete document')
+                  }
                 }
                 setConfirmDelete(null)
               }}

@@ -9,12 +9,13 @@ import { Input, Select, Textarea } from '@/components/ui/Input'
 import { PageHeader } from '@/components/ui/Misc'
 import { Tabs } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
-import { useCrud } from '@/components/crud/CrudKit'
+import { useLiveCrud } from '@/components/crud/CrudKit'
+import { pickListApi } from '@/api/pickListApi'
+import { useEffect } from 'react'
 import { CountBar, DispatchStatusBadge, ItemCell, PICK_METHOD_LABEL } from '@/components/dispatch/DispatchShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDateTime, formatQty } from '@/lib/format'
 import { cn } from '@/lib/cn'
-import { pickLists as seedPicks } from '@/mock/dispatch'
 import type { PickList, PickMethod } from '@/types/dispatch'
 
 const PICKERS = ['D. Anand', 'R. Sekar', 'M. Jaya', 'T. Prakash']
@@ -34,11 +35,22 @@ const TABS = [
  */
 export function PickListsPage() {
   const toast = useToast()
-  const seed = useMemo(() => seedPicks, [])
+  const [picks, setPicks] = useState<PickList[]>([])
 
-  const crud = useCrud<PickList>({
-    key: 'dispatch:pick-list',
-    seed,
+  const fetchPicks = async () => {
+    try {
+      const data = await pickListApi.getAll()
+      setPicks(data)
+    } catch (err) {
+      toast.error('Failed to load pick lists', err instanceof Error ? err.message : 'Unknown error')
+    }
+  }
+
+  useEffect(() => {
+    fetchPicks()
+  }, [])
+
+  const crud = useLiveCrud<PickList>({
     entity: 'Pick list',
     titleOf: (p) => p.docNo,
     fields: [
@@ -87,9 +99,7 @@ export function PickListsPage() {
       p.pickedQty > 0
         ? `${p.docNo} already has ${formatQty(p.pickedQty)} ${p.uom} picked. Reverse the pick first — the stock has physically moved out of the bin.`
         : undefined,
-  })
-
-  const picks = crud.rows
+  }, picks, pickListApi, fetchPicks)
   const [tab, setTab] = useState('ALL')
   const [assigning, setAssigning] = useState<PickList | null>(null)
   const [picker, setPicker] = useState('')
@@ -209,7 +219,7 @@ export function PickListsPage() {
           />
           <CardBody className="space-y-2">
             {short.map((p) => (
-              <div key={p.uid} className="rounded border border-danger/30 bg-danger/5 p-3">
+              <div key={(p as any).id || p.uid} className="rounded border border-danger/30 bg-danger/5 p-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-xs font-medium text-fg">
@@ -226,7 +236,8 @@ export function PickListsPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        crud.update(p.uid, { requiredQty: p.pickedQty, status: 'PICKED', shortReason: `${p.shortReason ?? ''} Short-closed — the consignment ships with ${formatQty(p.pickedQty)}.`.trim() })
+                        pickListApi.update((p as any).id, { ...p, requiredQty: p.pickedQty, status: 'PICKED', shortReason: `${p.shortReason ?? ''} Short-closed — the consignment ships with ${formatQty(p.pickedQty)}.`.trim() })
+                          .then(() => fetchPicks())
                         toast.success(
                           'Short-closed',
                           `${p.docNo} closed at ${formatQty(p.pickedQty)}. The dispatch plan and the invoice both drop to the picked quantity, so the customer is not billed for what did not go.`,
@@ -239,7 +250,8 @@ export function PickListsPage() {
                       variant="secondary"
                       size="sm"
                       onClick={() => {
-                        crud.update(p.uid, { status: 'PICKING', shortReason: `${p.shortReason ?? ''} Re-issued to the picker to search other bins.`.trim() })
+                        pickListApi.update((p as any).id, { ...p, status: 'PICKING', shortReason: `${p.shortReason ?? ''} Re-issued to the picker to search other bins.`.trim() })
+                          .then(() => fetchPicks())
                         toast.success('Sent back to the floor', `${p.docNo} re-opened. The picker will check the other bins holding this item before we accept the shortfall.`)
                       }}
                     >
@@ -256,7 +268,7 @@ export function PickListsPage() {
       <DataTable
         rows={visible}
         columns={columns}
-        rowKey={(p) => p.uid}
+        rowKey={(p) => String((p as any).id || p.uid)}
         searchPlaceholder="Search pick list, plan, product, bin or picker…"
         onExport={doExport}
         emptyTitle="No pick lists"
@@ -287,7 +299,8 @@ export function PickListsPage() {
               danger
               disabled={p.status === 'PICKED' || p.status === 'CANCELLED'}
               onClick={() => {
-                crud.update(p.uid, { status: 'CANCELLED' })
+                pickListApi.update((p as any).id, { ...p, status: 'CANCELLED' })
+                  .then(() => fetchPicks())
                 toast.success('Pick list cancelled', `${p.docNo} cancelled. Any stock already picked goes back to ${p.bin}.`)
               }}
             />
@@ -308,7 +321,8 @@ export function PickListsPage() {
               variant="primary"
               onClick={() => {
                 if (!assigning) return
-                crud.update(assigning.uid, { picker, status: assigning.status === 'OPEN' ? 'ASSIGNED' : assigning.status })
+                pickListApi.update((assigning as any).id, { ...assigning, picker, status: assigning.status === 'OPEN' ? 'ASSIGNED' : assigning.status })
+                  .then(() => fetchPicks())
                 toast.success('Picker assigned', `${picker} has ${assigning.docNo} — ${formatQty(assigning.requiredQty)} ${assigning.uom} from ${assigning.bin}.`)
                 setAssigning(null)
               }}
@@ -359,11 +373,12 @@ export function PickListsPage() {
                   toast.error('Short pick needs a reason', 'A shortfall with no reason becomes an unexplained stock difference at month end.')
                   return
                 }
-                crud.update(confirming.uid, {
+                pickListApi.update((confirming as any).id, {
+                  ...confirming,
                   pickedQty: qty,
                   status: isShort ? 'SHORT' : 'PICKED',
                   shortReason: isShort ? shortReason.trim() : null,
-                })
+                }).then(() => fetchPicks())
                 toast.success(
                   isShort ? 'Short pick recorded' : 'Pick confirmed',
                   isShort

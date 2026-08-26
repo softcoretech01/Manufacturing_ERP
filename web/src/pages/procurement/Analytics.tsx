@@ -21,13 +21,7 @@ import { Tabs } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatCompact, formatCurrency } from '@/lib/format'
-import {
-  cycleTimes,
-  priceTrend,
-  spendByCategory,
-  spendTrend,
-  supplierSpend,
-} from '@/mock/procurement'
+import { spendByCategory, spendTrend, supplierSpend, priceTrend, cycleTimes } from '@/mock/procurement'
 import type { SpendByCategory } from '@/types/procurement'
 import { cn } from '@/lib/cn'
 
@@ -57,10 +51,13 @@ export function AnalyticsPage() {
   const toast = useToast()
   const [view, setView] = useState('spend')
 
-  const totalSpend = spendByCategory.reduce((s, c) => s + c.value, 0)
-  const totalPo = spendByCategory.reduce((s, c) => s + c.poCount, 0)
-  const weightedSavings = spendByCategory.reduce((s, c) => s + (c.value * c.savingsPct) / 100, 0)
-  const avgCycle = cycleTimes.reduce((s, c) => s + c.avgDays, 0)
+  const data = { spendByCategory, spendTrend, supplierSpend, priceTrend, cycleTimes }
+  const { spendByCategory: sbc, spendTrend: st, supplierSpend: ss, priceTrend: pt, cycleTimes: ct } = data
+
+  const totalSpend = sbc.reduce((s: any, c: any) => s + c.value, 0)
+  const totalPo = sbc.reduce((s: any, c: any) => s + c.poCount, 0)
+  const weightedSavings = sbc.reduce((s: any, c: any) => s + (c.value * c.savingsPct) / 100, 0)
+  const avgCycle = ct.reduce((s: any, c: any) => s + c.avgDays, 0)
 
   const categoryColumns: Column<SpendByCategory>[] = [
     { key: 'category', header: 'Category', sortable: true },
@@ -93,8 +90,9 @@ export function AnalyticsPage() {
 
   function doExport(format: ExportFormat) {
     try {
-      const n = exportRows(format, 'procurement-analytics', 'Spend by category', columnsFromTable(categoryColumns), spendByCategory)
-      toast.success('Export ready', `${n} rows written as ${format === 'xlsx' ? 'Excel' : format.toUpperCase()}.`)
+      const cols = categoryColumns.filter((c) => !c.defaultHidden)
+      const n = exportRows(format, 'category-spend', 'Spend by Category', cols, sbc)
+      toast.success('Export ready', `${n} categories written as ${format === 'xlsx' ? 'Excel' : format.toUpperCase()}.`)
     } catch (e) {
       toast.error('Export failed', e instanceof Error ? e.message : 'Unknown error.')
     }
@@ -126,15 +124,15 @@ export function AnalyticsPage() {
               <CardHeader title="Monthly spend against budget" description="₹ lakh" />
               <CardBody className="h-72">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={spendTrend.map((s) => ({ month: s.month, Spend: Math.round(s.spend / 100_000), Budget: Math.round(s.budget / 100_000), Orders: s.poCount }))}>
+                  <LineChart data={st.map((s) => ({ month: s.month, Spend: Number((s.spend / 100_000).toFixed(2)), Budget: Number((s.budget / 100_000).toFixed(2)), Orders: s.poCount }))}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" vertical={false} />
                     <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fontSize: 11, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} width={38} />
                     <Tooltip content={<ChartTooltip prefix="₹" suffix=" L" />} cursor={{ fill: 'rgb(var(--surface-3))' }} />
                     <Legend wrapperStyle={{ fontSize: 11 }} iconSize={8} />
-                    <Bar dataKey="Spend" fill="#3b82f6" radius={[3, 3, 0, 0]} maxBarSize={26} />
-                    <Bar dataKey="Budget" fill="#94a3b8" radius={[3, 3, 0, 0]} maxBarSize={26} />
-                  </BarChart>
+                    <Line dataKey="Spend" stroke="#3b82f6" strokeWidth={2} dot={false} />
+                    <Line dataKey="Budget" stroke="#94a3b8" strokeWidth={2} strokeDasharray="5 5" dot={false} />
+                  </LineChart>
                 </ResponsiveContainer>
               </CardBody>
             </Card>
@@ -143,7 +141,7 @@ export function AnalyticsPage() {
               <CardHeader title="Category concentration" description="Spend share, ₹ lakh" />
               <CardBody className="h-72">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={spendByCategory.map((c) => ({ name: c.category.split(' — ')[0], value: Math.round(c.value / 100_000) }))} layout="vertical" margin={{ left: 8, right: 12 }}>
+                  <BarChart data={spendByCategory.map((c) => ({ name: c.category.split(' — ')[0], value: Number((c.value / 100_000).toFixed(2)) }))} layout="vertical" margin={{ left: 8, right: 12 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" horizontal={false} />
                     <XAxis type="number" tick={{ fontSize: 10, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} />
                     <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 10, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} />
@@ -160,7 +158,7 @@ export function AnalyticsPage() {
           </div>
 
           <DataTable
-            rows={spendByCategory}
+            rows={sbc}
             columns={categoryColumns}
             rowKey={(c) => c.category}
             searchPlaceholder="Search category…"
@@ -176,7 +174,7 @@ export function AnalyticsPage() {
             <CardHeader title="Purchase price trend" description="Weighted average landed rate per unit, ₹" />
             <CardBody className="h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={priceTrend}>
+                <LineChart data={pt}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" vertical={false} />
                   <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} />
                   <YAxis yAxisId="l" tick={{ fontSize: 11, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} width={40} domain={[180, 340]} />
@@ -192,7 +190,7 @@ export function AnalyticsPage() {
           </Card>
 
           <div className="grid gap-4 sm:grid-cols-3">
-            {[
+            {priceTrend.length > 0 && [
               { label: 'SS 304 coil', first: priceTrend[0].ss304, last: priceTrend[priceTrend.length - 1].ss304, unit: '₹/kg' },
               { label: 'SS 316 coil', first: priceTrend[0].ss316, last: priceTrend[priceTrend.length - 1].ss316, unit: '₹/kg' },
               { label: 'Sports lid', first: priceTrend[0].lid, last: priceTrend[priceTrend.length - 1].lid, unit: '₹/nos' },
@@ -275,15 +273,15 @@ export function AnalyticsPage() {
             <CardHeader title="On-time delivery vs rejection rate" />
             <CardBody className="h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={supplierSpend.map((s) => ({ name: s.supplierName.split(' ').slice(0, 2).join(' '), 'On time %': s.onTimePct, 'Rejection %': s.rejectionPct }))}>
+                <BarChart data={ss} layout="vertical" barSize={24}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 9, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} interval={0} angle={-20} textAnchor="end" height={60} />
+                  <XAxis dataKey="supplierName" tick={{ fontSize: 9, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} interval={0} angle={-20} textAnchor="end" height={60} />
                   <YAxis yAxisId="l" tick={{ fontSize: 11, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} width={34} />
                   <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 11, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} width={30} />
                   <Tooltip content={<ChartTooltip suffix="%" />} cursor={{ fill: 'rgb(var(--surface-3))' }} />
                   <Legend wrapperStyle={{ fontSize: 11 }} iconSize={8} />
-                  <Bar yAxisId="l" dataKey="On time %" fill="#10b981" radius={[3, 3, 0, 0]} maxBarSize={20} />
-                  <Bar yAxisId="r" dataKey="Rejection %" fill="#ef4444" radius={[3, 3, 0, 0]} maxBarSize={20} />
+                  <Bar yAxisId="l" dataKey="onTimePct" name="On time %" fill="#10b981" radius={[3, 3, 0, 0]} />
+                  <Bar yAxisId="r" dataKey="rejectionPct" name="Rejection %" fill="#ef4444" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </CardBody>
@@ -297,14 +295,14 @@ export function AnalyticsPage() {
             <CardHeader title="Procurement cycle time" description="Average elapsed days per stage against the internal target" />
             <CardBody className="h-80">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={cycleTimes.map((c) => ({ stage: c.stage, Actual: c.avgDays, Target: c.targetDays }))} layout="vertical" margin={{ left: 8, right: 16 }}>
+                <BarChart data={ct} layout="vertical" barSize={32}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" horizontal={false} />
                   <XAxis type="number" tick={{ fontSize: 11, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} />
                   <YAxis type="category" dataKey="stage" width={180} tick={{ fontSize: 10, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} />
                   <Tooltip content={<ChartTooltip suffix=" days" />} cursor={{ fill: 'rgb(var(--surface-3))' }} />
                   <Legend wrapperStyle={{ fontSize: 11 }} iconSize={8} />
-                  <Bar dataKey="Actual" fill="#3b82f6" radius={[0, 3, 3, 0]} maxBarSize={14} />
-                  <Bar dataKey="Target" fill="#94a3b8" radius={[0, 3, 3, 0]} maxBarSize={14} />
+                  <Bar dataKey="avgDays" name="Actual" fill="#3b82f6" radius={[0, 3, 3, 0]} maxBarSize={14} />
+                  <Bar dataKey="targetDays" name="Target" fill="#94a3b8" radius={[0, 3, 3, 0]} maxBarSize={14} />
                 </BarChart>
               </ResponsiveContainer>
             </CardBody>
@@ -317,9 +315,9 @@ export function AnalyticsPage() {
                 <thead>
                   <tr>
                     <th>Stage</th>
-                    <th className="text-right">Actual</th>
-                    <th className="text-right">Target</th>
-                    <th className="text-right">Variance</th>
+                    <th className="!text-center">Actual</th>
+                    <th className="!text-center">Target</th>
+                    <th className="!text-center">Variance</th>
                     <th>Verdict</th>
                   </tr>
                 </thead>
@@ -329,9 +327,9 @@ export function AnalyticsPage() {
                     return (
                       <tr key={c.stage}>
                         <td className="text-xs font-medium text-fg">{c.stage}</td>
-                        <td className="text-right tabular">{c.avgDays.toFixed(1)}d</td>
-                        <td className="text-right tabular text-fg-muted">{c.targetDays.toFixed(1)}d</td>
-                        <td className={cn('text-right tabular', v > 0 ? 'text-danger' : 'text-success')}>
+                        <td className="!text-center tabular">{c.avgDays.toFixed(1)}d</td>
+                        <td className="!text-center tabular text-fg-muted">{c.targetDays.toFixed(1)}d</td>
+                        <td className={cn('!text-center tabular', v > 0 ? 'text-danger' : 'text-success')}>
                           {v > 0 ? '+' : ''}
                           {v.toFixed(1)}d
                         </td>
@@ -345,9 +343,9 @@ export function AnalyticsPage() {
                   })}
                   <tr>
                     <td className="text-xs font-semibold text-fg">Total, requisition to first receipt</td>
-                    <td className="text-right tabular font-semibold">{avgCycle.toFixed(1)}d</td>
-                    <td className="text-right tabular font-semibold text-fg-muted">{cycleTimes.reduce((s, c) => s + c.targetDays, 0).toFixed(1)}d</td>
-                    <td className={cn('text-right tabular font-semibold', avgCycle > cycleTimes.reduce((s, c) => s + c.targetDays, 0) ? 'text-danger' : 'text-success')}>
+                    <td className="!text-center tabular font-semibold">{avgCycle.toFixed(1)}d</td>
+                    <td className="!text-center tabular font-semibold text-fg-muted">{cycleTimes.reduce((s, c) => s + c.targetDays, 0).toFixed(1)}d</td>
+                    <td className={cn('!text-center tabular font-semibold', avgCycle > cycleTimes.reduce((s, c) => s + c.targetDays, 0) ? 'text-danger' : 'text-success')}>
                       {(avgCycle - cycleTimes.reduce((s, c) => s + c.targetDays, 0)).toFixed(1)}d
                     </td>
                     <td />

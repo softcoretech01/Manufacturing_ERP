@@ -27,23 +27,19 @@ import {
 } from '@/components/dispatch/DispatchShell'
 import { formatCurrency, formatQty } from '@/lib/format'
 import { cn } from '@/lib/cn'
-import { useCollection } from '@/store/data'
-import {
-  cartons as seedCartons,
-  dispatchPlans as seedPlans,
-  dispatchTrend,
-  exportShipments as seedExports,
-  freightCharges as seedFreight,
-  loadingSheets as seedSheets,
-  packingOrders as seedPacking,
-  pallets as seedPallets,
-  pods as seedPods,
-  regionDispatch,
-  salesReturns as seedReturns,
-  shipments as seedShipments,
-  transporterScores,
-  vehicles as seedVehicles,
-} from '@/mock/dispatch'
+import { useEffect, useState } from 'react'
+import { packingOrderApi } from '@/api/packingOrder'
+import { cartonApi } from '@/api/cartonApi'
+import { palletApi } from '@/api/palletApi'
+import { dispatchPlanApi } from '@/api/dispatchPlanApi'
+import { loadingSheetApi } from '@/api/loadingSheetApi'
+import { shipmentApi } from '@/api/shipmentApi'
+import { podApi } from '@/api/podApi'
+import { salesReturnApi } from '@/api/salesReturnApi'
+import { freightApi } from '@/api/freightApi'
+import { exportShipmentApi } from '@/api/exportShipmentApi'
+import { vehicleApi } from '@/api/vehicleApi'
+import { dispatchDashboardApi } from '@/api/dispatchDashboardApi'
 import type {
   Carton,
   DispatchPlan,
@@ -66,29 +62,41 @@ import type {
 export function DispatchDashboardPage() {
   const canSeeValue = useCanSeeFreight()
 
-  const packingSeed = useMemo(() => seedPacking, [])
-  const cartonSeed = useMemo(() => seedCartons, [])
-  const palletSeed = useMemo(() => seedPallets, [])
-  const planSeed = useMemo(() => seedPlans, [])
-  const sheetSeed = useMemo(() => seedSheets, [])
-  const shipmentSeed = useMemo(() => seedShipments, [])
-  const podSeed = useMemo(() => seedPods, [])
-  const returnSeed = useMemo(() => seedReturns, [])
-  const freightSeed = useMemo(() => seedFreight, [])
-  const exportSeed = useMemo(() => seedExports, [])
-  const vehicleSeed = useMemo(() => seedVehicles, [])
+  const [packing, setPacking] = useState<PackingOrder[]>([])
+  const [cartons, setCartons] = useState<Carton[]>([])
+  const [pallets, setPallets] = useState<Pallet[]>([])
+  const [plans, setPlans] = useState<DispatchPlan[]>([])
+  const [sheets, setSheets] = useState<LoadingSheet[]>([])
+  const [shipments, setShipments] = useState<Shipment[]>([])
+  const [pods, setPods] = useState<Pod[]>([])
+  const [returns, setReturns] = useState<SalesReturn[]>([])
+  const [freight, setFreight] = useState<FreightCharge[]>([])
+  const [exports, setExports] = useState<ExportShipment[]>([])
+  const [vehicles, setVehicles] = useState<Vehicle[]>([])
+  
+  const [analytics, setAnalytics] = useState<any>({
+    dispatchTrend: [],
+    regionDispatch: [],
+    transporterScores: [],
+  })
 
-  const { rows: packing } = useCollection<PackingOrder>('dispatch:packing-order', packingSeed)
-  const { rows: cartons } = useCollection<Carton>('dispatch:carton', cartonSeed)
-  const { rows: pallets } = useCollection<Pallet>('dispatch:pallet', palletSeed)
-  const { rows: plans } = useCollection<DispatchPlan>('dispatch:plan', planSeed)
-  const { rows: sheets } = useCollection<LoadingSheet>('dispatch:loading-sheet', sheetSeed)
-  const { rows: shipments } = useCollection<Shipment>('dispatch:shipment', shipmentSeed)
-  const { rows: pods } = useCollection<Pod>('dispatch:pod', podSeed)
-  const { rows: returns } = useCollection<SalesReturn>('dispatch:sales-return', returnSeed)
-  const { rows: freight } = useCollection<FreightCharge>('dispatch:freight', freightSeed)
-  const { rows: exports } = useCollection<ExportShipment>('dispatch:export-shipment', exportSeed)
-  const { rows: vehicles } = useCollection<Vehicle>('dispatch:vehicle', vehicleSeed)
+  useEffect(() => {
+    packingOrderApi.getAll().then(setPacking).catch(console.error)
+    cartonApi.getAll().then(setCartons).catch(console.error)
+    palletApi.getAll().then(setPallets).catch(console.error)
+    dispatchPlanApi.getAll().then(setPlans).catch(console.error)
+    loadingSheetApi.getAll().then(setSheets).catch(console.error)
+    shipmentApi.getAll().then(setShipments).catch(console.error)
+    podApi.getAll().then(setPods).catch(console.error)
+    salesReturnApi.getAll().then(setReturns).catch(console.error)
+    freightApi.getAll().then(setFreight).catch(console.error)
+    exportShipmentApi.getAll().then(setExports).catch(console.error)
+    vehicleApi.getAll().then(setVehicles).catch(console.error)
+    dispatchDashboardApi.getAnalytics().then(setAnalytics).catch(console.error)
+  }, [])
+  
+  const { dispatchTrend, regionDispatch, transporterScores } = analytics
+
 
   /* ── The numbers ─────────────────────────────────────────────────────── */
   const readyToPack = packing.filter((p) => p.status === 'MATERIAL_READY' || p.status === 'PLANNED')
@@ -249,7 +257,7 @@ export function DispatchDashboardPage() {
           <CardBody className="space-y-2">
             {delayed.map((s) => (
               <Link
-                key={s.uid}
+                key={s.uid || (s as any).id}
                 to="/dispatch/tracking"
                 className="flex flex-wrap items-center justify-between gap-2 rounded border border-danger/30 bg-danger/5 p-2.5 hover:bg-danger/10"
               >
@@ -262,7 +270,7 @@ export function DispatchDashboardPage() {
             ))}
             {podPending.slice(0, 3).map((p) => (
               <Link
-                key={p.uid}
+                key={p.uid || (p as any).id}
                 to="/dispatch/pod"
                 className="flex flex-wrap items-center justify-between gap-2 rounded border border-warning/30 bg-warning/5 p-2.5 hover:bg-warning/10"
               >
@@ -275,7 +283,7 @@ export function DispatchDashboardPage() {
             ))}
             {readyToDispatch.map((p) => (
               <Link
-                key={p.uid}
+                key={p.uid || (p as any).id}
                 to="/dispatch/planning"
                 className="flex flex-wrap items-center justify-between gap-2 rounded border border-success/30 bg-success/5 p-2.5 hover:bg-success/10"
               >
@@ -409,7 +417,7 @@ export function DispatchDashboardPage() {
           />
           <CardBody className="space-y-2">
             {openReturns.map((r) => (
-              <div key={r.uid} className="flex flex-wrap items-center justify-between gap-3 rounded border border-border p-2.5">
+              <div key={r.uid || (r as any).id} className="flex flex-wrap items-center justify-between gap-3 rounded border border-border p-2.5">
                 <div className="min-w-0">
                   <p className="truncate text-xs font-medium text-fg">
                     {r.docNo} — {formatQty(r.quantity)} × {r.itemName}

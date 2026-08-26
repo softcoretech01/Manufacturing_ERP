@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { Download, FileText } from 'lucide-react'
 import {
   Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, LineChart,
@@ -11,7 +11,15 @@ import { Select } from '@/components/ui/Input'
 import { Alert, PageHeader, ProgressBar, Section, StatTile } from '@/components/ui/Misc'
 import { Tabs } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
-import { ChartTip, GradeBadge, QmsStatusBadge, SeverityBadge, StageBadge, useQualityData } from '@/components/quality/QmsShell'
+import { ChartTip, GradeBadge, QmsStatusBadge, SeverityBadge, StageBadge } from '@/components/quality/QmsShell'
+import { inspectionsApi } from '@/api/inspections'
+import { ncrsApi } from '@/api/ncrs'
+import { capasApi } from '@/api/capas'
+import { complaintsApi } from '@/api/complaints'
+import { auditsApi } from '@/api/audits'
+import { instrumentsApi } from '@/api/instruments'
+import { supplierQualityApi } from '@/api/supplierQuality'
+import type { Inspection, Ncr, Capa, Complaint, QualityAudit, Instrument, SupplierQualityRecord, InspectionStage } from '@/types/quality'
 import { cn } from '@/lib/cn'
 import { exportRows, type ExportColumn, type ExportFormat } from '@/lib/export'
 import { formatDate } from '@/lib/format'
@@ -19,8 +27,7 @@ import {
   CAUSE_CATEGORIES, CAUSE_LABEL, STAGE_LABEL, acceptanceRate, capaClosureDays, copq,
   firstPassYield, instrumentStatus, overdueDays, paretoOf, ppm, rejectionPct, scoreSupplier,
 } from '@/lib/qmsFlow'
-import { qualityTrend } from '@/mock/quality'
-import type { Inspection, InspectionStage } from '@/types/quality'
+
 
 /**
  * Quality reports (Ch 20).
@@ -40,16 +47,49 @@ const pct = (n: number) => `${n.toFixed(1)}%`
 
 export function QualityReportsPage() {
   const toast = useToast()
-  const { inspections, defects, ncrs, capas, complaints, audits, instruments, supplierQuality } = useQualityData()
+
+  const [inspectionsRows, setInspectionsRows] = useState<Inspection[]>([])
+  const [ncrsRows, setNcrsRows] = useState<Ncr[]>([])
+  const [capasRows, setCapasRows] = useState<Capa[]>([])
+  const [complaintsRows, setComplaintsRows] = useState<Complaint[]>([])
+  const [auditsRows, setAuditsRows] = useState<QualityAudit[]>([])
+  const [instrumentsRows, setInstrumentsRows] = useState<Instrument[]>([])
+  const [supplierQualityRows, setSupplierQualityRows] = useState<SupplierQualityRecord[]>([])
+  const [loading, setLoading] = useState(true)
 
   const [tab, setTab] = useState<Tab>('summary')
   const [stageFilter, setStageFilter] = useState<InspectionStage | 'ALL'>('ALL')
 
-  const liveInspections = useMemo(() => inspections.rows.filter((i) => !i.deletedAt), [inspections.rows])
-  const liveNcrs = useMemo(() => ncrs.rows.filter((n) => !n.deletedAt), [ncrs.rows])
-  const liveCapas = useMemo(() => capas.rows.filter((c) => !c.deletedAt), [capas.rows])
-  const liveComplaints = useMemo(() => complaints.rows.filter((c) => !c.deletedAt), [complaints.rows])
-  const liveAudits = useMemo(() => audits.rows.filter((a) => !a.deletedAt), [audits.rows])
+  useEffect(() => {
+    Promise.all([
+      inspectionsApi.getAll(),
+      ncrsApi.getAll(),
+      capasApi.getAll(),
+      complaintsApi.getAll(),
+      auditsApi.getAll(),
+      instrumentsApi.getAll(),
+      supplierQualityApi.getAll(),
+    ]).then(([i, n, c, cm, a, inst, sq]) => {
+      setInspectionsRows(i)
+      setNcrsRows(n)
+      setCapasRows(c)
+      setComplaintsRows(cm)
+      setAuditsRows(a)
+      setInstrumentsRows(inst)
+      setSupplierQualityRows(sq)
+      setLoading(false)
+    }).catch((err) => {
+      console.error(err)
+      toast.error('Failed to load quality reports')
+      setLoading(false)
+    })
+  }, [])
+
+  const liveInspections = useMemo(() => inspectionsRows.filter((i) => !i.deletedAt), [inspectionsRows])
+  const liveNcrs = useMemo(() => ncrsRows.filter((n) => !n.deletedAt), [ncrsRows])
+  const liveCapas = useMemo(() => capasRows.filter((c) => !c.deletedAt), [capasRows])
+  const liveComplaints = useMemo(() => complaintsRows.filter((c) => !c.deletedAt), [complaintsRows])
+  const liveAudits = useMemo(() => auditsRows.filter((a) => !a.deletedAt), [auditsRows])
 
   /* ── the numbers, all derived from the operational records ──── */
 
@@ -75,9 +115,9 @@ export function QualityReportsPage() {
       ncrOpen: liveNcrs.filter((n) => n.status !== 'CLOSED' && n.status !== 'CANCELLED').length,
       complaintsOpen: liveComplaints.filter((c) => !['CLOSED', 'REJECTED'].includes(c.status)).length,
       auditFindingsOpen: liveAudits.flatMap((a) => a.findings.filter((f) => f.grade !== 'CONFORMS' && !f.closedOn)).length,
-      instrumentsOverdue: instruments.rows.filter((x) => !x.deletedAt && instrumentStatus(x) === 'OVERDUE').length,
+      instrumentsOverdue: instrumentsRows.filter((x) => !x.deletedAt && instrumentStatus(x) === 'OVERDUE').length,
     }
-  }, [liveInspections, liveNcrs, liveCapas, liveComplaints, liveAudits, instruments.rows])
+  }, [liveInspections, liveNcrs, liveCapas, liveComplaints, liveAudits, instrumentsRows])
 
   /** Yield and rejection broken down by the stage that caught it. */
   const byStage = useMemo(
@@ -106,9 +146,9 @@ export function QualityReportsPage() {
     [liveInspections, stageFilter],
   )
 
-  const suppliers = useMemo(
-    () => supplierQuality.rows.filter((r) => !r.deletedAt).map(scoreSupplier).sort((a, b) => b.score - a.score),
-    [supplierQuality.rows],
+  const scoredSuppliers = useMemo(
+    () => supplierQualityRows.filter((r) => !r.deletedAt).map(scoreSupplier).sort((a, b) => b.score - a.score),
+    [supplierQualityRows],
   )
 
   /** Every action item across NCR, CAPA, complaints and audits, in one list. */
@@ -158,9 +198,49 @@ export function QualityReportsPage() {
     })).filter((r) => r.count > 0)
   }, [liveNcrs, liveComplaints])
 
+  const liveQualityTrend = useMemo(() => {
+    const months = []
+    const now = new Date()
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const monthLabel = d.toLocaleString('en-US', { month: 'short' })
+      const year = d.getFullYear()
+      const monthIndex = d.getMonth()
+      
+      const isSameMonth = (dateStr: string) => {
+        const dt = new Date(dateStr)
+        return dt.getFullYear() === year && dt.getMonth() === monthIndex
+      }
+      
+      const inspThisMonth = liveInspections.filter(x => x.createdAt && isSameMonth(x.createdAt))
+      const fpy = firstPassYield(inspThisMonth)
+      
+      const iqcThisMonth = inspThisMonth.filter(x => x.stage === 'IQC')
+      const iqcAcceptance = iqcThisMonth.length > 0 ? (iqcThisMonth.filter(x => x.disposition === 'ACCEPTED').length / iqcThisMonth.length) * 100 : 0
+      
+      const inspInspected = inspThisMonth.reduce((s, x) => s + x.lotSize, 0)
+      const inspRejected = inspThisMonth.reduce((s, x) => s + x.rejectedQty, 0)
+      const internalPpm = ppm(inspRejected, inspInspected)
+      
+      const complaintsThisMonth = liveComplaints.filter(x => x.loggedOn && isSameMonth(x.loggedOn))
+      
+      const supplierPpm = iqcThisMonth.length > 0 ? ppm(iqcThisMonth.reduce((s, x) => s + x.rejectedQty, 0), iqcThisMonth.reduce((s, x) => s + x.lotSize, 0)) : 0
+      
+      months.push({
+        month: monthLabel,
+        fpyPct: fpy.fpyPct || 0,
+        incomingAcceptPct: iqcAcceptance,
+        internalPpm: internalPpm,
+        supplierPpm: supplierPpm,
+        complaints: complaintsThisMonth.length
+      })
+    }
+    return months
+  }, [liveInspections, liveComplaints])
+
   /* ── export ─────────────────────────────────────────────────── */
 
-  function exportCurrent(format: ExportFormat) {
+  const exportCurrent = (format: ExportFormat) => {
     let n = 0
     if (tab === 'stage') {
       const cols: ExportColumn<(typeof byStage)[number]>[] = [
@@ -196,7 +276,7 @@ export function QualityReportsPage() {
         { header: 'Score', value: (r) => r.score.toFixed(1) },
         { header: 'Grade', value: (r) => r.grade },
       ]
-      n = exportRows(format, 'supplier-scorecard', 'Supplier quality scorecard', cols, suppliers)
+      n = exportRows(format, 'supplier-scorecard', 'Supplier quality scorecard', cols, scoredSuppliers)
     } else if (tab === 'actions') {
       const cols: ExportColumn<(typeof actions)[number]>[] = [
         { header: 'Source', value: (r) => r.source },
@@ -247,7 +327,7 @@ export function QualityReportsPage() {
               { id: 'summary', label: 'Summary' },
               { id: 'stage', label: 'By stage', count: byStage.length },
               { id: 'defects', label: 'Defect Pareto', count: pareto.length },
-              { id: 'suppliers', label: 'Suppliers', count: suppliers.length },
+              { id: 'suppliers', label: 'Suppliers', count: scoredSuppliers.length },
               { id: 'actions', label: 'Open actions', count: actions.length },
               { id: 'cost', label: 'Cost of quality' },
             ]}
@@ -276,7 +356,7 @@ export function QualityReportsPage() {
               <CardHeader title="Yield and acceptance" description="Six months — first pass yield against incoming acceptance" />
               <CardBody className="h-60">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={qualityTrend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <LineChart data={liveQualityTrend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" vertical={false} />
                     <XAxis dataKey="month" tick={{ fontSize: 10, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} />
                     <YAxis domain={[88, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 10, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} width={44} />
@@ -293,7 +373,7 @@ export function QualityReportsPage() {
               <CardHeader title="Defect rate" description="Internal against supplier PPM, with complaints overlaid" />
               <CardBody className="h-60">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={qualityTrend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <ComposedChart data={liveQualityTrend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" vertical={false} />
                     <XAxis dataKey="month" tick={{ fontSize: 10, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} />
                     <YAxis yAxisId="l" tick={{ fontSize: 10, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} width={46} />
@@ -327,7 +407,7 @@ export function QualityReportsPage() {
                 { label: 'Complaints open', value: String(summary.complaintsOpen) },
                 { label: 'Audit findings open', value: String(summary.auditFindingsOpen) },
                 { label: 'Instruments overdue', value: String(summary.instrumentsOverdue), tone: summary.instrumentsOverdue ? 'danger' : undefined },
-                { label: 'Suppliers blocked', value: String(suppliers.filter((s) => s.grade === 'BLOCKED').length) },
+                { label: 'Suppliers blocked', value: String(scoredSuppliers.filter((s) => s.grade === 'BLOCKED').length) },
               ]} />
             </div>
           </Section>
@@ -535,7 +615,7 @@ export function QualityReportsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {suppliers.map((s) => (
+                    {scoredSuppliers.map((s) => (
                       <tr key={s.supplierCode} className={s.grade === 'BLOCKED' ? 'bg-danger/5' : undefined}>
                         <td>
                           <p className="text-xs text-fg">{s.supplierName}</p>

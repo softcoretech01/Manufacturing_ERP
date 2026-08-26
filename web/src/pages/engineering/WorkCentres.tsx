@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type Column } from '@/components/ui/DataTable'
@@ -10,20 +10,9 @@ import { Alert, PageHeader } from '@/components/ui/Misc'
 import { useToast } from '@/components/ui/Toast'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatAmount } from '@/lib/format'
-import { newUid, useCollection } from '@/store/data'
-import { workCentres as seedWorkCentres, routings as seedRoutings } from '@/mock/engineering'
 import { machines } from '@/mock/masters'
 import type { EngWorkCentre, Routing } from '@/types/engineering'
-
-/**
- * Work centres (Ch 12).
- *
- * A work centre is where an operation happens and, just as importantly, what it
- * costs per hour. Routing costing multiplies these three rates by the time an
- * operation takes, so a rate typed wrong here moves every standard cost in the
- * plant — which is why the screen shows the effective hour rate as you type and
- * refuses to delete a centre a live routing still points at.
- */
+import { engineeringApi as api } from '@/api/engineering'
 
 const SHIFTS = ['A (8 h)', 'A + B (16 h)', 'A + B + C (24 h)']
 const PLANTS = ['Chennai — Unit 1', 'Hosur — Unit 2']
@@ -58,16 +47,35 @@ const emptyForm: FormState = {
 
 export function WorkCentresPage() {
   const toast = useToast()
-  const seed = useMemo(() => seedWorkCentres, [])
-  const routingSeed = useMemo(() => seedRoutings, [])
-  const { rows, create, update, remove } = useCollection<EngWorkCentre>('eng:workcentres', seed)
-  const { rows: routings } = useCollection<Routing>('eng:routings', routingSeed)
+  
+  const [rows, setRows] = useState<EngWorkCentre[]>([])
+  const [routings, setRoutings] = useState<Routing[]>([])
+  const [isLoading, setIsLoading] = useState(true)
 
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<EngWorkCentre | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [confirmDelete, setConfirmDelete] = useState<EngWorkCentre | null>(null)
+
+  async function loadData() {
+    try {
+      const [wcs, rts] = await Promise.all([
+        api.getEngWorkCentres(),
+        api.getRoutings().catch(() => [])
+      ])
+      setRows(wcs)
+      setRoutings(rts)
+    } catch (err) {
+      toast.error('Error', 'Failed to load work centres')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadData()
+  }, [])
 
   /** How many live routing operations depend on a centre — blocks deletion. */
   const usageOf = (code: string) =>
@@ -93,11 +101,16 @@ export function WorkCentresPage() {
     { key: 'isActive', header: 'Status', width: '7rem', accessor: (w) => (w.isActive ? 'Active' : 'Inactive'), render: (w) => <Badge tone={w.isActive ? 'success' : 'neutral'} size="sm">{w.isActive ? 'Active' : 'Inactive'}</Badge> },
   ]
 
-  function openCreate() {
+  async function openCreate() {
     setEditing(null)
-    setForm(emptyForm)
     setErrors({})
-    setFormOpen(true)
+    try {
+      const res = await api.getEngWorkCentresNextCode()
+      setForm({ ...emptyForm, code: res.nextCode })
+      setFormOpen(true)
+    } catch (err) {
+      toast.error('Error', 'Failed to generate code')
+    }
   }
 
   function openEdit(w: EngWorkCentre) {
@@ -112,7 +125,7 @@ export function WorkCentresPage() {
       shiftPattern: w.shiftPattern,
       hoursPerDay: String(w.hoursPerDay),
       oeeTargetPct: String(w.oeeTargetPct),
-      machineCodes: w.machineCodes,
+      machineCodes: w.machineCodes || [],
       isActive: w.isActive,
     })
     setErrors({})
@@ -121,9 +134,6 @@ export function WorkCentresPage() {
 
   function validate() {
     const e: Record<string, string> = {}
-    const code = form.code.trim().toUpperCase()
-    if (!code) e.code = 'A code is required.'
-    else if (rows.some((w) => w.code === code && w.uid !== editing?.uid)) e.code = `${code} is already in use.`
     if (!form.name.trim()) e.name = 'A name is required.'
     if (!(Number(form.machineRatePerHour) >= 0)) e.machineRatePerHour = 'Enter a machine hour rate; use zero for a manual bay.'
     if (!(Number(form.labourRatePerHour) > 0)) e.labourRatePerHour = 'A labour rate above zero is required.'
@@ -132,10 +142,10 @@ export function WorkCentresPage() {
     return Object.keys(e).length === 0
   }
 
-  function save() {
+  async function save() {
     if (!validate()) return
     const patch = {
-      code: form.code.trim().toUpperCase(),
+      code: form.code,
       name: form.name.trim(),
       plant: form.plant,
       machineRatePerHour: Number(form.machineRatePerHour),
@@ -147,21 +157,43 @@ export function WorkCentresPage() {
       machineCodes: form.machineCodes,
       isActive: form.isActive,
     }
-    if (editing) {
-      update(editing.uid, { ...patch, version: editing.version + 1 })
-      toast.success('Work centre updated', `${patch.code} saved. Every routing that uses it re-costs immediately.`)
-    } else {
-      create({ ...patch, uid: newUid('ewc'), createdAt: new Date().toISOString(), version: 1 })
-      toast.success('Work centre created', `${patch.code} is available to routings.`)
+    
+    try {
+      if (editing) {
+        await api.updateEngWorkCentre(editing.uid, patch)
+        toast.success('Work centre updated', `${patch.code} saved.`)
+      } else {
+        await api.createEngWorkCentre(patch)
+        toast.success('Work centre created', `${patch.code} is available to routings.`)
+      }
+      setFormOpen(false)
+      loadData()
+    } catch (err) {
+      toast.error('Error', 'Failed to save work centre')
     }
-    setFormOpen(false)
   }
 
-  function doDelete() {
+  async function toggleActive(w: EngWorkCentre) {
+    try {
+      await api.updateEngWorkCentre(w.uid, { ...w, isActive: !w.isActive })
+      toast.success(w.isActive ? 'Deactivated' : 'Activated', `${w.code} is now ${w.isActive ? 'inactive' : 'active'}.`)
+      loadData()
+    } catch (err) {
+      toast.error('Error', 'Failed to update status')
+    }
+  }
+
+  async function doDelete() {
     if (!confirmDelete) return
-    remove(confirmDelete.uid)
-    toast.success('Deleted', `${confirmDelete.code} was soft-deleted; history is retained.`)
-    setConfirmDelete(null)
+    try {
+      await api.deleteEngWorkCentre(confirmDelete.uid)
+      toast.success('Deleted', `${confirmDelete.code} was soft-deleted; history is retained.`)
+      loadData()
+    } catch (err) {
+      toast.error('Error', 'Failed to delete work centre')
+    } finally {
+      setConfirmDelete(null)
+    }
   }
 
   return (
@@ -181,6 +213,7 @@ export function WorkCentresPage() {
         columns={columns}
         rowKey={(w) => w.uid}
         searchPlaceholder="Search code, name or plant…"
+        isLoading={isLoading}
         onExport={(f: ExportFormat) => {
           const n = exportRows(f, 'work-centres', 'Work centres', columnsFromTable(columns), rows)
           toast.success('Export ready', `${n} rows written.`)
@@ -193,10 +226,7 @@ export function WorkCentresPage() {
             <MenuItem label="Edit" onClick={() => openEdit(w)} />
             <MenuItem
               label={w.isActive ? 'Deactivate' : 'Activate'}
-              onClick={() => {
-                update(w.uid, { isActive: !w.isActive })
-                toast.success(w.isActive ? 'Deactivated' : 'Activated', `${w.code} is now ${w.isActive ? 'inactive' : 'active'}.`)
-              }}
+              onClick={() => toggleActive(w)}
             />
             <MenuItem
               label={usageOf(w.code) ? `Delete — blocked (${usageOf(w.code)} operations)` : 'Delete'}
@@ -210,7 +240,6 @@ export function WorkCentresPage() {
         )}
       />
 
-      {/* Create / edit ------------------------------------------------------ */}
       <Modal
         open={formOpen}
         onClose={() => setFormOpen(false)}
@@ -228,11 +257,11 @@ export function WorkCentresPage() {
         }
       >
         <div className="grid gap-3.5 sm:grid-cols-2">
-          <Input label="Code" required value={form.code} error={errors.code} placeholder="WC-11" onChange={(e) => setForm({ ...form, code: e.target.value })} />
-          <Input label="Name" required value={form.name} error={errors.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <Input maxLength={255} label="Code" required disabled value={form.code} hint="Auto-generated" onChange={(e) => setForm({ ...form, code: e.target.value })} />
+          <Input maxLength={255} label="Name" required value={form.name} error={errors.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <Select label="Plant" value={form.plant} onChange={(e) => setForm({ ...form, plant: e.target.value })} options={PLANTS.map((p) => ({ value: p, label: p }))} />
           <Select label="Shift pattern" value={form.shiftPattern} onChange={(e) => setForm({ ...form, shiftPattern: e.target.value })} options={SHIFTS.map((s) => ({ value: s, label: s }))} />
-          <Input
+          <Input maxLength={255}
             label="Machine rate (₹ per hour)"
             type="number"
             required
@@ -241,7 +270,7 @@ export function WorkCentresPage() {
             hint="Depreciation, power and machine consumables."
             onChange={(e) => setForm({ ...form, machineRatePerHour: e.target.value })}
           />
-          <Input
+          <Input maxLength={255}
             label="Labour rate (₹ per hour, per operator)"
             type="number"
             required
@@ -250,9 +279,9 @@ export function WorkCentresPage() {
             hint="Fully loaded — wages, PF, ESI and welfare."
             onChange={(e) => setForm({ ...form, labourRatePerHour: e.target.value })}
           />
-          <Input label="Overhead recovery (%)" type="number" value={form.overheadPct} hint="Applied on labour plus machine cost." onChange={(e) => setForm({ ...form, overheadPct: e.target.value })} />
-          <Input label="Available hours per day" type="number" required value={form.hoursPerDay} error={errors.hoursPerDay} onChange={(e) => setForm({ ...form, hoursPerDay: e.target.value })} />
-          <Input label="OEE target (%)" type="number" value={form.oeeTargetPct} onChange={(e) => setForm({ ...form, oeeTargetPct: e.target.value })} />
+          <Input maxLength={255} label="Overhead recovery (%)" type="number" value={form.overheadPct} hint="Applied on labour plus machine cost." onChange={(e) => setForm({ ...form, overheadPct: e.target.value })} />
+          <Input maxLength={255} label="Available hours per day" type="number" required value={form.hoursPerDay} error={errors.hoursPerDay} onChange={(e) => setForm({ ...form, hoursPerDay: e.target.value })} />
+          <Input maxLength={255} label="OEE target (%)" type="number" value={form.oeeTargetPct} onChange={(e) => setForm({ ...form, oeeTargetPct: e.target.value })} />
           <div className="flex items-end pb-1">
             <Switch checked={form.isActive} onChange={(v) => setForm({ ...form, isActive: v })} label="Active" />
           </div>

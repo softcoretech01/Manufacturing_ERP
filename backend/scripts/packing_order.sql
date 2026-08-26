@@ -1,0 +1,39 @@
+CREATE DATABASE IF NOT EXISTS ERP_Packing;
+USE ERP_Packing;
+
+CREATE TABLE IF NOT EXISTS PackingOrder (
+    Id INT AUTO_INCREMENT PRIMARY KEY,
+    DocNo VARCHAR(50) NOT NULL,
+    DocDate DATETIME NOT NULL,
+    Status VARCHAR(50) NOT NULL,
+    SourceType VARCHAR(50) NOT NULL,
+    SourceNo VARCHAR(50) NOT NULL,
+    Customer VARCHAR(255) NOT NULL,
+    CustomerCode VARCHAR(50) NOT NULL,
+    SalesOrderNo VARCHAR(50) NULL,
+    ItemCode VARCHAR(50) NOT NULL,
+    ItemName VARCHAR(255) NOT NULL,
+    BatchNo VARCHAR(50) NULL,
+    Quantity INT NOT NULL,
+    PackedQuantity INT NOT NULL DEFAULT 0,
+    Uom VARCHAR(20) NOT NULL,
+    Warehouse VARCHAR(100) NOT NULL,
+    PackingDate DATETIME NOT NULL,
+    Supervisor VARCHAR(100) NOT NULL,
+    CartonSpec VARCHAR(255) NOT NULL,
+    CartonsPlanned INT NOT NULL,
+    CartonsPacked INT NOT NULL DEFAULT 0,
+    MaterialReady TINYINT(1) NOT NULL DEFAULT 0,
+    QcReleased TINYINT(1) NOT NULL DEFAULT 0,
+    WeightVerified TINYINT(1) NOT NULL DEFAULT 0,
+    Priority VARCHAR(20) NOT NULL,
+    IsExport TINYINT(1) NOT NULL DEFAULT 0,
+    IsOem TINYINT(1) NOT NULL DEFAULT 0,
+    Remarks VARCHAR(1000) NULL,
+    
+    CreatedBy VARCHAR(100) NULL,
+    CreatedDate DATETIME NULL,
+    ModifiedBy VARCHAR(100) NULL,
+    ModifiedDate DATETIME NULL,
+    DeletedAt DATETIME NULL
+);

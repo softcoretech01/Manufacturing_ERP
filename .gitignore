@@ -1,0 +1,29 @@
+# ─── Python ───────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ─── Secrets / local config ───────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+backend/keys/
+*.pem
+
+# ─── Node / frontend ──────────────────────────────────────────────────────
+node_modules/
+dist/
+*.tsbuildinfo
+
+# ─── Editor / OS ──────────────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
+*.log
