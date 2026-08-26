@@ -83,6 +83,9 @@ from app.modules.inventory.api.txn_router import router as txn_router
 from app.modules.masters.api.router import router as masters_router
 from app.modules.numbering.api.router import router as numbering_router
 from app.modules.organisation.api.routers import router as org_router
+from app.modules.parameters.router import router as parameters_router
+from app.modules.reporting.router import router as reporting_router
+from app.modules.security.router import router as security_router
 from app.modules.workflow.api.routers import router as workflow_router
 
 
@@ -165,6 +168,9 @@ def create_app() -> FastAPI:
     # app.include_router(masters_router, prefix=api)
     app.include_router(workflow_router, prefix=api)
     app.include_router(numbering_router, prefix=api)
+    app.include_router(security_router, prefix=api)
+    app.include_router(parameters_router, prefix=api)
+    app.include_router(reporting_router, prefix=api)
 
     # Include additional routers
     app.include_router(customer_router, prefix=api)

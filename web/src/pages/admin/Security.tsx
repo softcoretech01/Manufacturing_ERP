@@ -1,407 +1,286 @@
-import { useMemo, useState } from 'react'
-import { KeyRound, Plus, Shield, ShieldAlert, Trash2 } from 'lucide-react'
-import { Button } from '@/components/ui/Button'
-import { Card, CardBody, CardHeader, DataGrid } from '@/components/ui/Card'
-import { Badge } from '@/components/ui/Badge'
-import { DataTable, type Column } from '@/components/ui/DataTable'
-import { Modal } from '@/components/ui/Modal'
-import { Input, Select, Switch } from '@/components/ui/Input'
-import { Alert, PageHeader, ProgressBar, Section, StatTile } from '@/components/ui/Misc'
-import { Tabs } from '@/components/ui/Tabs'
-import { useToast } from '@/components/ui/Toast'
+import { useEffect, useMemo, useState } from 'react'
+import { Check, Plus, ShieldCheck, Trash2, X } from 'lucide-react'
 import { cn } from '@/lib/cn'
-import { formatDate } from '@/lib/format'
-import { useCollection } from '@/store/data'
-import { checkPassword, ipAllowed, isoDate, passwordAge } from '@/lib/platformFlow'
-import { securityPolicy as seedPolicy } from '@/mock/platform'
-import { users } from '@/mock/data'
-import type { MfaMethod, SecurityPolicy } from '@/types/platform'
-import type { User } from '@/types'
+import { Button } from '@/components/ui/Button'
+import { Card, CardBody, CardHeader } from '@/components/ui/Card'
+import { Badge } from '@/components/ui/Badge'
+import { Alert, PageHeader } from '@/components/ui/Misc'
+import { Tabs } from '@/components/ui/Tabs'
+import { Checkbox, Input, Switch } from '@/components/ui/Input'
+import { useToast } from '@/components/ui/Toast'
+import { ProblemError } from '@/api/client'
+import { useSession } from '@/api/session'
+import type { IpRange, SecurityPolicy } from '@/api/security'
+import { useSecurityPolicy, useUpdateSecurityPolicy } from '@/hooks/useSecurity'
+import { useUsers } from '@/hooks/useIam'
 
-/**
- * Security policy (Volume 15, Ch 19).
- *
- * A policy screen that only stores settings is a form. This one shows what the
- * settings actually do: type a password and see whether it would be accepted,
- * type an address and see whether it would be let through, and see which users
- * the policy currently fails.
- */
+/** Wired to the live backend security_policy. Saved settings are enforced by the
+ *  server (password rules run at user-create and password-reset). */
+
+const USER_TYPES = [
+  { value: 'INTERNAL', label: 'Internal' },
+  { value: 'SHOPFLOOR', label: 'Shop floor' },
+  { value: 'PORTAL_SUPPLIER', label: 'Portal — supplier' },
+  { value: 'PORTAL_CUSTOMER', label: 'Portal — customer' },
+  { value: 'SYSTEM', label: 'System / integration' },
+]
+
+type Form = Omit<SecurityPolicy, 'uid' | 'version'>
+
+const BLANK: Form = {
+  password_min_length: 8,
+  password_require_upper: false,
+  password_require_lower: true,
+  password_require_number: true,
+  password_require_symbol: false,
+  password_expiry_days: 90,
+  password_history_count: 3,
+  block_identifiers_in_password: true,
+  session_idle_minutes: 30,
+  session_max_concurrent: 3,
+  ip_allow_list: [],
+  ip_deny_list: [],
+  mfa_required_for: [],
+}
+
+/** Client-side mirror of the server password check (immediate feedback). */
+function checkPassword(pw: string, f: Form): { ok: boolean; failures: string[] } {
+  const failures: string[] = []
+  if (pw.length < f.password_min_length) failures.push(`at least ${f.password_min_length} characters`)
+  if (f.password_require_upper && !/[A-Z]/.test(pw)) failures.push('an uppercase letter')
+  if (f.password_require_lower && !/[a-z]/.test(pw)) failures.push('a lowercase letter')
+  if (f.password_require_number && !/\d/.test(pw)) failures.push('a number')
+  if (f.password_require_symbol && !/[^A-Za-z0-9]/.test(pw)) failures.push('a symbol')
+  return { ok: failures.length === 0, failures }
+}
+
+const CIDR_RE = /^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/
 
 export function SecurityPage() {
   const toast = useToast()
-  const store = useCollection<SecurityPolicy>('plat:security', useMemo(() => [seedPolicy], []))
-  const policy = store.rows[0] ?? seedPolicy
-  const today = isoDate(new Date())
+  const companyUid = useSession((s) => s.companyUid)
+  const { data: policy, isLoading, error, refetch } = useSecurityPolicy()
+  const update = useUpdateSecurityPolicy()
 
   const [tab, setTab] = useState('password')
-  const [testPassword, setTestPassword] = useState('')
-  const [testIp, setTestIp] = useState('10.20.5.17')
-  const [addingRange, setAddingRange] = useState<'ALLOW' | 'DENY' | null>(null)
-  const [rangeCidr, setRangeCidr] = useState('')
-  const [rangeLabel, setRangeLabel] = useState('')
+  const [form, setForm] = useState<Form>(BLANK)
+  const [testPw, setTestPw] = useState('')
 
-  const set = (patch: Partial<SecurityPolicy>) => store.update(policy.uid, patch)
-  const setPassword = (patch: Partial<SecurityPolicy['password']>) => set({ password: { ...policy.password, ...patch } })
-  const setSession = (patch: Partial<SecurityPolicy['session']>) => set({ session: { ...policy.session, ...patch } })
-
-  /** A sample user, so the "would this be accepted" test is realistic. */
-  const sampleUser = users[0]
-  const check = useMemo(
-    () => (testPassword ? checkPassword(testPassword, policy.password, { loginId: sampleUser.loginId, fullName: sampleUser.fullName }) : null),
-    [testPassword, policy.password, sampleUser],
-  )
-  const ipCheck = useMemo(() => (testIp.trim() ? ipAllowed(testIp.trim(), policy) : null), [testIp, policy])
-
-  /** Where each user stands against the policy as it is now. */
-  const compliance = useMemo(
-    () =>
-      users.map((u) => {
-        // Last login stands in for the last password change, which the user
-        // record does not carry — flagged rather than silently assumed equal.
-        const proxy = u.lastLoginAt ? u.lastLoginAt.slice(0, 10) : null
-        const age = passwordAge(proxy, policy.password, today)
-        const mfaRequired = policy.mfaRequiredFor.includes(u.userType)
-        return {
-          user: u,
-          age,
-          mfaRequired,
-          mfaGap: mfaRequired && !u.mfaEnabled,
-          neverLoggedIn: !u.lastLoginAt,
-          issues: [
-            mfaRequired && !u.mfaEnabled ? 'MFA is required for this user type but is not switched on.' : null,
-            age.expired ? `Password is ${age.ageDays} days old against a ${policy.password.expiryDays}-day limit.` : null,
-            u.status === 'ACTIVE' && !u.lastLoginAt ? 'Active but has never signed in.' : null,
-          ].filter(Boolean) as string[],
-        }
-      }),
-    [policy, today],
-  )
-
-  const k = useMemo(() => ({
-    mfaGaps: compliance.filter((c) => c.mfaGap).length,
-    expired: compliance.filter((c) => c.age.expired).length,
-    neverIn: compliance.filter((c) => c.neverLoggedIn && c.user.status === 'ACTIVE').length,
-    withIssues: compliance.filter((c) => c.issues.length > 0).length,
-    ranges: policy.ipAllowList.length + policy.ipDenyList.length,
-  }), [compliance, policy])
-
-  function addRange() {
-    if (!rangeCidr.trim()) { toast.error('Enter a CIDR range, e.g. 10.20.0.0/16.'); return }
-    if (!/^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/.test(rangeCidr.trim())) { toast.error('That is not a valid IPv4 CIDR range.'); return }
-    if (addingRange === 'ALLOW') {
-      set({ ipAllowList: [...policy.ipAllowList, { cidr: rangeCidr.trim(), label: rangeLabel.trim() || 'Unnamed', appliesTo: 'INTERNAL' }] })
-    } else {
-      set({ ipDenyList: [...policy.ipDenyList, { cidr: rangeCidr.trim(), label: rangeLabel.trim() || 'Unnamed', reason: rangeLabel.trim() || 'Blocked' }] })
+  useEffect(() => {
+    if (policy) {
+      const { uid: _u, version: _v, ...rest } = policy
+      setForm(rest)
     }
-    toast.success(`${rangeCidr.trim()} added to the ${addingRange === 'ALLOW' ? 'allow' : 'deny'} list`)
-    setAddingRange(null); setRangeCidr(''); setRangeLabel('')
+  }, [policy])
+
+  const set = (p: Partial<Form>) => setForm((f) => ({ ...f, ...p }))
+  const pwCheck = useMemo(() => (testPw ? checkPassword(testPw, form) : null), [testPw, form])
+
+  function save() {
+    if (!policy) return
+    update.mutate(
+      { version: policy.version, ...form },
+      {
+        onSuccess: () => toast.success('Security policy saved', 'New passwords are checked against it immediately.'),
+        onError: (e) =>
+          toast.error(
+            'Save failed',
+            e instanceof ProblemError ? e.problem.detail : 'Could not save the policy.',
+          ),
+      },
+    )
   }
 
-  const complianceColumns: Column<(typeof compliance)[number]>[] = [
-    { key: 'user', header: 'User', width: '18rem', render: (c) => (<><p className="text-xs text-fg">{c.user.fullName}</p><p className="font-mono text-2xs text-fg-subtle">{c.user.loginId}</p></>) },
-    { key: 'type', header: 'Type', width: '13rem', render: (c) => <Badge tone="neutral" size="sm" dot={false}>{c.user.userType.replace(/_/g, ' ').toLowerCase()}</Badge> },
-    { key: 'status', header: 'Status', width: '11rem', render: (c) => <Badge tone={c.user.status === 'ACTIVE' ? 'success' : c.user.status === 'SUSPENDED' ? 'danger' : 'neutral'} size="sm">{c.user.status.replace(/_/g, ' ').toLowerCase()}</Badge> },
-    {
-      key: 'mfa', header: 'MFA', width: '12rem',
-      render: (c) => c.user.mfaEnabled
-        ? <Badge tone="success" size="sm">On</Badge>
-        : c.mfaRequired ? <Badge tone="danger" size="sm">Required, off</Badge> : <Badge tone="neutral" size="sm">Off</Badge>,
-    },
-    {
-      key: 'age', header: 'Credential age', width: '14rem',
-      render: (c) => c.age.ageDays === null
-        ? <span className="text-2xs text-fg-subtle">Never signed in</span>
-        : (
-          <div className="flex items-center gap-2">
-            <ProgressBar value={Math.min(100, (c.age.ageDays / Math.max(1, policy.password.expiryDays)) * 100)} tone={c.age.expired ? 'danger' : c.age.ageDays > policy.password.expiryDays * 0.8 ? 'warning' : 'success'} className="w-14" />
-            <span className={cn('text-2xs tabular', c.age.expired ? 'text-danger' : 'text-fg-muted')}>{c.age.ageDays}d</span>
-          </div>
-        ),
-    },
-    { key: 'lastIn', header: 'Last sign-in', width: '11rem', render: (c) => <span className="text-2xs tabular text-fg-muted">{c.user.lastLoginAt ? formatDate(c.user.lastLoginAt.slice(0, 10)) : '—'}</span> },
-    {
-      key: 'issues', header: 'Against policy', width: '24rem',
-      render: (c) => c.issues.length === 0
-        ? <Badge tone="success" size="sm">Compliant</Badge>
-        : <ul className="space-y-0.5">{c.issues.map((i) => (<li key={i} className="text-2xs text-danger">{i}</li>))}</ul>,
-    },
-  ]
+  const toggleMfa = (t: string) =>
+    set({
+      mfa_required_for: form.mfa_required_for.includes(t)
+        ? form.mfa_required_for.filter((x) => x !== t)
+        : [...form.mfa_required_for, t],
+    })
 
   return (
     <div>
       <PageHeader
         title="Security policy"
-        breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Administration' }, { label: 'Security' }]}
+        description="Password strength, session limits, network allow/deny and MFA requirements. Enforced server-side."
+        breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Compliance & Ops' }, { label: 'Security policy' }]}
+        badge={policy && <Badge tone="success">Live</Badge>}
+        actions={<Button variant="primary" size="sm" icon={<ShieldCheck className="h-4 w-4" />} onClick={save} loading={update.isPending} disabled={!policy}>Save policy</Button>}
         tabs={
-          <Tabs
-            active={tab}
-            onChange={setTab}
-            tabs={[
-              { id: 'password', label: 'Passwords & sessions' },
-              { id: 'network', label: 'Network & MFA', count: k.ranges },
-              { id: 'compliance', label: 'Who fails the policy', count: k.withIssues },
-            ]}
-          />
+          <Tabs active={tab} onChange={setTab} tabs={[
+            { id: 'password', label: 'Passwords & sessions' },
+            { id: 'network', label: 'Network & MFA', count: form.ip_allow_list.length + form.ip_deny_list.length },
+            { id: 'compliance', label: 'MFA coverage' },
+          ]} />
         }
       />
 
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatTile label="Users failing policy" value={k.withIssues} sub={`of ${users.length} accounts`} icon={<ShieldAlert />} tone={k.withIssues ? 'danger' : 'success'} />
-        <StatTile label="MFA gaps" value={k.mfaGaps} sub={k.mfaGaps ? 'Required by policy but not switched on' : 'Everyone required has it on'} tone={k.mfaGaps ? 'danger' : 'success'} />
-        <StatTile label="Credentials past expiry" value={k.expired} sub={`Limit is ${policy.password.expiryDays} days`} tone={k.expired ? 'warning' : 'success'} />
-        <StatTile label="Never signed in" value={k.neverIn} sub="Active accounts that have never been used" tone={k.neverIn ? 'warning' : 'success'} />
-      </div>
+      {!companyUid && <Alert tone="warning" title="Not signed in to the backend">Sign in first so the app has an API session.</Alert>}
+      {error && (
+        <Alert tone="danger" title="Could not load the security policy">
+          {error instanceof ProblemError ? error.problem.detail : 'Is the backend running?'}{' '}
+          <button className="underline" onClick={() => refetch()}>Retry</button>
+        </Alert>
+      )}
+      {isLoading && <p className="py-10 text-center text-sm text-fg-subtle">Loading policy…</p>}
 
-      {/* ─────────────── Passwords & sessions ─────────────── */}
-      {tab === 'password' && (
+      {policy && tab === 'password' && (
         <div className="grid gap-4 lg:grid-cols-2">
           <Card>
-            <CardHeader title="Password rules" description="Applied at every change and at first sign-in" />
-            <CardBody className="space-y-3">
+            <CardHeader title="Password policy" description="Enforced at user-create and password-reset." />
+            <CardBody className="space-y-3.5">
+              <Input label="Minimum length" type="number" min={4} max={64} value={form.password_min_length}
+                onChange={(e) => set({ password_min_length: Number(e.target.value) })} />
+              <div className="space-y-2.5">
+                <Switch checked={form.password_require_lower} onChange={(v) => set({ password_require_lower: v })} label="Require a lowercase letter" />
+                <Switch checked={form.password_require_upper} onChange={(v) => set({ password_require_upper: v })} label="Require an uppercase letter" />
+                <Switch checked={form.password_require_number} onChange={(v) => set({ password_require_number: v })} label="Require a number" />
+                <Switch checked={form.password_require_symbol} onChange={(v) => set({ password_require_symbol: v })} label="Require a symbol" />
+                <Switch checked={form.block_identifiers_in_password} onChange={(v) => set({ block_identifiers_in_password: v })} label="Block login id / name inside the password" />
+              </div>
               <div className="grid grid-cols-2 gap-3">
-                <Input label="Minimum length" type="number" value={String(policy.password.minLength)} onChange={(e) => setPassword({ minLength: Number(e.target.value) })} />
-                <Input label="Expires after (days)" type="number" value={String(policy.password.expiryDays)} onChange={(e) => setPassword({ expiryDays: Number(e.target.value) })} hint="Nil means never" />
+                <Input label="Expiry (days, 0 = never)" type="number" min={0} max={365} value={form.password_expiry_days}
+                  onChange={(e) => set({ password_expiry_days: Number(e.target.value) })} />
+                <Input label="No-reuse history" type="number" min={0} max={24} value={form.password_history_count}
+                  onChange={(e) => set({ password_history_count: Number(e.target.value) })} />
               </div>
-              <div className="space-y-2 rounded border border-border bg-surface-2 p-3">
-                <Switch label="Require a capital letter" checked={policy.password.requireUpper} onChange={(v) => setPassword({ requireUpper: v })} />
-                <Switch label="Require a small letter" checked={policy.password.requireLower} onChange={(v) => setPassword({ requireLower: v })} />
-                <Switch label="Require a digit" checked={policy.password.requireDigit} onChange={(v) => setPassword({ requireDigit: v })} />
-                <Switch label="Require a symbol" checked={policy.password.requireSymbol} onChange={(v) => setPassword({ requireSymbol: v })} />
-                <Switch label="Reject passwords containing the user's own name or login" checked={policy.password.disallowUserInfo} onChange={(v) => setPassword({ disallowUserInfo: v })} />
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                <Input label="No reuse of last" type="number" value={String(policy.password.historyCount)} onChange={(e) => setPassword({ historyCount: Number(e.target.value) })} hint="passwords" />
-                <Input label="Lock after" type="number" value={String(policy.password.lockoutThreshold)} onChange={(e) => setPassword({ lockoutThreshold: Number(e.target.value) })} hint="failed attempts" />
-                <Input label="Lock for (minutes)" type="number" value={String(policy.password.lockoutMinutes)} onChange={(e) => setPassword({ lockoutMinutes: Number(e.target.value) })} />
-              </div>
-              <Input
-                label="Banned words"
-                value={policy.password.bannedWords.join(', ')}
-                onChange={(e) => setPassword({ bannedWords: e.target.value.split(',').map((w) => w.trim()).filter(Boolean) })}
-                hint="Comma separated. Matched anywhere in the password, case-insensitively."
-              />
             </CardBody>
           </Card>
 
           <div className="space-y-4">
             <Card>
-              <CardHeader title="Try a password" description="Exactly the check a user's new password goes through" />
-              <CardBody className="space-y-3">
-                <Input
-                  label="Password"
-                  value={testPassword}
-                  onChange={(e) => setTestPassword(e.target.value)}
-                  placeholder="Type something to see whether it would be accepted"
-                  hint={`Checked against the policy above, for ${sampleUser.fullName} (${sampleUser.loginId})`}
-                />
-                {check && (
-                  <>
-                    <div>
-                      <p className="mb-1 flex justify-between text-2xs">
-                        <span className="text-fg-muted">Strength</span>
-                        <span className={cn('font-medium', check.strength >= 65 ? 'text-success' : check.strength >= 45 ? 'text-warning' : 'text-danger')}>
-                          {check.strengthLabel} · {check.strength}/100
-                        </span>
-                      </p>
-                      <ProgressBar value={check.strength} tone={check.strength >= 65 ? 'success' : check.strength >= 45 ? 'warning' : 'danger'} />
-                    </div>
-                    {check.ok
-                      ? <Alert tone="tip" title="Would be accepted">It satisfies every rule in the policy.</Alert>
-                      : (
-                        <Alert tone="danger" title={`Would be rejected — ${check.failures.length} rule${check.failures.length === 1 ? '' : 's'} not met`}>
-                          <ul className="list-disc space-y-0.5 pl-4">{check.failures.map((f) => (<li key={f}>{f}</li>))}</ul>
-                        </Alert>
-                      )}
-                    <p className="text-3xs text-fg-subtle">
-                      Strength and compliance are different things: a password can satisfy every rule and still be weak, which is why both are shown.
-                    </p>
-                  </>
-                )}
-              </CardBody>
-            </Card>
-
-            <Card>
               <CardHeader title="Sessions" />
-              <CardBody className="space-y-3">
-                <div className="grid grid-cols-3 gap-3">
-                  <Input label="Idle timeout (min)" type="number" value={String(policy.session.idleTimeoutMinutes)} onChange={(e) => setSession({ idleTimeoutMinutes: Number(e.target.value) })} />
-                  <Input label="Absolute limit (h)" type="number" value={String(policy.session.absoluteTimeoutHours)} onChange={(e) => setSession({ absoluteTimeoutHours: Number(e.target.value) })} />
-                  <Input label="Concurrent sessions" type="number" value={String(policy.session.maxConcurrentSessions)} onChange={(e) => setSession({ maxConcurrentSessions: Number(e.target.value) })} />
-                </div>
-                <Switch
-                  label="Re-authenticate before an approval or a payment release"
-                  checked={policy.session.reauthForSensitive}
-                  onChange={(v) => setSession({ reauthForSensitive: v })}
-                />
-                <p className="text-3xs text-fg-subtle">
-                  An idle timeout shorter than a shift break means people are signed out mid-task; longer than one means an unattended terminal stays open.
-                  {policy.session.idleTimeoutMinutes > 60 && ' 60 minutes or more is generous for a shop-floor terminal.'}
-                </p>
+              <CardBody className="grid grid-cols-2 gap-3">
+                <Input label="Idle timeout (min)" type="number" min={1} max={240} value={form.session_idle_minutes}
+                  onChange={(e) => set({ session_idle_minutes: Number(e.target.value) })} />
+                <Input label="Max concurrent" type="number" min={1} max={50} value={form.session_max_concurrent}
+                  onChange={(e) => set({ session_max_concurrent: Number(e.target.value) })} />
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader title="Test a password" description="Checks against the (unsaved) settings above." />
+              <CardBody className="space-y-2.5">
+                <Input label="Sample password" value={testPw} onChange={(e) => setTestPw(e.target.value)} placeholder="Type to test…" />
+                {pwCheck && (
+                  pwCheck.ok ? (
+                    <p className="flex items-center gap-1.5 text-xs text-success"><Check className="h-3.5 w-3.5" /> Accepted by this policy.</p>
+                  ) : (
+                    <p className="flex items-start gap-1.5 text-xs text-danger"><X className="mt-0.5 h-3.5 w-3.5 shrink-0" /> Must contain {pwCheck.failures.join(', ')}.</p>
+                  )
+                )}
               </CardBody>
             </Card>
           </div>
         </div>
       )}
 
-      {/* ─────────────── Network & MFA ─────────────── */}
-      {tab === 'network' && (
+      {policy && tab === 'network' && (
         <div className="grid gap-4 lg:grid-cols-2">
-          <div className="space-y-4">
-            <Card>
-              <CardHeader title="Multi-factor authentication" />
-              <CardBody className="space-y-3">
-                <div>
-                  <p className="mb-1.5 text-2xs text-fg-muted">Required for these user types</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {['INTERNAL', 'PORTAL_SUPPLIER', 'PORTAL_CUSTOMER', 'SYSTEM', 'SHOPFLOOR'].map((t) => {
-                      const on = policy.mfaRequiredFor.includes(t)
-                      return (
-                        <button
-                          key={t} type="button"
-                          onClick={() => set({ mfaRequiredFor: on ? policy.mfaRequiredFor.filter((x) => x !== t) : [...policy.mfaRequiredFor, t] })}
-                          className={cn('rounded border px-2 py-1 text-2xs transition-colors', on ? 'border-brand-400 bg-brand-500/10 text-brand-600' : 'border-border text-fg-muted hover:border-border-strong')}
-                        >{t.replace(/_/g, ' ').toLowerCase()}</button>
-                      )
-                    })}
-                  </div>
-                </div>
-                <div>
-                  <p className="mb-1.5 text-2xs text-fg-muted">Methods offered</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {(['TOTP', 'SMS', 'EMAIL'] as MfaMethod[]).map((m) => {
-                      const on = policy.mfaMethods.includes(m)
-                      return (
-                        <button
-                          key={m} type="button"
-                          onClick={() => set({ mfaMethods: on ? policy.mfaMethods.filter((x) => x !== m) : [...policy.mfaMethods, m] })}
-                          className={cn('rounded border px-2 py-1 text-2xs transition-colors', on ? 'border-brand-400 bg-brand-500/10 text-brand-600' : 'border-border text-fg-muted hover:border-border-strong')}
-                        >{m}</button>
-                      )
-                    })}
-                  </div>
-                </div>
-                {k.mfaGaps > 0 && (
-                  <Alert tone="danger" title={`${k.mfaGaps} user${k.mfaGaps === 1 ? '' : 's'} required to use MFA do not have it on`}>
-                    The requirement is set but not enforced on those accounts. Until it is, the policy is a statement rather than a control.
-                  </Alert>
-                )}
-              </CardBody>
-            </Card>
-
-            <Card>
-              <CardHeader title="Encryption" />
-              <CardBody>
-                <DataGrid columns={2} items={[
-                  { label: 'At rest', value: policy.encryptionAtRest },
-                  { label: 'In transit', value: `${policy.tlsMinimum} minimum` },
-                  { label: 'Passwords', value: 'Hashed, never stored or logged' },
-                  { label: 'Secrets', value: 'Held in the secret store, not in configuration' },
-                ]} />
-              </CardBody>
-            </Card>
-          </div>
-
-          <div className="space-y-4">
-            <Card>
-              <CardHeader title="Try an address" description="Deny is evaluated first, then allow" />
-              <CardBody className="space-y-3">
-                <Input label="IP address" value={testIp} onChange={(e) => setTestIp(e.target.value)} placeholder="10.20.5.17" />
-                {ipCheck && (
-                  <Alert tone={ipCheck.allowed ? 'tip' : 'danger'} title={ipCheck.allowed ? 'Would be allowed' : 'Would be refused'}>
-                    {ipCheck.reason}
-                  </Alert>
-                )}
-              </CardBody>
-            </Card>
-
-            <Card>
-              <CardHeader
-                title="Allowed ranges"
-                description={policy.ipAllowList.length ? 'Only these may connect' : 'Empty — anywhere may connect'}
-                actions={<Button variant="ghost" size="sm" icon={<Plus />} onClick={() => { setAddingRange('ALLOW'); setRangeCidr(''); setRangeLabel('') }}>Add</Button>}
-              />
-              <CardBody className="space-y-1">
-                {policy.ipAllowList.length === 0 ? (
-                  <Alert tone="warning" title="No allow-list">With nothing here, the application accepts connections from any address on the internet.</Alert>
-                ) : policy.ipAllowList.map((a, i) => (
-                  <div key={i} className="flex items-center gap-2 rounded border border-border p-2">
-                    <span className="min-w-0 flex-1">
-                      <span className="block font-mono text-xs text-fg">{a.cidr}</span>
-                      <span className="block text-3xs text-fg-subtle">{a.label} · {a.appliesTo.toLowerCase()}</span>
-                    </span>
-                    <button type="button" aria-label="Remove" onClick={() => set({ ipAllowList: policy.ipAllowList.filter((_, j) => j !== i) })} className="rounded p-1 text-fg-subtle hover:bg-danger/10 hover:text-danger">
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))}
-              </CardBody>
-            </Card>
-
-            <Card>
-              <CardHeader
-                title="Denied ranges"
-                description="Checked before the allow-list, so a denial always wins"
-                actions={<Button variant="ghost" size="sm" icon={<Plus />} onClick={() => { setAddingRange('DENY'); setRangeCidr(''); setRangeLabel('') }}>Add</Button>}
-              />
-              <CardBody className="space-y-1">
-                {policy.ipDenyList.length === 0 ? (
-                  <p className="text-2xs text-fg-subtle">Nothing is explicitly blocked.</p>
-                ) : policy.ipDenyList.map((a, i) => (
-                  <div key={i} className="flex items-center gap-2 rounded border border-danger/40 bg-danger/5 p-2">
-                    <span className="min-w-0 flex-1">
-                      <span className="block font-mono text-xs text-fg">{a.cidr}</span>
-                      <span className="block text-3xs text-fg-subtle">{a.reason}</span>
-                    </span>
-                    <button type="button" aria-label="Remove" onClick={() => set({ ipDenyList: policy.ipDenyList.filter((_, j) => j !== i) })} className="rounded p-1 text-fg-subtle hover:bg-danger/10 hover:text-danger">
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))}
-              </CardBody>
-            </Card>
-          </div>
+          <IpListCard title="IP allow-list" description="If any range is set, only these may reach the app." tone="allow"
+            ranges={form.ip_allow_list} onChange={(r) => set({ ip_allow_list: r })} onError={toast.error} />
+          <IpListCard title="IP deny-list" description="These ranges are always blocked." tone="deny"
+            ranges={form.ip_deny_list} onChange={(r) => set({ ip_deny_list: r })} onError={toast.error} />
+          <Card className="lg:col-span-2">
+            <CardHeader title="Two-factor authentication" description="User types that must have MFA enabled." />
+            <CardBody className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {USER_TYPES.map((t) => (
+                <Checkbox key={t.value} label={t.label} checked={form.mfa_required_for.includes(t.value)} onChange={() => toggleMfa(t.value)} />
+              ))}
+            </CardBody>
+          </Card>
         </div>
       )}
 
-      {/* ─────────────── Compliance ─────────────── */}
-      {tab === 'compliance' && (
-        <>
-          <Alert tone="info" title="How credential age is measured here" className="mb-4">
-            The user record does not carry a last-password-change date, so the last sign-in stands in for it. That makes this an indication rather than an audit —
-            the real check belongs against the credential store. Everything else on this screen is exact.
-          </Alert>
-
-          <DataTable
-            rows={compliance.slice().sort((a, b) => b.issues.length - a.issues.length)}
-            columns={complianceColumns}
-            rowKey={(c) => c.user.uid}
-            searchable
-            searchPlaceholder="Search by name or login"
-            rowClassName={(c) => (c.mfaGap ? 'bg-danger/5' : c.issues.length ? 'bg-warning/5' : undefined)}
-            emptyTitle="No users"
-            emptyDescription="Nothing to check the policy against."
-          />
-        </>
-      )}
-
-      {/* ── add a range ──────────────────────────────────────── */}
-      <Modal
-        open={!!addingRange}
-        onClose={() => setAddingRange(null)}
-        title={addingRange === 'ALLOW' ? 'Allow a range' : 'Deny a range'}
-        size="md"
-        footer={<><Button variant="ghost" size="sm" onClick={() => setAddingRange(null)}>Cancel</Button><Button variant="primary" size="sm" onClick={addRange}>Add</Button></>}
-      >
-        <div className="space-y-3">
-          <Input label="CIDR range" required value={rangeCidr} onChange={(e) => setRangeCidr(e.target.value)} placeholder="10.20.0.0/16" autoFocus hint="IPv4. A /32 is a single address." />
-          <Input label={addingRange === 'ALLOW' ? 'Label' : 'Reason'} value={rangeLabel} onChange={(e) => setRangeLabel(e.target.value)} placeholder={addingRange === 'ALLOW' ? 'Chennai plant LAN' : 'Repeated credential-stuffing attempts'} />
-          {addingRange === 'ALLOW' && policy.ipAllowList.length === 0 && (
-            <Alert tone="warning" title="This switches the allow-list on">
-              With no allow-list, any address may connect. Adding the first range immediately refuses everything outside it — make sure this range covers the people who need to sign in.
-            </Alert>
-          )}
-        </div>
-      </Modal>
+      {policy && tab === 'compliance' && <MfaCoverage requiredFor={form.mfa_required_for} />}
     </div>
+  )
+}
+
+/* ─────────────────────────── IP list editor ─────────────────────────── */
+function IpListCard({
+  title, description, tone, ranges, onChange, onError,
+}: {
+  title: string; description: string; tone: 'allow' | 'deny'
+  ranges: IpRange[]; onChange: (r: IpRange[]) => void; onError: (t: string, d?: string) => void
+}) {
+  const [cidr, setCidr] = useState('')
+  const [label, setLabel] = useState('')
+
+  function add() {
+    if (!CIDR_RE.test(cidr.trim())) { onError('Invalid range', 'Enter a valid IPv4 CIDR, e.g. 10.20.0.0/16.'); return }
+    onChange([...ranges, { cidr: cidr.trim(), label: label.trim() || undefined }])
+    setCidr(''); setLabel('')
+  }
+
+  return (
+    <Card>
+      <CardHeader title={title} description={description} />
+      <CardBody className="space-y-3">
+        {ranges.length === 0 ? (
+          <p className="text-xs text-fg-subtle">No ranges — {tone === 'allow' ? 'access is not IP-restricted.' : 'nothing blocked.'}</p>
+        ) : (
+          <ul className="divide-y divide-border rounded border border-border">
+            {ranges.map((r, i) => (
+              <li key={i} className="flex items-center gap-2 px-3 py-1.5">
+                <span className="font-mono text-xs text-fg">{r.cidr}</span>
+                {r.label && <span className="text-2xs text-fg-subtle">· {r.label}</span>}
+                <Button size="xs" variant="ghost" className="ml-auto" onClick={() => onChange(ranges.filter((_, x) => x !== i))}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2">
+          <Input label="CIDR" sizeVariant="sm" value={cidr} placeholder="10.20.0.0/16" onChange={(e) => setCidr(e.target.value)} />
+          <Input label="Label" sizeVariant="sm" value={label} placeholder="HQ LAN" onChange={(e) => setLabel(e.target.value)} />
+          <Button size="sm" variant="outline" icon={<Plus className="h-3.5 w-3.5" />} onClick={add}>Add</Button>
+        </div>
+      </CardBody>
+    </Card>
+  )
+}
+
+/* ─────────────────────────── MFA coverage ─────────────────────────── */
+function MfaCoverage({ requiredFor }: { requiredFor: string[] }) {
+  const usersQ = useUsers()
+  const users = usersQ.data ?? []
+  const subject = users.filter((u) => requiredFor.includes(u.user_type))
+
+  return (
+    <Card>
+      <CardHeader
+        title="Who the MFA requirement applies to"
+        description={`${subject.length} of ${users.length} users fall under the current MFA-required types.`}
+      />
+      {requiredFor.length === 0 ? (
+        <CardBody><Alert tone="info">No user types require MFA yet. Turn some on under Network & MFA.</Alert></CardBody>
+      ) : usersQ.isLoading ? (
+        <CardBody><p className="text-center text-xs text-fg-subtle">Loading users…</p></CardBody>
+      ) : (
+        <table className="grid-table">
+          <thead><tr><th>User</th><th className="w-40">Type</th><th className="w-40">MFA required</th></tr></thead>
+          <tbody>
+            {users.map((u) => {
+              const req = requiredFor.includes(u.user_type)
+              return (
+                <tr key={u.uid}>
+                  <td className="text-xs"><span className="text-fg">{u.full_name}</span> <span className="font-mono text-2xs text-fg-subtle">{u.login_id}</span></td>
+                  <td><Badge tone="neutral" size="sm" dot={false}>{u.user_type.replace(/_/g, ' ').toLowerCase()}</Badge></td>
+                  <td>{req ? <Badge tone="warning" size="sm">Required</Badge> : <span className="text-2xs text-fg-subtle">—</span>}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      )}
+      <div className={cn('border-t border-border p-3')}>
+        <Alert tone="info">
+          Per-user MFA <em>enrollment</em> status (who has actually turned it on) is tracked once the
+          authentication module ships; this view shows who the policy <em>applies</em> to.
+        </Alert>
+      </div>
+    </Card>
   )
 }
