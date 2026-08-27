@@ -317,6 +317,9 @@ export interface MasterField {
   inList?: boolean
   align?: 'left' | 'right' | 'center'
   width?: string
+  /** For a 'select' field, populate options from a live master (e.g. 'UOM')
+   *  instead of the static `options` list. Stores the master's code. */
+  masterCode?: string
 }
 
 /**
@@ -522,6 +525,9 @@ export interface MasterField {
   inList?: boolean
   align?: 'left' | 'right' | 'center'
   width?: string
+  /** For a 'select' field, populate options from a live master (e.g. 'UOM')
+   *  instead of the static `options` list. Stores the master's code. */
+  masterCode?: string
 }
 
 /**

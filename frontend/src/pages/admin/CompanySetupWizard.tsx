@@ -188,7 +188,7 @@ function CompanyStep() {
   const company = data?.data?.[0]
   const updateCompany = useUpdateCompany()
 
-  const [form, setForm] = useState({ legal_name: '', trade_name: '', pan: '', gst_state_code: '33', phone: '', email: '' })
+  const [form, setForm] = useState({ code: '', legal_name: '', trade_name: '', pan: '', gst_state_code: '33', phone: '', email: '' })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const set = (p: Partial<typeof form>) => setForm((f) => ({ ...f, ...p }))
 
@@ -196,6 +196,7 @@ function CompanyStep() {
     if (company) {
       setForm((f) => ({
         ...f,
+        code: company.code,
         legal_name: company.legal_name,
         trade_name: company.trade_name ?? '',
         pan: company.pan ?? '',
@@ -212,6 +213,7 @@ function CompanyStep() {
         uid: company.uid,
         body: {
           version: company.version,
+          code: form.code.trim() || undefined,
           legal_name: form.legal_name.trim(),
           trade_name: form.trade_name.trim() || null,
           pan: form.pan.trim().toUpperCase() || null,
@@ -240,10 +242,11 @@ function CompanyStep() {
   return (
     <div className="space-y-4">
       <Alert tone="info">
-        Your company already exists (code <span className="font-mono">{company.code}</span>). Confirm its
-        details here — you'll add branches, plants and warehouses in the next steps.
+        Your company already exists. Confirm its details here — you'll add branches, plants and warehouses in the next steps.
       </Alert>
       <div className="grid gap-3.5 sm:grid-cols-2">
+        <Input label="Company code" required value={form.code} error={errors.code} maxLength={20}
+          onChange={(e) => set({ code: e.target.value.toUpperCase() })} />
         <Input label="Legal name" required value={form.legal_name} error={errors.legal_name} maxLength={200}
           onChange={(e) => set({ legal_name: e.target.value })} />
         <Input label="Trade name" value={form.trade_name} maxLength={200}
@@ -268,7 +271,7 @@ function CompanyStep() {
 function BranchStep({ branches, onAdd }: { branches: Built[]; onAdd: (b: Built) => void }) {
   const toast = useToast()
   const createBranch = useCreateBranch()
-  const [form, setForm] = useState({ name: '', branch_type: 'FACTORY', gst_state_code: '33' })
+  const [form, setForm] = useState({ code: '', name: '', branch_type: 'FACTORY', gst_state_code: '33' })
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   function add() {
@@ -278,12 +281,12 @@ function BranchStep({ branches, onAdd }: { branches: Built[]; onAdd: (b: Built) 
       return
     }
     createBranch.mutate(
-      { name: form.name.trim(), branch_type: form.branch_type, gst_state_code: form.gst_state_code, has_separate_gstin: false },
+      { code: form.code.trim() || undefined, name: form.name.trim(), branch_type: form.branch_type, gst_state_code: form.gst_state_code, has_separate_gstin: false },
       {
         onSuccess: (created) => {
           toast.success('Branch added', `${created.code} — ${created.name}`)
           onAdd({ uid: created.uid, code: created.code, name: created.name, meta: created.branch_type.replace(/_/g, ' ').toLowerCase() })
-          setForm({ name: '', branch_type: form.branch_type, gst_state_code: form.gst_state_code })
+          setForm({ code: '', name: '', branch_type: form.branch_type, gst_state_code: form.gst_state_code })
         },
         onError: (e) => toast.error('Could not add branch', problemMessage(e, 'Failed.')),
       },
@@ -293,7 +296,9 @@ function BranchStep({ branches, onAdd }: { branches: Built[]; onAdd: (b: Built) 
   return (
     <div className="space-y-4">
       <p className="text-sm text-fg-muted">Add one or more branches. A factory branch holds plants; a head office is your registered address.</p>
-      <div className="grid items-end gap-3 sm:grid-cols-[1fr_150px_150px_auto]">
+      <div className="grid items-end gap-3 sm:grid-cols-[100px_1fr_150px_150px_auto]">
+        <Input label="Code" value={form.code} maxLength={20}
+          placeholder="auto…" onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))} />
         <Input label="Branch name" value={form.name} error={errors.name} maxLength={150}
           placeholder="Sriperumbudur Factory" onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
         <Select label="Type" value={form.branch_type} onChange={(e) => setForm((f) => ({ ...f, branch_type: e.target.value }))} options={BRANCH_TYPES} />
@@ -344,7 +349,7 @@ function PlantStep({ branches, plants, onAdd }: { branches: Built[]; plants: Bui
       <div className="grid items-end gap-3 sm:grid-cols-[200px_1fr_150px_auto]">
         <Select label="Branch" value={form.branch_uid} error={errors.branch_uid}
           onChange={(e) => setForm((f) => ({ ...f, branch_uid: e.target.value }))}
-          options={[{ value: '', label: 'Select…' }, ...branches.map((b) => ({ value: b.uid, label: `${b.code} — ${b.name}` }))]} />
+          options={[{ value: '', label: 'Select…', disabled: true }, ...branches.map((b) => ({ value: b.uid, label: `${b.code} — ${b.name}` }))]} />
         <Input label="Plant name" value={form.name} error={errors.name} maxLength={150}
           placeholder="Plant 1 — Sriperumbudur" onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
         <Input label="Capacity/day" type="number" min={0} value={form.capacity} placeholder="25000"
@@ -408,7 +413,7 @@ function WarehouseStep({
       <div className="grid items-end gap-3 sm:grid-cols-2">
         <Select label="Branch" value={form.branch_uid} error={errors.branch_uid}
           onChange={(e) => set({ branch_uid: e.target.value })}
-          options={[{ value: '', label: 'Select…' }, ...branches.map((b) => ({ value: b.uid, label: `${b.code} — ${b.name}` }))]} />
+          options={[{ value: '', label: 'Select…', disabled: true }, ...branches.map((b) => ({ value: b.uid, label: `${b.code} — ${b.name}` }))]} />
         <Select label="Plant (optional)" value={form.plant_uid} onChange={(e) => set({ plant_uid: e.target.value })}
           options={[{ value: '', label: '— none —' }, ...plants.map((p) => ({ value: p.uid, label: `${p.code} — ${p.name}` }))]} />
         <Input label="Warehouse name" value={form.name} error={errors.name} maxLength={150}

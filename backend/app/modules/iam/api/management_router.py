@@ -39,6 +39,8 @@ def _user_out(entry: dict[str, Any]) -> s.UserOut:
         status=u.status,
         version=u.version,
         roles=entry["roles"],
+        mfa_enabled=bool(getattr(u, "mfa_enabled", False)),
+        last_login_at=getattr(u, "last_login_at", None),
     )
 
 

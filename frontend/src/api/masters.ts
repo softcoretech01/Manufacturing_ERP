@@ -104,6 +104,14 @@ export const updateMachine = (id: number | string, data: any) => api.put<any>(`/
 export const deleteMachine = (id: number | string) => api.del(`/machines/${id}`)
 export const getNextMachineCode = () => api.get<{code: string}>(`/machines/next-code`)
 
+// Machine-form reference lists (normalized masters keyed by integer FK)
+export const getMachineGroups = () => api.get<any>('/machine-groups').then(res => Array.isArray(res) ? res : res.data || [])
+export const getPlantsList = () => api.get<any>('/plants').then(res => Array.isArray(res) ? res : res.data || [])
+export const getProductionLines = (plantUid?: string) =>
+  api.get<any>('/production-lines', plantUid ? { plant_uid: plantUid } : undefined).then(res => Array.isArray(res) ? res : res.data || [])
+export const getWorkCentres = (lineId?: number) =>
+  api.get<any>('/work-centres', lineId ? { line_id: lineId } : undefined).then(res => Array.isArray(res) ? res : res.data || [])
+
 // NextBottleCapacityCode
 
 // NextBottleColourCode
@@ -233,3 +241,7 @@ export const createUOM = (data: any) => api.post<any>('/uoms', data)
 export const updateUOM = (id: number | string, data: any) => api.put<any>(`/uoms/${id}`, data)
 export const deleteUOM = (id: number | string) => api.del(`/uoms/${id}`)
 export const getNextUOMCode = () => api.get<{code: string}>(`/uoms/next-code`)
+
+// Duplicate review (Masters ▸ Governance) — live server-side detection
+export const getDuplicateCandidates = () =>
+  api.get<any>('/masters/duplicates').then((res) => (Array.isArray(res) ? res : res.data || []) as Masters.DuplicateCandidate[])

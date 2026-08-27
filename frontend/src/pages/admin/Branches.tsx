@@ -147,9 +147,9 @@ export function BranchesPage() {
       return
     }
     setErrors({})
-    // `code` is never sent: the server auto-generates it on create and it is
-    // immutable on edit (BranchUpdate has no code field).
+    // The user can now edit the branch code, like they do for company code.
     const body: Record<string, unknown> = {
+      code: form.code.trim() || undefined,
       name: form.name.trim(),
       branch_type: form.branch_type,
       has_separate_gstin: form.has_separate_gstin,
@@ -305,8 +305,8 @@ export function BranchesPage() {
         }
       >
         <div className="grid gap-3.5 sm:grid-cols-2">
-          <Input label="Branch code" value={form.code || 'auto…'} readOnly className="bg-surface-2"
-            hint="Auto-generated · not editable" onChange={() => {}} />
+          <Input label="Branch code" required value={form.code} error={errors.code} maxLength={20}
+            onChange={(e) => set({ code: e.target.value.toUpperCase() })} />
           <Input label="Branch name" required value={form.name} error={errors.name} maxLength={150}
             onChange={(e) => set({ name: e.target.value })} placeholder="Mumbai Depot" />
           <Select label="Branch type" value={form.branch_type} error={errors.branch_type}

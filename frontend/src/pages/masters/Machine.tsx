@@ -5,6 +5,7 @@ import { Card, CardBody, CardHeader, DataGrid } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { MenuItem } from '@/components/ui/Menu'
+import { printAssetLabel } from '@/lib/assetLabel'
 import { Drawer, Modal } from '@/components/ui/Modal'
 import { Tabs } from '@/components/ui/Tabs'
 import { Alert, PageHeader, ProgressBar } from '@/components/ui/Misc'
@@ -43,7 +44,7 @@ function pmOverdue(m: Machine) {
   return !!m.nextPmOn && new Date(m.nextPmOn) < new Date()
 }
 
-function MachineDetail({ m, onClose }: { m: Machine; onClose: () => void }) {
+function MachineDetail({ m, onClose, onEdit }: { m: Machine; onClose: () => void; onEdit: () => void }) {
   const toast = useToast()
   const [tab, setTab] = useState('general')
   const overdue = pmOverdue(m)
@@ -67,7 +68,9 @@ function MachineDetail({ m, onClose }: { m: Machine; onClose: () => void }) {
           <MasterActions
             status={m.status}
             usageCount={m.whereUsed.filter((w) => w.isOpen).length}
-            onEdit={() => toast.info('Edit')}
+            onEdit={onEdit}
+            onPrint={() => printAssetLabel(m)}
+            hidden={['copy', 'export', 'import', 'attach', 'comment', 'history', 'archive', 'delete']}
           />
         </div>
       }
@@ -127,7 +130,7 @@ function MachineDetail({ m, onClose }: { m: Machine; onClose: () => void }) {
                   <DataGrid
                     columns={1}
                     items={[
-                      { label: 'Plant', value: m.plantUid },
+                      { label: 'Plant', value: (m as any).plantName || (m as any).plantCode || '—' },
                       { label: 'Line', value: m.lineCode },
                       { label: 'Work centre', value: m.workCentreCode },
                       { label: 'Installed on', value: formatDate(m.installedOn) },
@@ -278,31 +281,102 @@ export function MachineMasterPage() {
   const [tab, setTab] = useState('list')
   const [detail, setDetail] = useState<Machine | null>(null)
   const [formOpen, setFormOpen] = useState(false)
+  const [editingId, setEditingId] = useState<number | null>(null)
   const [form, setForm] = useState<any>({ operations: [], criticality: 'C', currentState: 'IDLE' })
   const [filter, setFilter] = useState('')
+
+  // Cascading master lists for the form dropdowns (Plant -> Line -> Work centre)
+  // plus machine groups and UOMs. All values are stored as FK ids; UOM keeps its
+  // code (falling back to a static list if the UOM master is unavailable).
+  const [plants, setPlants] = useState<any[]>([])
+  const [lines, setLines] = useState<any[]>([])
+  const [workCentres, setWorkCentres] = useState<any[]>([])
+  const [machineGroups, setMachineGroups] = useState<any[]>([])
+  const [uoms, setUoms] = useState<any[]>([])
+
+  useEffect(() => {
+    api.getPlantsList().then(setPlants).catch(() => setPlants([]))
+    api.getMachineGroups().then(setMachineGroups).catch(() => setMachineGroups([]))
+    api.getUOMs().then(setUoms).catch(() => setUoms([]))
+  }, [])
+  useEffect(() => {
+    if (form.plantUid) api.getProductionLines(form.plantUid).then(setLines).catch(() => setLines([]))
+    else setLines([])
+  }, [form.plantUid])
+  useEffect(() => {
+    if (form.lineId) api.getWorkCentres(Number(form.lineId)).then(setWorkCentres).catch(() => setWorkCentres([]))
+    else setWorkCentres([])
+  }, [form.lineId])
+  const uomOptions = uoms.length
+    ? uoms.filter((u) => (u.status ?? 'ACTIVE') === 'ACTIVE' && !u.isDeleted).map((u) => ({ value: u.code, label: `${u.code} — ${u.name}` }))
+    : [{ value: 'NOS', label: 'NOS' }, { value: 'KG', label: 'KG' }, { value: 'CTN', label: 'CTN' }]
 
   const handleOpenNew = async () => {
     try {
       const res = await api.getNextMachineCode()
+      setEditingId(null)
       setForm({ code: res.nextCode, operations: [], criticality: 'C', currentState: 'IDLE', operatorsRequired: 1, pmFrequencyDays: 90 })
       setFormOpen(true)
     } catch (e) {
       toast.error('Failed to fetch next code')
     }
   }
-  
+
+  // Open the form pre-filled to edit an existing machine. The plant dropdown is
+  // keyed by uid, so resolve it from the plant code the record carries.
+  const handleOpenEdit = (m: any) => {
+    setDetail(null)
+    setEditingId(m.id)
+    const plantUid = plants.find((p) => p.code === m.plantCode)?.uid ?? ''
+    setForm({
+      code: m.code, name: m.name, machineGroupId: m.machineGroupId, plantUid,
+      lineId: m.lineId, workCentreId: m.workCentreId, manufacturer: m.manufacturer,
+      modelNumber: m.modelNumber, serialNumber: m.serialNumber, yearOfManufacture: m.yearOfManufacture,
+      assetCode: m.assetCode, capacityPerHour: m.capacityPerHour, capacityUom: m.capacityUom,
+      powerKw: m.powerKw, operatorsRequired: m.operatorsRequired, installedOn: m.installedOn,
+      warrantyUntil: m.warrantyUntil, pmFrequencyDays: m.pmFrequencyDays, criticality: m.criticality,
+      currentState: m.currentState, operations: m.operations ?? [], status: m.status,
+    })
+    setFormOpen(true)
+  }
+
   const handleCreate = async () => {
+    // Validate required fields client-side so an incomplete form never fires a
+    // 422 at the backend; show exactly what is missing.
+    const required: [string, unknown][] = [
+      ['Name', form.name], ['Machine group', form.machineGroupId], ['Plant', form.plantUid],
+      ['Line', form.lineId], ['Work centre', form.workCentreId], ['Manufacturer', form.manufacturer],
+      ['Capacity / hour', form.capacityPerHour], ['Capacity UOM', form.capacityUom],
+      ['PM frequency (days)', form.pmFrequencyDays],
+    ]
+    const missing = required
+      .filter(([, v]) => v === undefined || v === null || v === '' || (typeof v === 'number' && Number.isNaN(v)))
+      .map(([k]) => k)
+    if (missing.length) {
+      toast.error('Please complete required fields', missing.join(', '))
+      return
+    }
     try {
-      await api.createMachine(form)
-      toast.success('Machine created')
+      if (editingId) {
+        await api.updateMachine(editingId, form)
+        toast.success('Machine updated')
+      } else {
+        await api.createMachine(form)
+        toast.success('Machine created')
+      }
       setFormOpen(false)
+      setEditingId(null)
       loadMachines()
-    } catch (e) {
-      toast.error('Failed to create machine')
+    } catch (e: any) {
+      const p = e?.problem
+      const detail = typeof p?.detail === 'string'
+        ? p.detail
+        : Array.isArray(p?.errors) ? p.errors.map((x: any) => x.message || x.msg).join(', ') : undefined
+      toast.error(editingId ? 'Failed to update machine' : 'Failed to create machine', detail)
     }
   }
 
-  const groups = useMemo(() => [...new Set(machines.map((m) => m.machineGroup))].sort(), [])
+  const groups = useMemo(() => [...new Set(machines.map((m) => m.machineGroup))].sort(), [machines])
 
   const rows = useMemo(() => {
     if (filter === 'breakdown') return machines.filter((m) => m.currentState === 'BREAKDOWN')
@@ -310,7 +384,7 @@ export function MachineMasterPage() {
     if (filter === 'critical') return machines.filter((m) => m.criticality === 'A')
     if (filter) return machines.filter((m) => m.machineGroup === filter)
     return machines
-  }, [filter])
+  }, [machines, filter])
 
   const down = machines.filter((m) => m.currentState === 'BREAKDOWN')
   const overduePm = machines.filter((m) => pmOverdue(m) && m.currentState !== 'DECOMMISSIONED')
@@ -443,15 +517,7 @@ export function MachineMasterPage() {
           rowActions={(m) => (
             <>
               <MenuItem label="Open" onClick={() => setDetail(m)} />
-              <MenuItem label="Edit" onClick={() => setDetail(m)} />
-              <MenuItem
-                label="Raise breakdown call"
-                danger={m.currentState !== 'BREAKDOWN'}
-                onClick={() => toast.info('Raise breakdown call', `A maintenance request would be raised for ${m.code} — ${m.name}.`)}
-              />
-              <MenuItem label="PM schedule" onClick={() => toast.info('PM schedule', `Preventive-maintenance plan for ${m.name}.`)} />
-              <MenuItem label="Machine history card" onClick={() => toast.info('Machine history card', `Breakdown and service history for ${m.name}.`)} />
-              <MenuItem label="Print asset label" onClick={() => toast.info('Print asset label', `Asset label for ${m.code}.`)} />
+              <MenuItem label="Print asset label" onClick={() => printAssetLabel(m)} />
               <MenuItem
                 label={m.currentState === 'DECOMMISSIONED' ? 'Recommission' : 'Decommission'}
                 danger={m.currentState !== 'DECOMMISSIONED'}
@@ -489,17 +555,17 @@ export function MachineMasterPage() {
 
       
 
-      {detail && <MachineDetail m={detail} onClose={() => setDetail(null)} />}
+      {detail && <MachineDetail m={detail} onClose={() => setDetail(null)} onEdit={() => handleOpenEdit(detail)} />}
 
       <Modal
         open={formOpen}
         onClose={() => setFormOpen(false)}
         size="lg"
-        title="New machine"
+        title={editingId ? 'Edit machine' : 'New machine'}
         footer={
           <>
             <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={handleCreate}>Create</Button>
+            <Button variant="primary" onClick={handleCreate}>{editingId ? 'Save changes' : 'Create'}</Button>
           </>
         }
       >
@@ -507,7 +573,7 @@ export function MachineMasterPage() {
           <div className="space-y-3.5">
             <Input label="Machine code" required disabled value={form.code || ''} className="font-mono" />
             <Input label="Name" required value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            <Select label="Machine group" required value={form.machineGroup || ''} onChange={(e) => setForm({ ...form, machineGroup: e.target.value })} options={groups.map((g) => ({ value: g, label: g }))} />
+            <Select label="Machine group" required value={String(form.machineGroupId ?? '')} onChange={(e) => setForm({ ...form, machineGroupId: e.target.value ? Number(e.target.value) : undefined })} options={[{ value: '', label: 'Select group…' }, ...machineGroups.map((g) => ({ value: String(g.Id), label: g.Name }))]} />
             <Input label="Manufacturer" required value={form.manufacturer || ''} onChange={(e) => setForm({ ...form, manufacturer: e.target.value })} />
             <Input label="Model number" value={form.modelNumber || ''} onChange={(e) => setForm({ ...form, modelNumber: e.target.value })} className="font-mono" />
             <Input label="Serial number" value={form.serialNumber || ''} onChange={(e) => setForm({ ...form, serialNumber: e.target.value })} className="font-mono" />
@@ -515,15 +581,21 @@ export function MachineMasterPage() {
           </div>
           <div className="space-y-3.5">
             <div className="grid grid-cols-2 gap-3">
-              <Select label="Plant" required value={form.plantUid || ''} onChange={(e) => setForm({ ...form, plantUid: e.target.value })} options={[{ value: 'P1', label: 'P1' }]} />
-              <Select label="Line" required value={form.lineCode || ''} onChange={(e) => setForm({ ...form, lineCode: e.target.value })} options={[{ value: 'LN-A', label: 'Line A' }, { value: 'LN-B', label: 'Line B' }, { value: 'LN-C', label: 'Line C' }]} />
+              <Select label="Plant" required value={form.plantUid || ''}
+                onChange={(e) => setForm({ ...form, plantUid: e.target.value, lineId: undefined, workCentreId: undefined })}
+                options={[{ value: '', label: 'Select plant…' }, ...plants.map((p) => ({ value: p.uid, label: `${p.code} — ${p.name}` }))]} />
+              <Select label="Line" required value={String(form.lineId ?? '')} disabled={!form.plantUid}
+                onChange={(e) => setForm({ ...form, lineId: e.target.value ? Number(e.target.value) : undefined, workCentreId: undefined })}
+                options={[{ value: '', label: form.plantUid ? 'Select line…' : 'Pick a plant first' }, ...lines.map((l) => ({ value: String(l.Id), label: `${l.Code} — ${l.Name}` }))]} />
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Select label="Work centre" required value={form.workCentreCode || ''} onChange={(e) => setForm({ ...form, workCentreCode: e.target.value })} options={[{ value: 'WC-01', label: 'WC-01' }, { value: 'WC-02', label: 'WC-02' }, { value: 'WC-03', label: 'WC-03' }]} />
+              <Select label="Work centre" required value={String(form.workCentreId ?? '')} disabled={!form.lineId}
+                onChange={(e) => setForm({ ...form, workCentreId: e.target.value ? Number(e.target.value) : undefined })}
+                options={[{ value: '', label: form.lineId ? 'Select work centre…' : 'Pick a line first' }, ...workCentres.map((w) => ({ value: String(w.Id), label: `${w.Code} — ${w.Name}` }))]} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <Input label="Capacity / hour" type="number" required value={form.capacityPerHour || ''} onChange={(e) => setForm({ ...form, capacityPerHour: parseFloat(e.target.value) })} />
-              <Select label="Capacity UOM" value={form.capacityUom || ''} onChange={(e) => setForm({ ...form, capacityUom: e.target.value })} options={[{ value: 'NOS', label: 'NOS' }, { value: 'KG', label: 'KG' }, { value: 'CTN', label: 'CTN' }]} />
+              <Select label="Capacity UOM" value={form.capacityUom || ''} onChange={(e) => setForm({ ...form, capacityUom: e.target.value })} options={[{ value: '', label: 'Select UOM…' }, ...uomOptions]} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <Input label="Power (kW)" type="number" value={form.powerKw || ''} onChange={(e) => setForm({ ...form, powerKw: parseFloat(e.target.value) })} />

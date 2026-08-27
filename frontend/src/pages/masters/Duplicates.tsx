@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { ArrowRight, Copy, GitMerge, Search, ShieldCheck, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
@@ -10,7 +11,7 @@ import { Radio, Select, Switch, Textarea } from '@/components/ui/Input'
 import { useToast } from '@/components/ui/Toast'
 import { cn } from '@/lib/cn'
 import { formatDate } from '@/lib/format'
-import { duplicateCandidates } from '@/mock/masters'
+import { getDuplicateCandidates } from '@/api/masters'
 import type { DuplicateCandidate } from '@/types/masters'
 
 /** Match-field configuration per master — the framework's duplicate detection. */
@@ -124,13 +125,18 @@ export function DuplicatesPage() {
   const [masterFilter, setMasterFilter] = useState('')
   const [merge, setMerge] = useState<DuplicateCandidate | null>(null)
 
-  const open = duplicateCandidates.filter((d) => d.status === 'OPEN')
+  const { data: candidates = [], isLoading } = useQuery({
+    queryKey: ['masters', 'duplicate-candidates'],
+    queryFn: getDuplicateCandidates,
+  })
+
+  const open = candidates.filter((d) => d.status === 'OPEN')
   const rows = useMemo(
     () => (masterFilter ? open.filter((d) => d.masterCode === masterFilter) : open),
     [masterFilter, open],
   )
 
-  const masters = [...new Set(duplicateCandidates.map((d) => d.masterCode))]
+  const masters = [...new Set(candidates.map((d) => d.masterCode))]
   const highConfidence = open.filter((d) => d.matchScore >= 90)
 
   return (
@@ -173,7 +179,17 @@ export function DuplicatesPage() {
             </span>
           </div>
 
-          {rows.length === 0 && (
+          {isLoading && (
+            <Card>
+              <CardBody>
+                <div className="flex flex-col items-center py-10 text-center text-fg-muted">
+                  <p className="text-sm">Scanning masters for duplicates…</p>
+                </div>
+              </CardBody>
+            </Card>
+          )}
+
+          {!isLoading && rows.length === 0 && (
             <Card>
               <CardBody>
                 <div className="flex flex-col items-center py-10 text-center">

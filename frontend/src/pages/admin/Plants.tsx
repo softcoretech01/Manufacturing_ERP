@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Factory, Pencil, Plus, Power, RotateCcw } from 'lucide-react'
+import { Factory, Pencil, Plus, PauseCircle, PlayCircle } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { Badge } from '@/components/ui/Badge'
@@ -71,7 +71,7 @@ export function PlantsPage() {
 
   function openCreate() {
     setEditing(null)
-    setForm({ ...BLANK, branch_uid: branches[0]?.uid ?? '' })
+    setForm({ ...BLANK, branch_uid: '' })
     setErrors({})
     setFormOpen(true)
     plantApi.nextCode().then((code) => setForm((f) => ({ ...f, code }))).catch(() => {})
@@ -148,18 +148,27 @@ export function PlantsPage() {
   }
 
   function toggleActive(p: Plant) {
+    const onError = (e: unknown) => {
+      // A "modified by another user" clash means our row is out of date (the DB
+      // cluster can serve a lagging read after a write). Refresh so the row shows
+      // the true state and the next action uses the current version — and give a
+      // clearer message than the raw optimistic-lock text.
+      if (e instanceof ProblemError && e.problem.status === 409 && /modified/i.test(e.problem.title ?? '')) {
+        toast.error('Plant list was out of date', 'It changed on the server. The list has been refreshed — please try again.')
+      } else {
+        handleError(e, p.is_active ? 'Deactivate failed' : 'Restore failed')
+      }
+      refetch()
+    }
     if (p.is_active) {
       deactivatePlant.mutate(
         { uid: p.uid, body: { version: p.version } },
-        {
-          onSuccess: () => toast.success('Plant deactivated', `${p.name} is now inactive.`),
-          onError: (e) => handleError(e, 'Deactivate failed'),
-        },
+        { onSuccess: () => toast.success('Plant deactivated', `${p.name} is now inactive.`), onError },
       )
     } else {
       restorePlant.mutate(p.uid, {
         onSuccess: () => toast.success('Plant restored', `${p.name} is active again.`),
-        onError: (e) => handleError(e, 'Restore failed'),
+        onError,
       })
     }
   }
@@ -228,7 +237,7 @@ export function PlantsPage() {
         rowActions={(p) => (
           <>
             <MenuItem label="Edit" icon={<Pencil />} onClick={() => openEdit(p)} />
-            <MenuItem label={p.is_active ? 'Deactivate' : 'Restore'} icon={p.is_active ? <Power /> : <RotateCcw />} separatorBefore onClick={() => toggleActive(p)} />
+            <MenuItem label={p.is_active ? 'Deactivate' : 'Restore'} icon={p.is_active ? <PauseCircle /> : <PlayCircle />} separatorBefore onClick={() => toggleActive(p)} />
           </>
         )}
       />
@@ -254,7 +263,7 @@ export function PlantsPage() {
           ) : (
             <Select label="Branch" required value={form.branch_uid} error={errors.branch_uid}
               onChange={(e) => set({ branch_uid: e.target.value })}
-              options={[{ value: '', label: 'Select a branch…' }, ...branches.map((b) => ({ value: b.uid, label: `${b.code} — ${b.name}` }))]} />
+              options={[{ value: '', label: 'Select a branch…', disabled: true }, ...branches.map((b) => ({ value: b.uid, label: `${b.code} — ${b.name}` }))]} />
           )}
           <Input label="Plant name" required containerClassName="sm:col-span-2" value={form.name} error={errors.name} maxLength={150}
             placeholder="Plant 1 — Sriperumbudur" onChange={(e) => set({ name: e.target.value })} />
