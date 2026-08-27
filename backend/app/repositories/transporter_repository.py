@@ -30,7 +30,7 @@ class TransporterRepository:
             "IsGta": data.get('isGta', False),
             "FleetSize": data.get('fleetSize', 0),
             "ServiceZones": data.get('serviceZones'),
-            "ContactMobile": data.get('contactMobile')
+            "ContactMobile": data.get('contactMobile')[:10] if data.get('contactMobile') else None
         })
         row = result.mappings().fetchone()
         return self._parse_row(row) if row else {}
@@ -53,7 +53,7 @@ class TransporterRepository:
             "IsGta": data.get('isGta', False),
             "FleetSize": data.get('fleetSize', 0),
             "ServiceZones": data.get('serviceZones'),
-            "ContactMobile": data.get('contactMobile')
+            "ContactMobile": data.get('contactMobile')[:10] if data.get('contactMobile') else None
         })
         row = result.mappings().fetchone()
         return self._parse_row(row) if row else None

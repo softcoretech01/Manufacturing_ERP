@@ -1,4 +1,4 @@
-USE ERP_Master;
+USE admin_erp;
 
 -- 1. Create Transporter Table
 CREATE TABLE IF NOT EXISTS Transporter (

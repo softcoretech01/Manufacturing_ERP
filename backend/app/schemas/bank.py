@@ -3,7 +3,7 @@ from datetime import datetime
 import re
 
 class BankBaseSchema(BaseModel):
-    code: str = Field(..., min_length=1, max_length=20, description="Bank code")
+    code: str = Field(..., max_length=20, description="Bank code")
     name: str = Field(..., min_length=1, max_length=150, description="Bank name")
     status: str = Field(..., max_length=20, description="Status (ACTIVE/INACTIVE)")
     ifscPrefix: str | None = Field(None, max_length=4, description="Optional 4-letter IFSC prefix")
