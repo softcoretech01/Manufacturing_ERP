@@ -7,10 +7,10 @@ from datetime import datetime, date
 class MachineCreateSchema(BaseModel):
     code: Optional[str] = Field(None, max_length=50)
     name: str = Field(..., min_length=1, max_length=150)
-    machineGroup: str = Field(..., min_length=1, max_length=100)
-    plantUid: str = Field(..., min_length=1, max_length=50)
-    lineCode: str = Field(..., min_length=1, max_length=50)
-    workCentreCode: str = Field(..., min_length=1, max_length=50)
+    machineGroupId: int = Field(...)
+    plantUid: str = Field(..., min_length=1, max_length=50)   # resolved to sys_plant.id
+    lineId: int = Field(...)
+    workCentreId: int = Field(...)
     manufacturer: str = Field(..., min_length=1, max_length=150)
     modelNumber: Optional[str] = Field(None, max_length=100)
     serialNumber: Optional[str] = Field(None, max_length=100)
@@ -35,10 +35,10 @@ class MachineCreateSchema(BaseModel):
 class MachinePatchSchema(BaseModel):
     code: Optional[str] = None
     name: Optional[str] = None
-    machineGroup: Optional[str] = None
+    machineGroupId: Optional[int] = None
     plantUid: Optional[str] = None
-    lineCode: Optional[str] = None
-    workCentreCode: Optional[str] = None
+    lineId: Optional[int] = None
+    workCentreId: Optional[int] = None
     manufacturer: Optional[str] = None
     modelNumber: Optional[str] = None
     serialNumber: Optional[str] = None
@@ -64,10 +64,18 @@ class MachineResponseSchema(BaseModel):
     id: int
     code: str
     name: str
-    machineGroup: str
-    plantUid: str
-    lineCode: str
-    workCentreCode: str
+    machineGroupId: Optional[int] = None
+    machineGroup: Optional[str] = None          # group name (joined)
+    machineGroupCode: Optional[str] = None
+    plantId: Optional[int] = None
+    plantCode: Optional[str] = None
+    plantName: Optional[str] = None
+    lineId: Optional[int] = None
+    lineCode: Optional[str] = None
+    lineName: Optional[str] = None
+    workCentreId: Optional[int] = None
+    workCentreCode: Optional[str] = None
+    workCentreName: Optional[str] = None
     manufacturer: str
     modelNumber: Optional[str] = None
     serialNumber: Optional[str] = None

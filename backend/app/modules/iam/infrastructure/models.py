@@ -39,6 +39,7 @@ class SysUser(Entity):
     failed_attempts: Mapped[int] = mapped_column(INTEGER(unsigned=True), nullable=False, default=0)
     locked_until: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), nullable=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), nullable=True)
+    mfa_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     __table_args__ = ()
 

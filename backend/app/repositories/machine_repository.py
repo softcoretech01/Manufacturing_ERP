@@ -20,10 +20,19 @@ class MachineRepository:
             "id": row.Id,
             "code": row.Code,
             "name": row.Name,
-            "machineGroup": row.MachineGroup,
-            "plantUid": row.PlantUid,
+            # FK ids (source of truth) + joined display fields (not stored)
+            "machineGroupId": row.MachineGroupId,
+            "machineGroup": row.MachineGroup,          # group name
+            "machineGroupCode": row.MachineGroupCode,
+            "plantId": row.PlantId,
+            "plantCode": row.PlantCode,
+            "plantName": row.PlantName,
+            "lineId": row.LineId,
             "lineCode": row.LineCode,
+            "lineName": row.LineName,
+            "workCentreId": row.WorkCentreId,
             "workCentreCode": row.WorkCentreCode,
+            "workCentreName": row.WorkCentreName,
             "manufacturer": row.Manufacturer,
             "modelNumber": row.ModelNumber,
             "serialNumber": row.SerialNumber,
@@ -81,12 +90,24 @@ class MachineRepository:
         row = result.fetchone()
         return {"nextCode": row.nextCode}
 
+    async def _resolve_plant_id(self, plant_uid: Any) -> Any:
+        """Machine.PlantId is an integer FK to sys_plant.id; the API carries the
+        plant's public uid, so resolve it here. Pass-through if already numeric."""
+        if plant_uid is None or isinstance(plant_uid, int):
+            return plant_uid
+        row = (await self.db.execute(
+            text("SELECT id FROM sys_plant WHERE uid = :uid AND deleted_at IS NULL"),
+            {"uid": plant_uid},
+        )).fetchone()
+        return int(row[0]) if row else None
+
     async def create(self, data: Dict[str, Any], user_id: str) -> Dict[str, Any]:
         operations_str = json.dumps(data.get("operations", [])) if data.get("operations") else None
-        
+        plant_id = await self._resolve_plant_id(data.get("plantId") or data.get("plantUid"))
+
         query = text("""
             CALL SpMachine(
-                'CREATE', NULL, :p_Code, :p_Name, :p_MachineGroup, :p_PlantUid, :p_LineCode, :p_WorkCentreCode,
+                'CREATE', NULL, :p_Code, :p_Name, :p_MachineGroupId, :p_PlantId, :p_LineId, :p_WorkCentreId,
                 :p_Manufacturer, :p_ModelNumber, :p_SerialNumber, :p_YearOfManufacture, :p_AssetCode,
                 :p_CapacityPerHour, :p_CapacityUom, :p_PowerKw, :p_OperatorsRequired, :p_InstalledOn,
                 :p_WarrantyUntil, :p_PmFrequencyDays, :p_LastPmOn, :p_NextPmOn, :p_Criticality,
@@ -96,10 +117,10 @@ class MachineRepository:
         params = {
             "p_Code": data.get("code"),
             "p_Name": data.get("name"),
-            "p_MachineGroup": data.get("machineGroup"),
-            "p_PlantUid": data.get("plantUid"),
-            "p_LineCode": data.get("lineCode"),
-            "p_WorkCentreCode": data.get("workCentreCode"),
+            "p_MachineGroupId": data.get("machineGroupId"),
+            "p_PlantId": plant_id,
+            "p_LineId": data.get("lineId"),
+            "p_WorkCentreId": data.get("workCentreId"),
             "p_Manufacturer": data.get("manufacturer"),
             "p_ModelNumber": data.get("modelNumber"),
             "p_SerialNumber": data.get("serialNumber"),
@@ -129,9 +150,10 @@ class MachineRepository:
     async def update(self, record_id: int, data: Dict[str, Any], user_id: str) -> Dict[str, Any]:
         operations_str = json.dumps(data.get("operations", [])) if data.get("operations") is not None else None
         
+        plant_id = await self._resolve_plant_id(data.get("plantId") or data.get("plantUid"))
         query = text("""
             CALL SpMachine(
-                'UPDATE', :p_Id, NULL, :p_Name, :p_MachineGroup, :p_PlantUid, :p_LineCode, :p_WorkCentreCode,
+                'UPDATE', :p_Id, NULL, :p_Name, :p_MachineGroupId, :p_PlantId, :p_LineId, :p_WorkCentreId,
                 :p_Manufacturer, :p_ModelNumber, :p_SerialNumber, :p_YearOfManufacture, :p_AssetCode,
                 :p_CapacityPerHour, :p_CapacityUom, :p_PowerKw, :p_OperatorsRequired, :p_InstalledOn,
                 :p_WarrantyUntil, :p_PmFrequencyDays, :p_LastPmOn, :p_NextPmOn, :p_Criticality,
@@ -141,10 +163,10 @@ class MachineRepository:
         params = {
             "p_Id": record_id,
             "p_Name": data.get("name"),
-            "p_MachineGroup": data.get("machineGroup"),
-            "p_PlantUid": data.get("plantUid"),
-            "p_LineCode": data.get("lineCode"),
-            "p_WorkCentreCode": data.get("workCentreCode"),
+            "p_MachineGroupId": data.get("machineGroupId"),
+            "p_PlantId": plant_id,
+            "p_LineId": data.get("lineId"),
+            "p_WorkCentreId": data.get("workCentreId"),
             "p_Manufacturer": data.get("manufacturer"),
             "p_ModelNumber": data.get("modelNumber"),
             "p_SerialNumber": data.get("serialNumber"),

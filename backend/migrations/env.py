@@ -6,7 +6,8 @@ from __future__ import annotations
 import os
 from logging.config import fileConfig
 
-from alembic import context
+# pyrefly: ignore [missing-import]
+from alembic import context 
 from sqlalchemy import create_engine, pool
 
 from app.core.config import settings

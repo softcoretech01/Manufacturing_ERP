@@ -97,7 +97,7 @@ export function WarehousesPage() {
 
   function openCreate() {
     setEditing(null)
-    setForm({ ...BLANK, branch_uid: branches[0]?.uid ?? '' })
+    setForm({ ...BLANK, branch_uid: '' })
     setErrors({})
     setFormOpen(true)
     whApi.nextCode().then((code) => setForm((f) => ({ ...f, code }))).catch(() => {})
@@ -295,7 +295,7 @@ export function WarehousesPage() {
             <>
               <Select label="Branch" required value={form.branch_uid} error={errors.branch_uid}
                 onChange={(e) => set({ branch_uid: e.target.value, plant_uid: '' })}
-                options={[{ value: '', label: 'Select a branch…' }, ...branches.map((b) => ({ value: b.uid, label: `${b.code} — ${b.name}` }))]} />
+                options={[{ value: '', label: 'Select a branch…', disabled: true }, ...branches.map((b) => ({ value: b.uid, label: `${b.code} — ${b.name}` }))]} />
               <Select label="Plant (optional)" value={form.plant_uid}
                 onChange={(e) => set({ plant_uid: e.target.value })}
                 options={[{ value: '', label: '— none —' }, ...plantOptions.map((p) => ({ value: p.uid, label: `${p.code} — ${p.name}` }))]} />

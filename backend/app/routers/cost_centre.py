@@ -35,7 +35,7 @@ async def get_cost_centre(
     return await service.get_by_id(id)
 
 @router.post("", response_model=CostCentreSchema, status_code=status.HTTP_201_CREATED)
-async def create_cost_centre(
+async def create_cost_centre_legacy(
     data: CostCentreSchema,
     service: CostCentreService = Depends(get_service)
 ):

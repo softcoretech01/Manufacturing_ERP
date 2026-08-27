@@ -16,6 +16,7 @@ export function AdjustmentsPage() {
         needsReason: true,
         needsDirection: true,
         reasonLabel: 'Reason (mandatory)',
+        reasonContext: 'STOCK_ADJUSTMENT',
         note: 'A decrease issues at the current moving average; an increase adds at the current rate. Reason is required.',
       }}
     />

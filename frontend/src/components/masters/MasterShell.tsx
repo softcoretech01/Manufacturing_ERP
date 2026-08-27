@@ -123,6 +123,12 @@ export interface MasterActionsProps {
   onComment?: () => void
   onHistory?: () => void
   compact?: boolean
+  /**
+   * Keys of "More" menu items to hide entirely (e.g. features not yet built for
+   * this master): 'copy' | 'print' | 'export' | 'import' | 'attach' | 'comment'
+   * | 'history' | 'archive' | 'delete'. Omitted → all show (with defaults).
+   */
+  hidden?: string[]
 }
 
 /**
@@ -148,8 +154,10 @@ export function MasterActions({
   onComment,
   onHistory,
   compact,
+  hidden,
 }: MasterActionsProps) {
   const toast = useToast()
+  const show = (key: string) => !hidden?.includes(key)
   const [confirm, setConfirm] = useState<'archive' | 'delete' | null>(null)
   const [decision, setDecision] = useState<'approve' | 'reject' | null>(null)
 
@@ -203,28 +211,32 @@ export function MasterActions({
               </Button>
             }
           >
-            <MenuItem label="Copy / duplicate" icon={<Copy className="h-3.5 w-3.5" />} onClick={onCopy ?? (() => toast.success('Copied to a new draft'))} />
-            <MenuItem label="Print" icon={<Printer className="h-3.5 w-3.5" />} onClick={onPrint ?? (() => toast.success('Sent to printer'))} />
-            <MenuItem label="Export" icon={<Download className="h-3.5 w-3.5" />} onClick={onExport ?? (() => toast.success('Export queued'))} />
-            <MenuItem label="Import from Excel" icon={<FileSpreadsheet className="h-3.5 w-3.5" />} onClick={onImport ?? (() => toast.info('Import', 'Download the template, fill it, then dry-run before committing.'))} />
-            <MenuSeparator />
-            <MenuItem label="Attach document" icon={<Paperclip className="h-3.5 w-3.5" />} onClick={onAttach ?? (() => toast.info('Attach'))} />
-            <MenuItem label="Add comment" icon={<MessageSquare className="h-3.5 w-3.5" />} onClick={onComment ?? (() => toast.info('Comment'))} />
-            <MenuItem label="Revision history" icon={<History className="h-3.5 w-3.5" />} onClick={onHistory ?? (() => {})} />
-            <MenuSeparator />
-            <MenuItem
-              label="Archive"
-              icon={<Archive className="h-3.5 w-3.5" />}
-              disabled={referenced}
-              onClick={() => setConfirm('archive')}
-            />
-            <MenuItem
-              label={referenced ? `Delete — blocked (${usageCount} references)` : 'Delete'}
-              icon={<Trash2 className="h-3.5 w-3.5" />}
-              danger
-              disabled={referenced || status === 'ACTIVE' || status === 'APPROVED'}
-              onClick={() => setConfirm('delete')}
-            />
+            {show('copy') && <MenuItem label="Copy / duplicate" icon={<Copy className="h-3.5 w-3.5" />} onClick={onCopy ?? (() => toast.success('Copied to a new draft'))} />}
+            {show('print') && <MenuItem label="Print" icon={<Printer className="h-3.5 w-3.5" />} onClick={onPrint ?? (() => toast.success('Sent to printer'))} />}
+            {show('export') && <MenuItem label="Export" icon={<Download className="h-3.5 w-3.5" />} onClick={onExport ?? (() => toast.success('Export queued'))} />}
+            {show('import') && <MenuItem label="Import from Excel" icon={<FileSpreadsheet className="h-3.5 w-3.5" />} onClick={onImport ?? (() => toast.info('Import', 'Download the template, fill it, then dry-run before committing.'))} />}
+            {(show('attach') || show('comment') || show('history')) && <MenuSeparator />}
+            {show('attach') && <MenuItem label="Attach document" icon={<Paperclip className="h-3.5 w-3.5" />} onClick={onAttach ?? (() => toast.info('Attach'))} />}
+            {show('comment') && <MenuItem label="Add comment" icon={<MessageSquare className="h-3.5 w-3.5" />} onClick={onComment ?? (() => toast.info('Comment'))} />}
+            {show('history') && <MenuItem label="Revision history" icon={<History className="h-3.5 w-3.5" />} onClick={onHistory ?? (() => {})} />}
+            {(show('archive') || show('delete')) && <MenuSeparator />}
+            {show('archive') && (
+              <MenuItem
+                label="Archive"
+                icon={<Archive className="h-3.5 w-3.5" />}
+                disabled={referenced}
+                onClick={() => setConfirm('archive')}
+              />
+            )}
+            {show('delete') && (
+              <MenuItem
+                label={referenced ? `Delete — blocked (${usageCount} references)` : 'Delete'}
+                icon={<Trash2 className="h-3.5 w-3.5" />}
+                danger
+                disabled={referenced || status === 'ACTIVE' || status === 'APPROVED'}
+                onClick={() => setConfirm('delete')}
+              />
+            )}
           </Menu>
         )}
       </div>

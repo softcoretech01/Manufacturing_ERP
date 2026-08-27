@@ -56,6 +56,7 @@ class CompanyCreate(InModel):
 
 
 class CompanyUpdate(VersionedUpdate):
+    code: str | None = Field(default=None, max_length=20)
     legal_name: str | None = Field(default=None, max_length=200)
     trade_name: str | None = Field(default=None, max_length=200)
     cin: str | None = Field(default=None, max_length=30)
@@ -127,6 +128,7 @@ class BranchCreate(InModel):
 
 
 class BranchUpdate(VersionedUpdate):
+    code: str | None = Field(default=None, max_length=20)
     name: str | None = Field(default=None, max_length=150)
     branch_type: BranchType | None = None
     gstin: str | None = Field(default=None, max_length=15)

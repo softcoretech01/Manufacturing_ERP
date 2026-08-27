@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react'
-import { type UseMutationResult } from '@tanstack/react-query'
+import { type UseMutationResult, useQuery } from '@tanstack/react-query'
 import { Send } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
@@ -13,7 +13,17 @@ import { ProblemError } from '@/api/client'
 import { useSession } from '@/api/session'
 import { useItems, useMovements } from '@/hooks/useStock'
 import { useWarehouses } from '@/hooks/useOrganisation'
+import { getReasonCodes } from '@/api/masters'
 import type { MovementResult, MovementRow } from '@/api/stock'
+
+interface ReasonCode {
+  code: string
+  name: string
+  context?: string
+  requiresComment?: boolean
+  status?: string
+  isDeleted?: boolean
+}
 
 /**
  * Shared page for single-location movement transactions (issue / return / adjust
@@ -30,6 +40,9 @@ export interface MovementConfig {
   needsReason?: boolean
   needsDirection?: boolean
   reasonLabel?: string
+  /** Restrict the reason dropdown to reason codes of this context (e.g.
+   *  'STOCK_ADJUSTMENT'). When no active code matches, all active codes show. */
+  reasonContext?: string
   note?: ReactNode
 }
 
@@ -50,17 +63,42 @@ export function MovementPage({
   const listQ = useMovements(config.movementTypes)
   const movements = listQ.data ?? []
 
+  // Reason codes are a controlled master list (V1: "free text alone cannot be
+  // counted"). Load them only when this transaction captures a reason.
+  const reasonQ = useQuery({
+    queryKey: ['reason-codes', companyUid] as const,
+    queryFn: () => getReasonCodes() as Promise<ReasonCode[]>,
+    enabled: !!config.needsReason && !!companyUid,
+    staleTime: 5 * 60_000,
+  })
+  const reasonCodes = useMemo(() => {
+    const all = (reasonQ.data ?? []).filter(
+      (r) => (r.status ?? 'ACTIVE') === 'ACTIVE' && !r.isDeleted,
+    )
+    if (!config.reasonContext) return all
+    const scoped = all.filter((r) => r.context === config.reasonContext)
+    // Fall back to the full active list if nothing is configured for this
+    // context, so a reason can always be recorded.
+    return scoped.length ? scoped : all
+  }, [reasonQ.data, config.reasonContext])
+
   const [itemUid, setItemUid] = useState('')
   const [warehouseUid, setWarehouseUid] = useState('')
   const [qty, setQty] = useState('')
   const [rate, setRate] = useState('')
   const [reason, setReason] = useState('')
+  const [reasonNote, setReasonNote] = useState('')
   const [direction, setDirection] = useState('OUT')
   const [batch, setBatch] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   const item = useMemo(() => items.find((i) => i.uid === itemUid), [items, itemUid])
   const needsBatch = !!item?.is_batch_tracked
+  const selectedReason = useMemo(() => reasonCodes.find((r) => r.code === reason), [reasonCodes, reason])
+  const reasonNeedsNote = !!selectedReason?.requiresComment
+  // If the reason-code master is unavailable (endpoint down / not seeded), fall
+  // back to a free-text reason so the movement can still be posted.
+  const reasonAsText = !reasonQ.isLoading && (reasonQ.isError || reasonCodes.length === 0)
 
   function submit() {
     setErrors({})
@@ -68,7 +106,8 @@ export function MovementPage({
     if (!itemUid) fe.item = 'Pick an item'
     if (!warehouseUid) fe.warehouse = 'Pick a warehouse'
     if (!qty || Number(qty) <= 0) fe.quantity = 'Quantity must be > 0'
-    if (config.needsReason && !reason.trim()) fe.reason = 'A reason is required'
+    if (config.needsReason && !reason.trim()) fe.reason = 'Select a reason'
+    if (config.needsReason && reasonNeedsNote && !reasonNote.trim()) fe.reason_note = 'This reason needs a comment'
     if (needsBatch && !batch.trim()) fe.batch_no = 'This item is batch-managed'
     if (Object.keys(fe).length) { setErrors(fe); return }
 
@@ -76,13 +115,15 @@ export function MovementPage({
       item_uid: itemUid, warehouse_uid: warehouseUid, quantity: Number(qty), batch_no: batch.trim(),
     }
     if (config.needsRate && rate !== '') body.rate = Number(rate)
-    if (config.needsReason) body.reason = reason.trim()
+    // Store the controlled reason code; append the mandatory comment when the
+    // chosen code requires one, keeping the code prefix for reason analysis.
+    if (config.needsReason) body.reason = reasonNeedsNote ? `${reason} — ${reasonNote.trim()}` : reason
     if (config.needsDirection) body.direction = direction
 
     mutation.mutate(body, {
       onSuccess: (res) => {
         toast.success('Posted', `${res.document_no} · ${res.direction} ${formatQty(res.quantity)} ${item?.base_uom ?? ''} → on-hand ${formatQty(res.balance_qty_after)}`)
-        setQty(''); setRate(''); setReason(''); setBatch('')
+        setQty(''); setRate(''); setReason(''); setReasonNote(''); setBatch('')
       },
       onError: (e) => {
         if (e instanceof ProblemError) {
@@ -130,7 +171,19 @@ export function MovementPage({
               {config.needsRate && <Input label="Rate (optional)" type="number" value={rate} onChange={(e) => setRate(e.target.value)} hint="Blank = current avg" />}
             </div>
             {needsBatch && <Input label="Batch number" required value={batch} error={errors.batch_no} onChange={(e) => setBatch(e.target.value)} />}
-            {config.needsReason && <Input label={config.reasonLabel ?? 'Reason'} required value={reason} error={errors.reason} onChange={(e) => setReason(e.target.value)} />}
+            {config.needsReason && (reasonAsText ? (
+              <Input label={config.reasonLabel ?? 'Reason'} required value={reason} error={errors.reason}
+                onChange={(e) => setReason(e.target.value)} hint="Reason-code master unavailable — enter a reason" />
+            ) : (
+              <Select label={config.reasonLabel ?? 'Reason'} required value={reason} error={errors.reason}
+                onChange={(e) => { setReason(e.target.value); setReasonNote('') }}
+                hint={reasonQ.isLoading ? 'Loading reason codes…' : undefined}
+                options={[{ value: '', label: 'Select a reason…' }, ...reasonCodes.map((r) => ({ value: r.code, label: `${r.code} — ${r.name}` }))]} />
+            ))}
+            {config.needsReason && !reasonAsText && reasonNeedsNote && (
+              <Input label="Reason comment" required value={reasonNote} error={errors.reason_note}
+                onChange={(e) => setReasonNote(e.target.value)} hint="This reason code requires a note" />
+            )}
             {config.note && <Alert tone="info">{config.note}</Alert>}
             <Button variant="primary" icon={<Send className="h-4 w-4" />} loading={mutation.isPending} onClick={submit} className="w-full">{config.submitLabel}</Button>
           </CardBody>
