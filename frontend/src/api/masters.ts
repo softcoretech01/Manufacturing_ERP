@@ -165,6 +165,9 @@ export const updatePackaging = (id: number | string, data: any) => api.put<any>(
 export const deletePackaging = (id: number | string) => api.del(`/packaging/${id}`)
 export const getNextPackagingCode = () => api.get<{code: string}>(`/packaging/next-code`)
 
+// Currency (read-only list for dropdowns; managed under Finance)
+export const getCurrencies = () => api.get<any>('/currencies').then(res => Array.isArray(res) ? res : res.data || [])
+
 // PaymentTerm
 export const getPaymentTerms = () => api.get<any>('/payment-terms').then(res => Array.isArray(res) ? res : res.data || [])
 export const createPaymentTerm = (data: any) => api.post<any>('/payment-terms', data)

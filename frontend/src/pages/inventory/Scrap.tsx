@@ -15,6 +15,7 @@ export function ScrapPage() {
         submitLabel: 'Scrap stock',
         needsReason: true,
         reasonLabel: 'Reason (mandatory)',
+        reasonContext: 'STOCK_ADJUSTMENT',
       }}
     />
   )
