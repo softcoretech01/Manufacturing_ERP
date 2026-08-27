@@ -1,3 +1,4 @@
+
 from pydantic import BaseModel, Field, field_validator
 from datetime import date, datetime
 import re
@@ -20,17 +21,16 @@ class TransporterBaseSchema(BaseModel):
     serviceZones: str | None = Field(None, max_length=500)
     contactMobile: str | None = Field(
         None, 
-        min_length=10, 
-        max_length=10, 
-        pattern=r"^\d{10}$",
-        description="Must be exactly 10 digits"
+        max_length=15, 
+        description="Must be up to 15 characters"
     )
 
     @field_validator('transporterId')
     @classmethod
     def validate_transporter_id(cls, v: str) -> str:
-        if not v.isalnum():
-            raise ValueError('Transporter ID must be alphanumeric')
+        # Allow alphanumeric, hyphens and spaces
+        if not re.match(r"^[A-Za-z0-9\-\s]+$", v):
+            raise ValueError('Transporter ID must be alphanumeric, hyphens, or spaces')
         return v.upper()
 
 class TransporterCreateSchema(TransporterBaseSchema):
