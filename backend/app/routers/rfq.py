@@ -8,7 +8,7 @@ from app.schemas.procurement import RfqSchema
 
 router = APIRouter(prefix="/procurement/rfq", tags=["Procurement - RFQ"])
 
-@router.get("/", response_model=List[RfqSchema])
+@router.get("", response_model=List[RfqSchema])
 async def get_all_rfqs(session: AsyncSession = Depends(get_session)) -> Any:
     query = text("CALL ERP_Procurement.SpManageRfq('READ_ALL', NULL, NULL)")
     result = await session.execute(query)
@@ -28,8 +28,15 @@ async def get_rfq(uid: str, session: AsyncSession = Depends(get_session)) -> Any
         return data
     raise HTTPException(status_code=404, detail="RFQ not found")
 
-@router.post("/", response_model=RfqSchema, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=Any, status_code=status.HTTP_201_CREATED)
 async def create_rfq(req: RfqSchema, session: AsyncSession = Depends(get_session)) -> Any:
+    if req.prRefs:
+        for pr_id in req.prRefs:
+            pr_query = text("SELECT Status FROM ERP_Procurement.PurchaseRequisition WHERE Id = :uid OR DocNo = :uid")
+            pr_res = await session.execute(pr_query, {"uid": pr_id})
+            pr_row = pr_res.fetchone()
+            if not pr_row or pr_row[0] != 'APPROVED':
+                raise HTTPException(status_code=400, detail=f"Referenced PR {pr_id} must be in APPROVED status")
     payload = req.model_dump_json()
     query = text("CALL ERP_Procurement.SpManageRfq('CREATE', NULL, :payload)")
     result = await session.execute(query, {"payload": payload})
@@ -39,7 +46,7 @@ async def create_rfq(req: RfqSchema, session: AsyncSession = Depends(get_session
         return data
     raise HTTPException(status_code=500, detail="Failed to create RFQ")
 
-@router.put("/{uid}", response_model=RfqSchema)
+@router.put("/{uid}", response_model=Any)
 async def update_rfq(uid: str, req: RfqSchema, session: AsyncSession = Depends(get_session)) -> Any:
     if req.uid and str(req.uid) != str(uid):
         raise HTTPException(status_code=400, detail="UID in path does not match UID in payload")

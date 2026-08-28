@@ -22,6 +22,35 @@ class StockRow(ApiModel):
     below_reorder: bool
 
 
+class StockBalanceRow(ApiModel):
+    item_uid: str
+    item_code: str
+    item_name: str
+    category: str
+    uom: str
+    warehouse_uid: str | None
+    warehouse_name: str | None
+    batch_no: str
+    available_qty: float
+    reserved_qty: float
+    total_qty: float
+    unit_cost: float | None
+    stock_value: float | None
+    last_movement_date: datetime | None
+
+
+class BatchRow(ApiModel):
+    item_uid: str
+    item_code: str
+    item_name: str
+    batch_no: str
+    total_inward: float
+    total_outward: float
+    current_stock: float
+    status: str
+    last_movement_date: datetime | None
+
+
 class LedgerRow(ApiModel):
     uid: str
     posted_at: datetime

@@ -3,7 +3,7 @@ from datetime import datetime
 import re
 
 class ContactBaseSchema(BaseModel):
-    code: str = Field(..., min_length=1, max_length=20, description="Contact code")
+    code: str = Field(..., max_length=20, description="Contact code")
     name: str = Field(..., min_length=1, max_length=150, description="Contact name")
     status: str = Field(..., max_length=20, description="Status (ACTIVE/INACTIVE)")
     partner: str = Field(..., max_length=150, description="Partner name")

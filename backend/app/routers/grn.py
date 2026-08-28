@@ -32,6 +32,12 @@ async def get_grn(uid: str = Path(...), session: AsyncSession = Depends(get_sess
 
 @router.post("/grn/", status_code=status.HTTP_201_CREATED)
 async def create_grn(req: GrnSchema, session: AsyncSession = Depends(get_session)) -> Any:
+    if req.poNo:
+        po_query = text("SELECT Status FROM ERP_Procurement.PurchaseOrder WHERE DocNo = :poNo")
+        po_res = await session.execute(po_query, {"poNo": req.poNo})
+        po_row = po_res.fetchone()
+        if not po_row or po_row[0] not in ('APPROVED', 'RELEASED'):
+            raise HTTPException(status_code=400, detail=f"Referenced PO {req.poNo} must be APPROVED or RELEASED before a GRN can be raised")
     payload = req.model_dump_json(by_alias=True)
     query = text("CALL ERP_Procurement.SpManageGrn('CREATE', NULL, :payload)")
     result = await session.execute(query, {"payload": payload})

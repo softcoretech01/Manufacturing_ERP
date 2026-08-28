@@ -83,9 +83,7 @@ from app.routers import quality_plans, inspections, defects, quality_lookups, nc
 import traceback
 from fastapi.responses import JSONResponse
 
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Startup and shutdown lifecycle management."""
+
 from app.core.logging import configure_logging
 from app.core.middleware import CorrelationIdMiddleware
 from app.core.security import ensure_dev_keys
@@ -115,39 +113,6 @@ async def lifespan(_: FastAPI):
     await dispose_engine()
 
 
-app = FastAPI(
-    title=settings.app_name,
-    debug=settings.debug,
-    version="0.1.0",
-    lifespan=lifespan,
-)
-
-# Configure CORS (V0-NFR-040)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origin_list,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Exception Handlers mapping to RFC 9457 problem+json (V0-IR-010)
-app.add_exception_handler(AppError, app_error_handler)
-app.add_exception_handler(RequestValidationError, validation_error_handler)
-app.add_exception_handler(IntegrityError, integrity_error_handler)
-app.add_exception_handler(Exception, unhandled_error_handler)
-
-@app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
-    import traceback
-    err_msg = traceback.format_exc()
-    print("GLOBAL EXCEPTION:", err_msg)
-    return JSONResponse(status_code=500, content={"detail": str(exc), "traceback": err_msg})
-
-@app.get("/")
-async def root() -> dict[str, str]:
-    """Root endpoint to check API health."""
-    return {"status": "healthy", "service": settings.app_name}
 def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.app_name,

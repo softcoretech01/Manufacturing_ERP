@@ -140,6 +140,51 @@ class SupplierRepository:
 
         return result
 
+    async def _save_relations(self, supplier_id: int, schema: Any, user_id: str) -> None:
+        await self.session.execute(text("DELETE FROM SupplierAddress WHERE SupplierId = :id"), {"id": supplier_id})
+        await self.session.execute(text("DELETE FROM SupplierContact WHERE SupplierId = :id"), {"id": supplier_id})
+        await self.session.execute(text("DELETE FROM SupplierBankAccount WHERE SupplierId = :id"), {"id": supplier_id})
+        await self.session.execute(text("DELETE FROM SupplierComplianceDoc WHERE SupplierId = :id"), {"id": supplier_id})
+
+        for a in schema.addresses:
+            await self.session.execute(text("""
+                INSERT INTO SupplierAddress (SupplierId, Type, Label, Line1, Line2, City, State, StateCode, Pincode, Country, Gstin, IsDefault, IsActive, CreatedBy, CreatedDate, ModifiedBy, ModifiedDate)
+                VALUES (:sid, :t, :lbl, :l1, :l2, :city, :st, :stc, :pin, :ctry, :gst, :def, :act, :user, NOW(), :user, NOW())
+            """), {
+                "sid": supplier_id, "t": a.type, "lbl": a.label, "l1": a.line1, "l2": a.line2,
+                "city": a.city, "st": a.state, "stc": a.stateCode, "pin": a.pincode,
+                "ctry": a.country, "gst": a.gstin, "def": 1 if a.isDefault else 0, "act": 1 if a.isActive else 0, "user": user_id
+            })
+        
+        for c in schema.contacts:
+            await self.session.execute(text("""
+                INSERT INTO SupplierContact (SupplierId, Name, Designation, Department, Email, Mobile, Landline, IsPrimary, Purpose, IsActive, CreatedBy, CreatedDate, ModifiedBy, ModifiedDate)
+                VALUES (:sid, :nm, :dsg, :dpt, :eml, :mob, :ll, :prim, :prp, :act, :user, NOW(), :user, NOW())
+            """), {
+                "sid": supplier_id, "nm": c.name, "dsg": c.designation, "dpt": c.department,
+                "eml": c.email, "mob": c.mobile, "ll": c.landline, "prim": 1 if c.isPrimary else 0,
+                "prp": c.purpose, "act": 1 if c.isActive else 0, "user": user_id
+            })
+            
+        for b in schema.bankAccounts:
+            await self.session.execute(text("""
+                INSERT INTO SupplierBankAccount (SupplierId, BankName, BranchName, AccountNumber, Ifsc, AccountType, Swift, Currency, IsPrimary, IsVerified, CreatedBy, CreatedDate, ModifiedBy, ModifiedDate)
+                VALUES (:sid, :bn, :brn, :acc, :ifsc, :act, :sw, :cur, :prim, :ver, :user, NOW(), :user, NOW())
+            """), {
+                "sid": supplier_id, "bn": b.bankName, "brn": b.branchName, "acc": b.accountNumber,
+                "ifsc": b.ifsc, "act": b.accountType, "sw": b.swift, "cur": b.currency,
+                "prim": 1 if b.isPrimary else 0, "ver": 1 if b.isVerified else 0, "user": user_id
+            })
+            
+        for d in schema.complianceDocs:
+            await self.session.execute(text("""
+                INSERT INTO SupplierComplianceDoc (SupplierId, Type, DocumentNo, IssuedBy, ValidFrom, ValidTo, Status, FileName, CreatedBy, CreatedDate, ModifiedBy, ModifiedDate)
+                VALUES (:sid, :t, :dno, :ib, :vf, :vt, :st, :fn, :user, NOW(), :user, NOW())
+            """), {
+                "sid": supplier_id, "t": d.type, "dno": d.documentNo, "ib": d.issuedBy,
+                "vf": d.validFrom, "vt": d.validTo, "st": d.status, "fn": d.fileName, "user": user_id
+            })
+
     async def create_supplier(self, schema: SupplierCreateSchema, user_id: str) -> dict[str, Any]:
         code = schema.code
         if not code:
@@ -213,6 +258,8 @@ class SupplierRepository:
         result = await self.session.execute(stmt_id, {"code": code})
         new_id = result.scalar()
         
+        await self._save_relations(new_id, schema, user_id)
+        
         sup = await self.get_supplier_by_id(new_id)
         if not sup:
             raise RuntimeError("Failed to retrieve supplier after creation")
@@ -284,6 +331,8 @@ class SupplierRepository:
         }
 
         await self.session.execute(stmt, params)
+        
+        await self._save_relations(id, schema, user_id)
         
         sup = await self.get_supplier_by_id(id)
         if not sup:
