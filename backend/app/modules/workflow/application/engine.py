@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import record_audit
 from app.core.context import TenantContext
+from app.core.doc_status import apply_workflow_decision
 from app.core.enums import (
     ApprovalMode,
     AuditAction,
@@ -219,6 +220,24 @@ class WorkflowService:
     ) -> CoreWorkflowInstance:
         attrs = attrs or {}
         initiated_by = initiated_by or self.ctx.user_id
+
+        # Idempotency (V1-WFL / duplicate-prevention): if this document already
+        # has a live (in-progress) approval instance, return it instead of
+        # creating a duplicate. Guards against double-submit / re-submit races.
+        existing = (
+            await self.session.execute(
+                select(CoreWorkflowInstance).where(
+                    CoreWorkflowInstance.entity_type == entity_type,
+                    CoreWorkflowInstance.entity_uid == entity_uid,
+                    CoreWorkflowInstance.status == WorkflowInstanceStatus.IN_PROGRESS.value,
+                    CoreWorkflowInstance.company_id == self.ctx.company_id,
+                    CoreWorkflowInstance.deleted_at.is_(None),
+                )
+            )
+        ).scalars().first()
+        if existing is not None:
+            return existing
+
         rule = await self.rules.resolve_rule(
             document_type=entity_type, sub_type=sub_type, amount=amount, attrs=attrs
         )
@@ -277,6 +296,11 @@ class WorkflowService:
             )
             self._emit(inst, "auto_approved")
             self._emit(inst, "completed")
+            await apply_workflow_decision(
+                self.session, self.ctx,
+                entity_type=inst.entity_type, entity_uid=inst.entity_uid,
+                decision=WorkflowInstanceStatus.APPROVED.value,
+            )
             await self.session.flush()
             return inst
 
@@ -459,6 +483,13 @@ class WorkflowService:
                 to_status=WorkflowInstanceStatus.APPROVED.value,
             )
             self._emit(inst, "completed")
+            # Mirror the decision onto the source document (e.g. PR → APPROVED),
+            # in the same transaction. No-op if the module registered no writer.
+            await apply_workflow_decision(
+                self.session, self.ctx,
+                entity_type=inst.entity_type, entity_uid=inst.entity_uid,
+                decision=WorkflowInstanceStatus.APPROVED.value,
+            )
         await self.session.flush()
         return inst
 
@@ -506,6 +537,11 @@ class WorkflowService:
             document_no=inst.document_no, reason=f"{reason_code}: {comments or ''}".strip(),
         )
         self._emit(inst, "rejected" if is_reject else "returned")
+        await apply_workflow_decision(
+            self.session, self.ctx,
+            entity_type=inst.entity_type, entity_uid=inst.entity_uid,
+            decision=inst.status, comments=comments,
+        )
         await self.session.flush()
         return inst
 

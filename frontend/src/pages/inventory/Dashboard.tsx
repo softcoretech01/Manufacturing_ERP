@@ -85,14 +85,23 @@ export function InventoryDashboardPage() {
         title="Inventory & stores"
         breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Inventory' }]}
         actions={
-          <>
+          <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => navigate('/inventory/stock')}>
-              Stock enquiry
+              Stock Balance
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => navigate('/inventory/receipts')}>
+              Stock Inward
             </Button>
             <Button variant="primary" size="sm" onClick={() => navigate('/inventory/issues')}>
-              New issue
+              Stock Outward
             </Button>
-          </>
+            <Button variant="outline" size="sm" onClick={() => navigate('/inventory/transfers')}>
+              Transfer
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => navigate('/inventory/adjustments')}>
+              Adjust
+            </Button>
+          </div>
         }
       />
 

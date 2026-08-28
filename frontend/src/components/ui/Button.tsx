@@ -1,5 +1,5 @@
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Loader2, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/cn'
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success' | 'outline' | 'link'
@@ -54,5 +54,23 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       {children}
       {iconRight}
     </button>
+  )
+})
+
+export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  icon: LucideIcon
+  variant?: Variant
+  size?: 'sm' | 'md'
+}
+
+/** A square button that renders a single Lucide icon (passed as a component). */
+export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
+  { icon: Icon, variant = 'ghost', size = 'md', className, ...props },
+  ref,
+) {
+  return (
+    <Button ref={ref} variant={variant} size={size === 'sm' ? 'icon-sm' : 'icon'} className={className} {...props}>
+      <Icon className={size === 'sm' ? 'h-4 w-4' : 'h-5 w-5'} />
+    </Button>
   )
 })

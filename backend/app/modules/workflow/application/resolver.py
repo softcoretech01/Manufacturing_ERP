@@ -94,9 +94,14 @@ async def resolve_level_users(
         reason = f"{level.approver_type.replace('_', ' ').lower()} is not linked yet"
 
     if exclude_user_id is not None and exclude_user_id in users:
-        users = [u for u in users if u != exclude_user_id]
-        if not users and reason is None:
-            reason = "self-approval blocked and no other approver holds this role"
+        without_self = [u for u in users if u != exclude_user_id]
+        if without_self:
+            # Prefer a different approver whenever one exists (V1-WFL-BR-002).
+            users = without_self
+        # else: the initiator is the ONLY eligible approver for this role.
+        # Rather than blocking the document entirely, allow self-approval in
+        # single-approver orgs — keep ``users`` (initiator included). This is a
+        # deliberate relaxation of V1-WFL-BR-002 for the sole/authorised approver.
 
     return users, reason
 

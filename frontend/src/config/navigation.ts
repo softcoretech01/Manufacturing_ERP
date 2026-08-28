@@ -307,8 +307,7 @@ const PROCUREMENT_NAV: NavGroup[] = [
   { portal: 'PROCUREMENT', label: 'Quotation Comparison', to: '/procurement/comparison', icon: Scale },
   { portal: 'PROCUREMENT', label: 'Purchase Order', to: '/procurement/orders', icon: ShoppingCart },
   { portal: 'PROCUREMENT', label: 'Goods Receipt Note', to: '/procurement/grn', icon: PackageCheck },
-  { portal: 'PROCUREMENT', label: 'Reports', to: '/procurement/analytics', icon: BarChart3 },
-  { portal: 'PROCUREMENT', label: 'Settings', to: '/procurement/settings', icon: SlidersHorizontal },
+  { portal: 'PROCUREMENT', label: 'Approvals', to: '/procurement/approvals', icon: ClipboardCheck },
 ]
 
 /* ═════════════════ Inventory & Warehouse Management ══════════════════════ */
@@ -321,79 +320,16 @@ const PROCUREMENT_NAV: NavGroup[] = [
  */
 const INVENTORY_NAV: NavGroup[] = [
   { portal: 'INVENTORY', label: 'Dashboard', to: '/inventory', icon: LayoutDashboard },
-  {
-    portal: 'INVENTORY',
-    label: 'Warehouse Setup',
-    icon: Warehouse,
-    children: [
-      { label: 'Warehouses', to: '/inventory/warehouses', icon: Warehouse },
-      { label: 'Zones, racks & bins', to: '/inventory/structure', icon: ListTree },
-      { label: 'Bin map & occupancy', to: '/inventory/bin-map', icon: Network },
-    ],
-  },
-  {
-    portal: 'INVENTORY',
-    label: 'Transactions',
-    icon: Repeat,
-    children: [
-      { label: 'Goods receipt', to: '/inventory/receipts', icon: PackagePlus },
-      { label: 'Put-away & QC hold', to: '/inventory/putaway', icon: PackageCheck },
-      { label: 'Material requisitions', to: '/inventory/requisitions', icon: ClipboardList },
-      { label: 'Goods issue', to: '/inventory/issues', icon: Send },
-      { label: 'Material return', to: '/inventory/returns', icon: RotateCcw },
-      { label: 'Stock transfer', to: '/inventory/transfers', icon: Truck },
-      { label: 'Goods in transit', to: '/inventory/goods-in-transit', icon: Ship },
-      { label: 'Job-work stock', to: '/inventory/job-work', icon: Factory },
-      { label: 'Stock adjustment', to: '/inventory/adjustments', icon: SlidersHorizontal },
-      { label: 'Scrap & write-off', to: '/inventory/scrap', icon: Trash2 },
-    ],
-  },
-  {
-    portal: 'INVENTORY',
-    label: 'Stock Management',
-    icon: Boxes,
-    children: [
-      { label: 'Stock enquiry', to: '/inventory/stock', icon: Search },
-      { label: 'Stock ledger', to: '/inventory/ledger', icon: ScrollText },
-      { label: 'Material reservation', to: '/inventory/reservations', icon: BookmarkCheck },
-      { label: 'Batch & lot tracking', to: '/inventory/batches', icon: Layers },
-      { label: 'Serial numbers', to: '/inventory/serials', icon: Hash },
-      { label: 'Traceability', to: '/inventory/traceability', icon: GitBranch },
-      { label: 'Barcode & labels', to: '/inventory/labels', icon: Barcode },
-    ],
-  },
-  {
-    portal: 'INVENTORY',
-    label: 'Physical Inventory',
-    icon: ClipboardCheck,
-    children: [
-      { label: 'Cycle count', to: '/inventory/counting', icon: ClipboardCheck },
-      { label: 'Physical verification', to: '/inventory/verification', icon: Scale },
-      { label: 'Variance approval', to: '/inventory/variance', icon: ShieldCheck },
-    ],
-  },
-  {
-    portal: 'INVENTORY',
-    label: 'Analysis',
-    icon: BarChart3,
-    children: [
-      { label: 'Inventory valuation', to: '/inventory/valuation', icon: Coins },
-      { label: 'Stock ageing', to: '/inventory/ageing', icon: CalendarRange },
-      { label: 'ABC / XYZ analysis', to: '/inventory/abc-xyz', icon: Gauge },
-      { label: 'Fast, slow & dead stock', to: '/inventory/movement', icon: TrendingDown },
-      { label: 'Reorder report', to: '/inventory/reorder', icon: Repeat },
-    ],
-  },
-  {
-    portal: 'INVENTORY',
-    label: 'Reports & Setup',
-    icon: FileSpreadsheet,
-    children: [
-      { label: 'All reports', to: '/inventory/reports', icon: FileSpreadsheet },
-      { label: 'Barcode formats', to: '/admin/barcode', icon: Barcode },
-      { label: 'Audit trail', to: '/admin/audit', icon: ScrollText },
-    ],
-  },
+  { portal: 'INVENTORY', label: 'Current Stock', to: '/inventory/stock', icon: Boxes },
+  { portal: 'INVENTORY', label: 'Stock In', to: '/inventory/receipts', icon: PackagePlus },
+  { portal: 'INVENTORY', label: 'Stock Out', to: '/inventory/issues', icon: Send },
+  { portal: 'INVENTORY', label: 'Stock Return', to: '/inventory/returns', icon: RotateCcw },
+  { portal: 'INVENTORY', label: 'Stock Transfer', to: '/inventory/transfers', icon: Truck },
+  { portal: 'INVENTORY', label: 'Batch & Expiry', to: '/inventory/batches', icon: CalendarClock },
+  { portal: 'INVENTORY', label: 'Low Stock Monitor', to: '/inventory/replenishment', icon: Siren },
+  { portal: 'INVENTORY', label: 'Stock Ledger', to: '/inventory/ledger', icon: BookOpen },
+  { portal: 'INVENTORY', label: 'Category Ledger', to: '/inventory/category-ledger', icon: BookOpen },
+  { portal: 'INVENTORY', label: 'Warehouse Setup', to: '/inventory/warehouses', icon: Warehouse }
 ]
 
 /* ═══════════════ Product Engineering — BOM & Routing (Vol 6) ═════════════ */

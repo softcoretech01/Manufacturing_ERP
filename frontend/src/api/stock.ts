@@ -41,6 +41,35 @@ export interface StockRow {
   below_reorder: boolean
 }
 
+export interface StockBalanceRow {
+  item_uid: string
+  item_code: string
+  item_name: string
+  category: string
+  uom: string
+  warehouse_uid: string | null
+  warehouse_name: string | null
+  batch_no: string
+  available_qty: number
+  reserved_qty: number
+  total_qty: number
+  unit_cost: number | null
+  stock_value: number | null
+  last_movement_date: string | null
+}
+
+export interface BatchRow {
+  item_uid: string
+  item_code: string
+  item_name: string
+  batch_no: string
+  total_inward: number
+  total_outward: number
+  current_stock: number
+  status: string
+  last_movement_date: string | null
+}
+
 export interface LedgerRow {
   uid: string
   posted_at: string
@@ -108,8 +137,12 @@ export const items = {
 export const stock = {
   enquiry: (params: { warehouse?: string; item_type?: string; search?: string; hide_zero?: boolean } = {}) =>
     api.get<StockRow[]>('/inventory/stock', params),
-  ledger: (item: string, warehouse?: string) =>
-    api.get<LedgerResponse>('/inventory/stock/ledger', { item, warehouse }),
+  balanceEnquiry: (params: { warehouse?: string; item_type?: string; search?: string; hide_zero?: boolean } = {}) =>
+    api.get<StockBalanceRow[]>('/inventory/stock-balances', params),
+  batchesEnquiry: (params: { item_type?: string; search?: string; hide_zero?: boolean } = {}) =>
+    api.get<BatchRow[]>('/inventory/batches', params),
+  ledger: (item: string, warehouse?: string, batch_no?: string) =>
+    api.get<LedgerResponse>('/inventory/stock/ledger', { item, warehouse, batch_no }),
   receive: (body: ReceiptBody) => api.post<ReceiptResult>('/inventory/receipts', body),
 }
 

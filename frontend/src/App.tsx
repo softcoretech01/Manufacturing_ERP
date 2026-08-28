@@ -58,19 +58,12 @@ import { DuplicatesPage } from '@/pages/masters/Duplicates'
 // Procurement & supplier management
 import { ProcurementDashboardPage } from '@/pages/procurement/Dashboard'
 import { RequisitionsPage } from '@/pages/procurement/Requisitions'
-import { MrpPage } from '@/pages/procurement/Mrp'
 import { RfqPage } from '@/pages/procurement/Rfq'
 import { OrdersPage } from '@/pages/procurement/Orders'
-import { ImportsPage } from '@/pages/procurement/Imports'
-import { AsnPage } from '@/pages/procurement/Asn'
 import { GrnPage } from '@/pages/procurement/Grn'
-import { ReturnsPage } from '@/pages/procurement/Returns'
-import { EvaluationPage } from '@/pages/procurement/Evaluation'
-import { ContractsPage } from '@/pages/procurement/Contracts'
-import { AnalyticsPage } from '@/pages/procurement/Analytics'
 import { QuotationsPage } from '@/pages/procurement/Quotations'
 import { ComparisonPage } from '@/pages/procurement/Comparison'
-import { ProcurementSettingsPage } from '@/pages/procurement/Settings'
+import { ApprovalsPage } from '@/pages/procurement/Approvals'
 
 // Inventory & warehouse management (Vol 4)
 import { InventoryDashboardPage } from '@/pages/inventory/Dashboard'
@@ -338,19 +331,12 @@ export default function App() {
         {/* Procurement */}
         <Route path="/procurement" element={<ProcurementDashboardPage />} />
         <Route path="/procurement/requisitions" element={<RequisitionsPage />} />
-        <Route path="/procurement/mrp" element={<MrpPage />} />
         <Route path="/procurement/rfq" element={<RfqPage />} />
-        <Route path="/procurement/orders" element={<OrdersPage />} />
-        <Route path="/procurement/imports" element={<ImportsPage />} />
-        <Route path="/procurement/asn" element={<AsnPage />} />
-        <Route path="/procurement/grn" element={<GrnPage />} />
-        <Route path="/procurement/returns" element={<ReturnsPage />} />
-        <Route path="/procurement/evaluation" element={<EvaluationPage />} />
-        <Route path="/procurement/contracts" element={<ContractsPage />} />
-        <Route path="/procurement/analytics" element={<AnalyticsPage />} />
         <Route path="/procurement/quotations" element={<QuotationsPage />} />
         <Route path="/procurement/comparison" element={<ComparisonPage />} />
-        <Route path="/procurement/settings" element={<ProcurementSettingsPage />} />
+        <Route path="/procurement/orders" element={<OrdersPage />} />
+        <Route path="/procurement/grn" element={<GrnPage />} />
+        <Route path="/procurement/approvals" element={<ApprovalsPage />} />
 
         {/* Inventory & warehouse */}
         <Route path="/inventory" element={<InventoryDashboardPage />} />

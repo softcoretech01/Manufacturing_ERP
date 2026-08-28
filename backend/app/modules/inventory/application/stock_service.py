@@ -240,9 +240,113 @@ class StockService:
             )
         return out
 
+    # ── read: detailed balance (S-STK-02) ────────────────────────────────────
+    async def balance_enquiry(
+        self, *, warehouse_id: int | None = None, item_type: str | None = None,
+        search: str | None = None, hide_zero: bool = True,
+    ) -> list[dict[str, Any]]:
+        from app.modules.organisation.infrastructure.models import SysWarehouse
+        
+        stmt = (
+            select(
+                MstItem,
+                SysWarehouse,
+                InvStockBalance.batch_no,
+                func.sum(case((InvStockBalance.stock_status == StockStatus.AVAILABLE.value, InvStockBalance.quantity), else_=0)).label("available"),
+                func.sum(case((InvStockBalance.stock_status != StockStatus.AVAILABLE.value, InvStockBalance.quantity), else_=0)).label("reserved"),
+                func.sum(InvStockBalance.quantity).label("total"),
+                func.sum(InvStockBalance.value).label("value"),
+                func.max(InvStockBalance.updated_at).label("last_movement")
+            )
+            .join(InvStockBalance, InvStockBalance.item_id == MstItem.id)
+            .join(SysWarehouse, SysWarehouse.id == InvStockBalance.warehouse_id, isouter=True)
+            .where(MstItem.company_id == self.ctx.company_id, MstItem.deleted_at.is_(None))
+        )
+        if warehouse_id:
+            stmt = stmt.where(InvStockBalance.warehouse_id == warehouse_id)
+        if item_type:
+            stmt = stmt.where(MstItem.item_type == item_type)
+        if search:
+            like = f"%{search}%"
+            stmt = stmt.where((MstItem.code.ilike(like)) | (MstItem.name.ilike(like)))
+            
+        stmt = stmt.group_by(MstItem.id, SysWarehouse.id, InvStockBalance.batch_no)
+        stmt = stmt.order_by(MstItem.code, SysWarehouse.code, InvStockBalance.batch_no)
+        
+        rows = (await self.session.execute(stmt)).all()
+        out = []
+        for it, wh, batch_no, available, reserved, total, value, last_movement in rows:
+            tot = float(total or 0)
+            if hide_zero and tot == 0:
+                continue
+            out.append(
+                {
+                    "item_uid": it.uid, "item_code": it.code, "item_name": it.name,
+                    "category": it.item_type.replace('_', ' ').title(),
+                    "uom": it.base_uom,
+                    "warehouse_uid": wh.uid if wh else None,
+                    "warehouse_name": f"{wh.code} - {wh.name}" if wh else None,
+                    "batch_no": batch_no or "-",
+                    "available_qty": float(available or 0),
+                    "reserved_qty": float(reserved or 0),
+                    "total_qty": tot,
+                    "unit_cost": float(value / tot) if tot > 0 else 0.0,
+                    "stock_value": float(value or 0),
+                    "last_movement_date": last_movement,
+                }
+            )
+        return out
+        
+    # ── read: batch tracking (S-STK-05) ────────────────────────────────────
+    async def batch_enquiry(
+        self, *, item_type: str | None = None, search: str | None = None, hide_zero: bool = True,
+    ) -> list[dict[str, Any]]:
+        # Group by item and batch to get total inward, outward, and current stock
+        stmt = (
+            select(
+                MstItem,
+                InvStockLedger.batch_no,
+                func.sum(case((InvStockLedger.direction == 'IN', InvStockLedger.quantity), else_=0)).label("total_inward"),
+                func.sum(case((InvStockLedger.direction == 'OUT', InvStockLedger.quantity), else_=0)).label("total_outward"),
+                func.max(InvStockLedger.posted_at).label("last_movement")
+            )
+            .join(InvStockLedger, InvStockLedger.item_id == MstItem.id)
+            .where(MstItem.company_id == self.ctx.company_id, MstItem.deleted_at.is_(None))
+            .where(InvStockLedger.batch_no != '')
+        )
+        if item_type:
+            stmt = stmt.where(MstItem.item_type == item_type)
+        if search:
+            like = f"%{search}%"
+            stmt = stmt.where((MstItem.code.ilike(like)) | (MstItem.name.ilike(like)) | (InvStockLedger.batch_no.ilike(like)))
+            
+        stmt = stmt.group_by(MstItem.id, InvStockLedger.batch_no)
+        stmt = stmt.order_by(MstItem.code, InvStockLedger.batch_no)
+        
+        rows = (await self.session.execute(stmt)).all()
+        out = []
+        for it, batch_no, inward, outward, last_movement in rows:
+            inw = float(inward or 0)
+            outw = float(outward or 0)
+            current = inw - outw
+            if hide_zero and current <= 0:
+                continue
+            out.append(
+                {
+                    "item_uid": it.uid, "item_code": it.code, "item_name": it.name,
+                    "batch_no": batch_no,
+                    "total_inward": inw,
+                    "total_outward": outw,
+                    "current_stock": current,
+                    "status": "ACTIVE" if current > 0 else "CONSUMED",
+                    "last_movement_date": last_movement,
+                }
+            )
+        return out
+
     # ── read: bin card / ledger (S-STK-03) ───────────────────────────────────
     async def ledger(
-        self, *, item_uid: str, warehouse_id: int | None = None, limit: int = 500
+        self, *, item_uid: str, warehouse_id: int | None = None, batch_no: str | None = None, limit: int = 500
     ) -> dict[str, Any]:
         item = await self._item(item_uid)
         stmt = select(InvStockLedger).where(
@@ -251,6 +355,8 @@ class StockService:
         )
         if warehouse_id:
             stmt = stmt.where(InvStockLedger.warehouse_id == warehouse_id)
+        if batch_no:
+            stmt = stmt.where(InvStockLedger.batch_no == batch_no)
         stmt = stmt.order_by(InvStockLedger.posted_at.desc(), InvStockLedger.id.desc()).limit(limit)
         rows = list((await self.session.execute(stmt)).scalars().all())
         received = sum(Decimal(str(r.quantity)) for r in rows if r.direction == "IN")

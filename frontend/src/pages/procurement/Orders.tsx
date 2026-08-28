@@ -1,726 +1,466 @@
-import { useMemo, useState, useEffect } from 'react'
-import { Ban, Check, FileText, GitBranch, Plus, Printer, ShoppingCart, Trash2, X } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { Eye, Edit, Plus, Send } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
-import { Card, CardBody, CardHeader, DataGrid } from '@/components/ui/Card'
+import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import { DataTable, type Column } from '@/components/ui/DataTable'
-import { Badge } from '@/components/ui/Badge'
-import { Drawer, Modal } from '@/components/ui/Modal'
-import { MenuItem } from '@/components/ui/Menu'
+import { Modal } from '@/components/ui/Modal'
 import { Input, Select, Textarea } from '@/components/ui/Input'
-import { Alert, PageHeader } from '@/components/ui/Misc'
-import { Tabs } from '@/components/ui/Tabs'
+import { PageHeader } from '@/components/ui/Misc'
 import { useToast } from '@/components/ui/Toast'
-import { ApprovalTrail, DelayChip, DetailBlock, FillBar, ProcStatusBadge } from '@/components/procurement/ProcShell'
-import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
-import { formatCurrency, formatDate, formatDateTime } from '@/lib/format'
-import { useCollection } from '@/store/data'
-import { purchaseOrders as seedPo, requisitions as seedReq, rfqs as seedRfq, quotations as seedQuo } from '@/mock/procurement'
-import type { PurchaseRequisition, PurchaseOrder, Rfq, SupplierQuotation } from '@/types/procurement'
-import { nextDocNo, orderableRequisitions, poLinesFromQuotation } from '@/lib/procFlow'
-import { cn } from '@/lib/cn'
-
-const PO_TYPES: PurchaseOrder['poType'][] = ['STANDARD', 'BLANKET', 'RATE_CONTRACT', 'IMPORT', 'SERVICE', 'ASSET', 'JOB_WORK']
-const SUPPLIERS = [
-  'Jindal Stainless Limited',
-  'Perfect Polymers Private Limited',
-  'Coatmaster Powder Coatings LLP',
-  'Sri Venkateswara Packaging Industries',
-  'Metro Logistics Services Private Limited',
-  'Apex Tooling Works',
-  'Nordic Vacuum Technologies AB',
-  'Chennai Steel Traders',
-]
-const CANCEL_REASONS = [
-  'DEMAND_DROP — customer order deferred or cancelled',
-  'PRICE_CHANGE — supplier withdrew the quoted rate',
-  'SUPPLIER_DEFAULT — supplier unable to deliver',
-  'DUPLICATE — raised twice in error',
-  'SPEC_CHANGE — engineering change made the item obsolete',
-]
+import { formatDate, formatCurrency } from '@/lib/format'
+import { ProcStatusBadge } from '@/components/procurement/ProcShell'
+import { ProcurementToolbar } from '@/components/procurement/ProcurementToolbar'
+import * as api from '@/api/procurement'
+import { getSuppliers, getPaymentTerms, getTaxes } from '@/api/masters'
+import { getWarehouses, getCurrencies, getPlants } from '@/api/masters_extra'
 
 export function OrdersPage() {
   const toast = useToast()
-  const poSeed = useMemo(() => seedPo, [])
-  const { rows, create: createPo, update, remove } = useCollection<PurchaseOrder>('proc:po', poSeed)
+  const [data, setData] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const reqSeed = useMemo(() => seedReq, [])
-  const { rows: prs } = useCollection<PurchaseRequisition>('proc:reqs', reqSeed)
+  const [search, setSearch] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
 
-  const rfqSeed = useMemo(() => seedRfq, [])
-  const { rows: rfqs } = useCollection<Rfq>('proc:rfqs', rfqSeed)
+  const [masters, setMasters] = useState<{
+    suppliers: any[], 
+    terms: any[], 
+    taxes: any[], 
+    stores: any[], 
+    currencies: any[], 
+    plants: any[],
+    quotes: any[]
+  }>({ suppliers: [], terms: [], taxes: [], stores: [], currencies: [], plants: [], quotes: [] })
 
-  const quoSeed = useMemo(() => seedQuo, [])
-  const { rows: quotations, update: updateQuotation } = useCollection<SupplierQuotation>('proc:sq', quoSeed)
-
-  // updateQuotation is now provided by useCollection
-
-  /** Requisitions whose RFQ has an awarded quotation and no order yet. */
-  const orderable = orderableRequisitions(prs, rfqs, quotations, rows)
-
-  const [tab, setTab] = useState('all')
-  const [detail, setDetail] = useState<PurchaseOrder | null>(null)
-  const [detailTab, setDetailTab] = useState('lines')
   const [formOpen, setFormOpen] = useState(false)
-  const [editing, setEditing] = useState<PurchaseOrder | null>(null)
-  const [form, setForm] = useState({
-    prNo: '',
-    supplierName: SUPPLIERS[0],
-    poType: 'STANDARD',
-    buyer: '',
+  const [viewOpen, setViewOpen] = useState(false)
+  const [editing, setEditing] = useState<any | null>(null)
+  
+  const [form, setForm] = useState<any>({
+    supplierUid: '',
+    plant: '',
+    deliveryWarehouse: '',
+    paymentTerms: '',
     currency: 'INR',
-    paymentTerms: '30 days from invoice',
-    deliveryWarehouse: 'RM Store — Chennai',
     promisedDate: '',
-    basicValue: '',
-    plant: 'Chennai — Unit 1',
+    rfqNo: '',
+    remarks: '',
+    lines: [],
+    basicValue: 0,
+    taxValue: 0,
+    totalValue: 0
   })
-  const [errors, setErrors] = useState<Record<string, string>>({})
-  /** The award behind the requisition currently chosen in the create form. */
-  const awardPreview = orderable.find((o) => o.pr.docNo === form.prNo)?.award
-  const [cancelling, setCancelling] = useState<PurchaseOrder | null>(null)
-  const [cancelReason, setCancelReason] = useState(CANCEL_REASONS[0])
-  const [cancelNote, setCancelNote] = useState('')
-  const [confirmDelete, setConfirmDelete] = useState<PurchaseOrder | null>(null)
 
-  const counts = {
-    all: rows.length,
-    draft: rows.filter((r) => r.status === 'DRAFT').length,
-    pending: rows.filter((r) => r.status === 'PENDING_APPROVAL').length,
-    open: rows.filter((r) => ['APPROVED', 'PARTIALLY_EXECUTED', 'IN_PROGRESS', 'ON_HOLD'].includes(r.status)).length,
-    closed: rows.filter((r) => ['COMPLETED', 'CLOSED', 'SHORT_CLOSED', 'CANCELLED'].includes(r.status)).length,
+  const fetchList = () => {
+    setLoading(true)
+    api.getPurchaseOrders().then(res => {
+      setData(res || [])
+      setLoading(false)
+    }).catch(() => {
+      toast.error('Error', 'Failed to load POs')
+      setLoading(false)
+    })
   }
 
-  const filtered = rows.filter((r) => {
-    if (tab === 'draft') return r.status === 'DRAFT'
-    if (tab === 'pending') return r.status === 'PENDING_APPROVAL'
-    if (tab === 'open') return ['APPROVED', 'PARTIALLY_EXECUTED', 'IN_PROGRESS', 'ON_HOLD'].includes(r.status)
-    if (tab === 'closed') return ['COMPLETED', 'CLOSED', 'SHORT_CLOSED', 'CANCELLED'].includes(r.status)
-    return true
-  })
+  useEffect(() => {
+    fetchList()
+    Promise.all([
+      getSuppliers(), getPaymentTerms(), getTaxes(), 
+      getWarehouses(), getCurrencies(), getPlants(), api.getQuotations()
+    ]).then(([suppliers, terms, taxes, stores, currencies, plants, quotes]) => {
+      setMasters({ suppliers, terms, taxes, stores, currencies, plants, quotes: quotes.filter((q:any) => q.status === 'APPROVED' || q.status === 'QUOTED') })
+    }).catch(() => toast.error('Error', 'Failed to load master data'))
+  }, [])
 
-  const columns: Column<PurchaseOrder>[] = [
-    { key: 'docNo', header: 'PO number', sortable: true, width: '11rem', render: (r) => <span className="font-mono text-xs font-medium text-brand-600">{r.docNo}</span> },
-    { key: 'docDate', header: 'Date', sortable: true, width: '7rem', accessor: (r) => r.docDate, render: (r) => formatDate(r.docDate) },
-    { key: 'supplierName', header: 'Supplier', sortable: true },
-    { key: 'poType', header: 'Type', sortable: true, width: '8rem', render: (r) => <Badge tone="neutral" size="sm" dot={false}>{r.poType.replace('_', ' ').toLowerCase()}</Badge> },
-    { key: 'buyer', header: 'Buyer', sortable: true, width: '8rem' },
-    { key: 'promisedDate', header: 'Promised', sortable: true, width: '7rem', accessor: (r) => r.promisedDate, render: (r) => formatDate(r.promisedDate) },
-    { key: 'currency', header: 'Cur', width: '4rem', defaultHidden: true },
-    { key: 'totalValue', header: 'Value', align: 'right', sortable: true, accessor: (r) => r.totalValue, render: (r) => formatCurrency(r.totalValue) },
-    { key: 'receivedPct', header: 'Received', width: '8rem', accessor: (r) => r.receivedPct, render: (r) => <FillBar pct={r.receivedPct} /> },
-    { key: 'billedPct', header: 'Billed', width: '8rem', defaultHidden: true, accessor: (r) => r.billedPct, render: (r) => <FillBar pct={r.billedPct} /> },
+  const filteredData = useMemo(() => {
+    return data.filter(d => {
+      if (search && !d.docNo?.toLowerCase().includes(search.toLowerCase()) && !d.rfqNo?.toLowerCase().includes(search.toLowerCase())) return false
+      if (dateFrom && new Date(d.docDate) < new Date(dateFrom)) return false
+      if (dateTo && new Date(d.docDate) > new Date(dateTo)) return false
+      return true
+    })
+  }, [data, search, dateFrom, dateTo])
+
+  const handleResetFilters = () => {
+    setSearch('')
+    setDateFrom('')
+    setDateTo('')
+    fetchList()
+  }
+
+  const handleOpenForm = (po?: any) => {
+    if (po) {
+      setEditing(po)
+      setForm({
+        supplierUid: po.supplierUid || '',
+        plant: po.plant || '',
+        deliveryWarehouse: po.deliveryWarehouse || '',
+        paymentTerms: po.paymentTerms || '',
+        currency: po.currency || 'INR',
+        promisedDate: po.promisedDate ? new Date(po.promisedDate).toISOString().split('T')[0] : '',
+        rfqNo: po.rfqNo || '',
+        remarks: po.remarks || '',
+        lines: po.lines || [],
+        basicValue: po.basicValue || 0,
+        taxValue: po.taxValue || 0,
+        totalValue: po.totalValue || 0
+      })
+    } else {
+      setEditing(null)
+      setForm({
+        supplierUid: '',
+        plant: '',
+        deliveryWarehouse: '',
+        paymentTerms: '',
+        currency: 'INR',
+        promisedDate: '',
+        rfqNo: '',
+        remarks: '',
+        lines: [],
+        basicValue: 0,
+        taxValue: 0,
+        totalValue: 0
+      })
+    }
+    setFormOpen(true)
+  }
+
+  const handleView = (po: any) => {
+    setEditing(po)
+    setViewOpen(true)
+  }
+
+  const handleQuoteSelect = (quoteNo: string) => {
+    const quote = masters.quotes.find(q => q.docNo === quoteNo)
+    if (quote) {
+      const newLines = quote.lines.map((l:any) => ({
+        itemCode: l.itemCode,
+        itemName: l.itemName,
+        uom: l.uom,
+        qty: l.qty,
+        rate: l.rate,
+        taxPct: l.taxPct,
+        taxAmt: (l.qty * l.rate) * (l.taxPct / 100),
+        freight: l.freight,
+        total: (l.qty * l.rate) + ((l.qty * l.rate) * (l.taxPct / 100)) + (l.qty * l.freight)
+      }))
+      setForm({
+        ...form, 
+        rfqNo: quote.rfqNo, 
+        supplierUid: quote.supplierUid,
+        lines: newLines,
+        basicValue: quote.basicValue,
+        taxValue: quote.taxValue,
+        totalValue: quote.landedValue
+      })
+    }
+  }
+
+  // Build a complete, correctly-typed PO payload the backend schema accepts.
+  const buildPoPayload = (status: string) => {
+    const today = new Date().toISOString().slice(0, 10)
+    const supplier = masters.suppliers.find((s: any) => String(s.uid || s.id) === String(form.supplierUid))
+    return {
+      docNo: editing?.docNo && editing.docNo !== 'null' ? editing.docNo : null,
+      docDate: editing?.docDate ? String(editing.docDate).slice(0, 10) : today,
+      status,
+      plant: form.plant || 'DEFAULT',
+      poType: editing?.poType || 'STANDARD',
+      supplierUid: String(form.supplierUid),
+      supplierName: supplier?.name || editing?.supplierName || '',
+      buyer: form.buyer || editing?.buyer || 'Procurement',
+      currency: form.currency || 'INR',
+      exchangeRate: editing?.exchangeRate || 1,
+      paymentTerms: form.paymentTerms || '',
+      deliveryWarehouse: form.deliveryWarehouse || '',
+      promisedDate: form.promisedDate ? String(form.promisedDate).slice(0, 10) : today,
+      rfqNo: form.rfqNo || null,
+      remarks: form.remarks || null,
+      basicValue: Number(form.basicValue) || 0,
+      discountValue: 0,
+      taxValue: Number(form.taxValue) || 0,
+      freightValue: 0,
+      totalValue: Number(form.totalValue) || 0,
+      version: editing?.version || 1,
+      lines: form.lines.map((l: any) => ({
+        itemCode: String(l.itemCode ?? ''),
+        itemName: l.itemName || '',
+        uom: l.uom || '',
+        qty: Number(l.qty) || 0,
+        rate: Number(l.rate) || 0,
+        hsn: l.hsn || '',
+        taxPct: Number(l.taxPct) || 0,
+        amount: Number(l.qty) * Number(l.rate) || 0,
+        taxAmount: Number(l.taxAmt ?? l.taxAmount) || 0,
+        lineTotal: Number(l.total ?? l.lineTotal) || 0,
+        dueDate: form.promisedDate ? String(form.promisedDate).slice(0, 10) : today,
+      })),
+    }
+  }
+
+  const handleSave = async () => {
+    if (!form.supplierUid) return toast.error('Validation', 'Supplier is required')
+    if (!form.paymentTerms) return toast.error('Validation', 'Payment Terms is required')
+    if (!form.deliveryWarehouse) return toast.error('Validation', 'Delivery warehouse is required')
+    if (!form.promisedDate) return toast.error('Validation', 'Expected delivery date is required')
+    if (form.lines.length === 0) return toast.error('Validation', 'At least one item is required')
+
+    try {
+      const payload = buildPoPayload(editing?.status || 'DRAFT')
+      if (editing) {
+        await api.updatePurchaseOrder(editing.uid || editing.id, payload)
+        toast.success('Success', 'Purchase Order updated')
+      } else {
+        await api.createPurchaseOrder(payload)
+        toast.success('Success', 'Purchase Order created')
+      }
+      setFormOpen(false)
+      fetchList()
+    } catch (err: any) {
+      toast.error('Error', err.message || 'Failed to save PO')
+    }
+  }
+
+  // Submit an existing (draft) PO for approval. Sends the FULL object with the new
+  // status — the update SP rewrites the row from the payload, so a partial body
+  // would wipe the PO's fields and lines.
+  const handleSubmitApproval = async (po: any) => {
+    try {
+      const payload = {
+        ...po,
+        docNo: po.docNo && po.docNo !== 'null' ? po.docNo : null,
+        docDate: po.docDate ? String(po.docDate).slice(0, 10) : new Date().toISOString().slice(0, 10),
+        promisedDate: po.promisedDate ? String(po.promisedDate).slice(0, 10) : new Date().toISOString().slice(0, 10),
+        status: 'PENDING_APPROVAL',
+        lines: (po.lines || []).map((l: any) => ({
+          ...l,
+          dueDate: l.dueDate ? String(l.dueDate).slice(0, 10) : new Date().toISOString().slice(0, 10),
+        })),
+      }
+      await api.updatePurchaseOrder(po.uid || po.id, payload)
+      toast.success('Success', 'Submitted for approval')
+      setViewOpen(false)
+      fetchList()
+    } catch (err: any) {
+      toast.error('Error', err.message || 'Failed to submit')
+    }
+  }
+
+  const columns: Column<any>[] = [
+    { key: 'sno', header: 'S.No', width: '52px', align: 'center' as const, render: (_, i) => i + 1 },
+    { key: 'docNo', header: 'PO No', width: '150px', render: (r) => <span className="text-xs font-semibold text-brand-700">{r.docNo || '-'}</span> },
+    { key: 'docDate', header: 'Date', render: (r) => formatDate(r.docDate), width: '130px' },
+    { key: 'supplier', header: 'Supplier', render: (r) => {
+      const sup = masters.suppliers.find(s => (s.uid || s.id) === r.supplierUid)
+      return sup ? sup.name : r.supplierUid
+    } },
+    { key: 'promisedDate', header: 'Delivery Due', render: (r) => r.promisedDate ? formatDate(r.promisedDate) : '-', width: '130px' },
+    { key: 'items', header: 'Items', align: 'center' as const, render: (r) => r.lines?.length || 0, width: '72px' },
+    { key: 'totalValue', header: 'Total Value', align: 'right' as const, render: (r) => formatCurrency(r.totalValue), width: '120px' },
+    { key: 'status', header: 'Status', width: '150px', className: 'col-flex', render: (r) => <ProcStatusBadge status={r.status} /> },
     {
-      key: 'acknowledged',
-      header: 'Ack',
-      align: 'center',
-      width: '4.5rem',
-      accessor: (r) => (r.acknowledged ? 'Yes' : 'No'),
-      render: (r) => (r.acknowledged ? <Check className="mx-auto h-3.5 w-3.5 text-success" /> : <span className="text-2xs text-fg-subtle">—</span>),
+      key: 'actions',
+      header: 'Action',
+      width: '120px',
+      className: 'col-flex',
+      render: (r) => (
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" onClick={() => handleView(r)} title="View">
+            <Eye className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={() => handleOpenForm(r)} title="Edit">
+            <Edit className="h-4 w-4" />
+          </Button>
+        </div>
+      ),
     },
-    { key: 'status', header: 'Status', sortable: true, width: '9rem', render: (r) => <ProcStatusBadge status={r.status} size="sm" /> },
   ]
 
-  function doExport(format: ExportFormat) {
-    try {
-      const n = exportRows(format, 'purchase-orders', 'Purchase orders', columnsFromTable(columns), filtered)
-      toast.success('Export ready', `${n} rows written as ${format === 'xlsx' ? 'Excel' : format.toUpperCase()}.`)
-    } catch (e) {
-      toast.error('Export failed', e instanceof Error ? e.message : 'Unknown error.')
-    }
-  }
-
-  /**
-   * Selecting the requisition is the whole data-entry step: the awarded
-   * quotation already holds the vendor, the rates and the terms, so re-keying
-   * them is only an opportunity to key them wrong.
-   */
-  function applyPr(prNo: string) {
-    const match = orderable.find((o) => o.pr.docNo === prNo)
-    if (!match) {
-      setForm((f) => ({ ...f, prNo }))
-      return
-    }
-    const { pr, award } = match
-    const due = new Date()
-    due.setDate(due.getDate() + (award.leadTimeDays || 14))
-    setForm((f) => ({
-      ...f,
-      prNo,
-      supplierName: award.supplierName,
-      buyer: f.buyer || pr.requestedBy,
-      currency: award.currency || 'INR',
-      paymentTerms: award.paymentTerms,
-      promisedDate: due.toISOString().slice(0, 10),
-      basicValue: String(Math.round(award.basicValue)),
-      plant: pr.plant,
-    }))
-  }
-
-  function openCreate() {
-    setEditing(null)
-    setForm({ prNo: '', supplierName: SUPPLIERS[0], poType: 'STANDARD', buyer: '', currency: 'INR', paymentTerms: '30 days from invoice', deliveryWarehouse: 'RM Store — Chennai', promisedDate: '', basicValue: '', plant: 'Chennai — Unit 1' })
-    setErrors({})
-    setFormOpen(true)
-    const first = orderable[0]
-    if (first) setTimeout(() => applyPr(first.pr.docNo), 0)
-  }
-
-  function openEdit(r: PurchaseOrder) {
-    setEditing(r)
-    setForm({
-      prNo: r.prRefs[0] ?? '',
-      supplierName: r.supplierName,
-      poType: r.poType,
-      buyer: r.buyer,
-      currency: r.currency,
-      paymentTerms: r.paymentTerms,
-      deliveryWarehouse: r.deliveryWarehouse,
-      promisedDate: r.promisedDate,
-      basicValue: String(r.basicValue),
-      plant: r.plant,
-    })
-    setErrors({})
-    setFormOpen(true)
-  }
-
-  async function save(submit: boolean) {
-    const e: Record<string, string> = {}
-    if (!editing && !form.prNo) e.prNo = 'Select the requisition whose quotation was awarded.'
-    if (!form.buyer.trim()) e.buyer = 'Assign a buyer.'
-    if (!form.promisedDate) e.promisedDate = 'A promised delivery date is required.'
-    const basic = Number(form.basicValue)
-    if (!form.basicValue || Number.isNaN(basic) || basic <= 0) e.basicValue = 'Enter a positive basic value.'
-    setErrors(e)
-    if (Object.keys(e).length) return
-
-    const tax = form.currency === 'INR' ? basic * 0.18 : 0
-    const patch = {
-      supplierName: form.supplierName,
-      poType: form.poType as PurchaseOrder['poType'],
-      buyer: form.buyer.trim(),
-      currency: form.currency,
-      paymentTerms: form.paymentTerms,
-      deliveryWarehouse: form.deliveryWarehouse,
-      promisedDate: form.promisedDate,
-      plant: form.plant,
-      basicValue: basic,
-      taxValue: tax,
-      totalValue: basic + tax,
-      status: (submit ? 'PENDING_APPROVAL' : 'DRAFT') as PurchaseOrder['status'],
-    }
-
-    if (editing) {
-      await update(editing.uid, { ...patch, version: editing.version + 1 })
-      toast.success('Purchase order updated', `${editing.docNo} saved as version ${editing.version + 1}.`)
-    } else {
-      const match = orderable.find((o) => o.pr.docNo === form.prNo)
-      const award = match?.award
-      const docNo = nextDocNo('PO', rows, 5)
-      try {
-        createPo({
-          docNo,
-          docDate: new Date().toISOString().slice(0, 10),
-          supplierUid: award?.supplierUid ?? 'sup-new',
-          exchangeRate: form.currency === 'INR' ? 1 : 96.4,
-          deliveryTerms: award?.deliveryTerms ?? 'Free delivery',
-          rfqNo: match?.rfq.docNo,
-          prRefs: match ? [match.pr.docNo] : [],
-          discountValue: 0,
-          freightValue: 0,
-          receivedPct: 0,
-          billedPct: 0,
-          acknowledged: false,
-          createdBy: form.buyer.trim(),
-          createdAt: new Date().toISOString(),
-          version: 1,
-          attachments: 0,
-          comments: 0,
-          approvals: submit ? [{ level: 1, role: 'Purchase Manager', approver: 'P. Suresh', status: 'PENDING' }] : [],
-          lines: award ? poLinesFromQuotation(award, form.promisedDate) : [],
-          amendments: [],
-          ...patch,
-        })
-        if (award) updateQuotation(award.uid.toString(), { status: 'AWARDED' })
-        toast.success(
-          submit ? 'Purchase order submitted' : 'Draft saved',
-          award
-            ? `${docNo} raised on ${award.supplierName} from ${award.docNo} with ${award.lines.length} line${award.lines.length > 1 ? 's' : ''} at the awarded rates.`
-            : `${docNo} created.`,
-        )
-      } catch (e) {
-        toast.error('Error', 'Failed to save purchase order')
-      }
-    }
-    setFormOpen(false)
-  }
-
-  async function decide(r: PurchaseOrder, approve: boolean) {
-    update(r.uid, {
-      status: approve ? 'APPROVED' : 'REJECTED',
-      approvals: r.approvals.map((a) => (a.status === 'PENDING' ? { ...a, status: approve ? 'APPROVED' : 'REJECTED', actedAt: new Date().toISOString() } : a)),
-    })
-    toast.success(approve ? 'Approved' : 'Rejected', `${r.docNo} ${approve ? 'released to the supplier' : 'returned to the buyer'}.`)
-    setDetail(null)
-  }
-
-  async function doCancel() {
-    if (!cancelling) return
-    if (!cancelNote.trim()) {
-      toast.error('Reason required', 'A cancellation note is mandatory and is written to the audit log.')
-      return
-    }
-    update(cancelling.uid, { status: 'CANCELLED', remarks: `${cancelReason.split(' — ')[0]}: ${cancelNote.trim()}` })
-    toast.success('Cancelled', `${cancelling.docNo} cancelled with reason ${cancelReason.split(' — ')[0]}.`)
-    setCancelling(null)
-    setCancelNote('')
-  }
-
-  const overdue = rows
-    .filter((r) => ['APPROVED', 'PARTIALLY_EXECUTED', 'ON_HOLD'].includes(r.status))
-    .filter((r) => new Date(r.promisedDate).getTime() < Date.now())
-
   return (
-    <div>
+    <div className="flex h-full w-full flex-col flex-1">
       <PageHeader
-        title="Purchase orders"
-        breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Procurement', to: '/procurement' }, { label: 'Purchase orders' }]}
+        title="Purchase Orders"
+        breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Procurement', to: '/procurement/dashboard' }, { label: 'Purchase Orders' }]}
         actions={
-          <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={openCreate}>
-            New purchase order
+          <Button variant="primary" onClick={() => handleOpenForm()}>
+            <Plus className="mr-2 h-4 w-4" /> Create PO
           </Button>
         }
-        tabs={
-          <Tabs
-            active={tab}
-            onChange={setTab}
-            tabs={[
-              { id: 'all', label: 'All', count: counts.all },
-              { id: 'draft', label: 'Draft', count: counts.draft },
-              { id: 'pending', label: 'Pending approval', count: counts.pending },
-              { id: 'open', label: 'Open', count: counts.open },
-              { id: 'closed', label: 'Closed', count: counts.closed },
-            ]}
-          />
-        }
+      />
+      
+      <ProcurementToolbar 
+        search={search} onSearchChange={setSearch}
+        dateFrom={dateFrom} onDateFromChange={setDateFrom}
+        dateTo={dateTo} onDateToChange={setDateTo}
+        onReset={handleResetFilters}
       />
 
-      <DataTable
-        rows={filtered}
-        columns={columns}
-        rowKey={(r) => r.uid}
-        searchPlaceholder="Search PO number, supplier, buyer…"
-        onExport={doExport}
-        onRowClick={(r) => { setDetail(r); setDetailTab('lines') }}
-        emptyTitle="No purchase orders"
-        rowActions={(r) => (
-          <>
-            <MenuItem label="Open" onClick={() => { setDetail(r); setDetailTab('lines') }} />
-            <MenuItem label="Edit" disabled={!['DRAFT', 'REJECTED'].includes(r.status)} onClick={() => openEdit(r)} />
-            <MenuItem label="Print / PDF" icon={<Printer />} onClick={() => { try { exportRows('pdf', r.docNo.replace(/\//g, '-'), `Purchase order ${r.docNo}`, [{ header: 'Item', value: (l: PurchaseOrder['lines'][0]) => l.itemName }, { header: 'Qty', value: (l) => l.qty }, { header: 'UoM', value: (l) => l.uom }, { header: 'Rate', value: (l) => l.rate.toFixed(2) }, { header: 'Amount', value: (l) => l.amount.toFixed(2) }], r.lines); } catch (e) { toast.error('Print failed', e instanceof Error ? e.message : 'Unknown error.') } }} />
-            <MenuItem label="Approve" icon={<Check />} separatorBefore disabled={r.status !== 'PENDING_APPROVAL'} onClick={() => decide(r, true)} />
-            <MenuItem label="Reject" icon={<X />} danger disabled={r.status !== 'PENDING_APPROVAL'} onClick={() => decide(r, false)} />
-            <MenuItem
-              label={r.status === 'ON_HOLD' ? 'Release hold' : 'Put on hold'}
-              separatorBefore
-              disabled={!['APPROVED', 'PARTIALLY_EXECUTED', 'ON_HOLD'].includes(r.status)}
-              onClick={() => {
-                update(r.uid, { status: r.status === 'ON_HOLD' ? 'PARTIALLY_EXECUTED' : 'ON_HOLD' })
-                toast.success(r.status === 'ON_HOLD' ? 'Hold released' : 'On hold', `${r.docNo} updated.`)
-              }}
-            />
-            <MenuItem
-              label="Short close"
-              disabled={r.status !== 'PARTIALLY_EXECUTED'}
-              onClick={() => {
-                update(r.uid, { status: 'SHORT_CLOSED', shortCloseReason: 'Closed by the buyer; the balance is no longer required.' })
-                toast.success('Short closed', `${r.docNo} closed at ${r.receivedPct}% fulfilment.`)
-              }}
-            />
-            <MenuItem label="Cancel" icon={<Ban />} danger disabled={['CANCELLED', 'COMPLETED', 'CLOSED'].includes(r.status)} onClick={() => setCancelling(r)} />
-            <MenuItem label="Delete" icon={<Trash2 />} danger separatorBefore disabled={r.status !== 'DRAFT'} onClick={() => setConfirmDelete(r)} />
-          </>
-        )}
-      />
+      <div className="flex-1 flex flex-col min-h-0 bg-surface-2 pt-4 w-full">
+        <div className="flex-1 w-full bg-surface border border-border shadow-sm rounded-lg flex flex-col min-h-0">
+          <DataTable searchable={false} rows={filteredData} rowKey={(r) => r.uid || r.id || r.docNo || String(Math.random())} columns={columns} loading={loading} />
+        </div>
+      </div>
 
-      {/* Detail --------------------------------------------------------------- */}
-      <Drawer
-        open={!!detail}
-        onClose={() => setDetail(null)}
-        title={detail?.docNo}
-        description={detail ? `${detail.supplierName} · ${detail.poType.replace('_', ' ').toLowerCase()}` : undefined}
-        width="max-w-4xl"
-        footer={
-          detail && (
-            <div className="flex w-full items-center justify-between gap-2">
-              <span className="text-2xs text-fg-subtle">
-                Version {detail.version} · {detail.amendments.length} amendments · {detail.attachments} attachments
-              </span>
-              <div className="flex gap-2">
-                {detail.status === 'PENDING_APPROVAL' && (
-                  <>
-                    <Button variant="danger" size="sm" onClick={() => decide(detail, false)}>Reject</Button>
-                    <Button variant="success" size="sm" onClick={() => decide(detail, true)}>Approve</Button>
-                  </>
-                )}
-                <Button variant="outline" size="sm" onClick={() => setDetail(null)}>Close</Button>
+      <Modal open={formOpen} onClose={() => setFormOpen(false)} title={editing ? `Edit PO ${editing.docNo}` : 'New Purchase Order'} size="2xl">
+        <div className="flex flex-col gap-6">
+          <Card>
+            <CardHeader title="Order Information" />
+            <CardBody className="grid gap-4 sm:grid-cols-3">
+              <Select label="Load from Quote" value="" onChange={e => handleQuoteSelect(e.target.value)} disabled={!!editing}>
+                <option value="">Select Approved Quote...</option>
+                {masters.quotes.map(q => <option key={q.docNo} value={q.docNo}>{q.docNo} (RFQ: {q.rfqNo})</option>)}
+              </Select>
+              <Select label="Supplier" value={form.supplierUid} onChange={e => setForm({...form, supplierUid: e.target.value})} disabled={!!editing}>
+                <option value="">Select Supplier</option>
+                {masters.suppliers.map(s => <option key={s.uid || s.id} value={s.uid || s.id}>{s.name}</option>)}
+              </Select>
+              <Input type="date" label="Promised Date" value={form.promisedDate} onChange={e => setForm({...form, promisedDate: e.target.value})} />
+              
+              <Select label="Plant" value={form.plant} onChange={e => setForm({...form, plant: e.target.value})}>
+                <option value="">Select Plant</option>
+                {masters.plants.map(p => <option key={p.uid || p.id} value={p.uid || p.id}>{p.name}</option>)}
+              </Select>
+              <Select label="Delivery Warehouse" value={form.deliveryWarehouse} onChange={e => setForm({...form, deliveryWarehouse: e.target.value})}>
+                <option value="">Select Warehouse</option>
+                {masters.stores.map(s => <option key={s.uid || s.id} value={s.uid || s.id}>{s.name}</option>)}
+              </Select>
+              <Select label="Payment Terms" value={form.paymentTerms} onChange={e => setForm({...form, paymentTerms: e.target.value})}>
+                <option value="">Select Terms</option>
+                {masters.terms.map(t => <option key={t.uid || t.id} value={t.uid || t.id}>{t.name}</option>)}
+              </Select>
+              
+              <div className="sm:col-span-3">
+                <Textarea label="Remarks / Terms & Conditions" rows={2} value={form.remarks} onChange={e => setForm({...form, remarks: e.target.value})} />
               </div>
-            </div>
-          )
-        }
-      >
-        {detail && (
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <ProcStatusBadge status={detail.status} />
-              <Badge tone="neutral" size="sm" dot={false}>{detail.poType.replace('_', ' ').toLowerCase()}</Badge>
-              {detail.acknowledged && <span className="text-2xs text-success">Acknowledged {formatDateTime(detail.acknowledgedAt!)}</span>}
-              {detail.contractNo && <span className="text-2xs text-fg-muted">Against {detail.contractNo}</span>}
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader title="Order Lines" />
+            <CardBody className="p-0 overflow-x-auto">
+              <table className="grid-table w-full text-sm min-w-[800px]">
+                <thead>
+                  <tr>
+                    <th className="w-10">#</th>
+                    <th>Item</th>
+                    <th className="w-20">Qty</th>
+                    <th className="text-right">Rate</th>
+                    <th className="text-right">Tax %</th>
+                    <th className="text-right">Freight</th>
+                    <th className="text-right">Line Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {form.lines.map((l: any, i: number) => (
+                    <tr key={i}>
+                      <td className="text-center">{i + 1}</td>
+                      <td>{l.itemName} <span className="text-xs text-fg-muted block">{l.uom}</span></td>
+                      <td>{l.qty}</td>
+                      <td className="text-right">{formatCurrency(l.rate)}</td>
+                      <td className="text-right">{l.taxPct}%</td>
+                      <td className="text-right">{formatCurrency(l.qty * l.freight)}</td>
+                      <td className="text-right font-medium">{formatCurrency(l.total)}</td>
+                    </tr>
+                  ))}
+                  {form.lines.length === 0 && (
+                    <tr><td colSpan={7} className="text-center text-fg-muted py-4">Select a Quotation to load items.</td></tr>
+                  )}
+                </tbody>
+              </table>
+              {form.lines.length > 0 && (
+                <div className="flex justify-end p-4 border-t border-border bg-gray-50/50">
+                  <div className="w-64 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-fg-muted">Basic Value</span>
+                      <span className="font-medium">{formatCurrency(form.basicValue)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-fg-muted">Tax Value</span>
+                      <span className="font-medium">{formatCurrency(form.taxValue)}</span>
+                    </div>
+                    <div className="flex justify-between border-t border-border pt-2">
+                      <span className="font-medium">Total Order Value</span>
+                      <span className="font-bold text-brand-600">{formatCurrency(form.totalValue)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardBody>
+          </Card>
+
+          <div className="flex justify-end gap-2 border-t border-border pt-4">
+            <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
+            <Button variant="primary" onClick={handleSave}>{editing ? 'Update PO' : 'Save PO'}</Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={viewOpen} onClose={() => setViewOpen(false)} title={`View PO - ${editing?.docNo}`} size="2xl">
+        {editing && (
+          <div className="flex flex-col gap-6">
+            <div className="grid grid-cols-4 gap-4 text-sm bg-gray-50/50 p-4 rounded-lg border border-border">
+              <div><span className="text-fg-muted">PO No:</span> <span className="font-medium">{editing.docNo}</span></div>
+              <div><span className="text-fg-muted">Date:</span> <span className="font-medium">{formatDate(editing.docDate)}</span></div>
+              <div><span className="text-fg-muted">Supplier:</span> <span className="font-medium">{masters.suppliers.find(s => (s.uid || s.id) === editing.supplierUid)?.name || editing.supplierUid}</span></div>
+              <div><span className="text-fg-muted">Promised:</span> <span className="font-medium">{editing.promisedDate ? formatDate(editing.promisedDate) : '-'}</span></div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-4">
-              <ValueTile label="Basic" value={formatCurrency(detail.basicValue)} />
-              <ValueTile label="Tax" value={formatCurrency(detail.taxValue)} />
-              <ValueTile label="Freight" value={formatCurrency(detail.freightValue)} />
-              <ValueTile label="Total" value={formatCurrency(detail.totalValue)} strong />
-            </div>
-
-            <Tabs
-              active={detailTab}
-              onChange={setDetailTab}
-              tabs={[
-                { id: 'lines', label: 'Lines', count: detail.lines.length },
-                { id: 'schedule', label: 'Delivery schedule' },
-                { id: 'terms', label: 'Terms' },
-                { id: 'amendments', label: 'Amendments', count: detail.amendments.length },
-                { id: 'approval', label: 'Approval' },
-              ]}
-            />
-
-            {detailTab === 'lines' && (
-              <div className="overflow-x-auto rounded border border-border">
-                <table className="grid-table">
+            <Card>
+              <CardHeader title="Order Lines" />
+              <CardBody className="p-0 overflow-x-auto">
+                <table className="grid-table w-full text-sm min-w-[800px]">
                   <thead>
                     <tr>
+                      <th className="w-10">#</th>
                       <th>Item</th>
-                      <th className="text-right">Qty</th>
+                      <th className="w-20">Qty</th>
                       <th className="text-right">Rate</th>
-                      <th className="text-right">Disc</th>
-                      <th>HSN</th>
-                      <th className="text-right">Tax</th>
-                      <th className="text-right">Line total</th>
-                      <th className="text-right">Received</th>
-                      <th className="text-right">Rejected</th>
-                      <th className="text-center">QC</th>
+                      <th className="text-right">Tax %</th>
+                      <th className="text-right">Total</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {detail.lines.map((l) => (
-                      <tr key={l.uid}>
-                        <td>
-                          <p className="text-xs font-medium text-fg">{l.itemName}</p>
-                          <p className="font-mono text-2xs text-fg-subtle">{l.itemCode}</p>
-                        </td>
-                        <td className="text-right tabular">{l.qty.toLocaleString('en-IN')} {l.uom}</td>
-                        <td className="text-right tabular">{l.rate.toFixed(2)}</td>
-                        <td className="text-right tabular">{l.discountPct}%</td>
-                        <td className="font-mono text-2xs">{l.hsn}</td>
-                        <td className="text-right tabular">{l.taxPct}%</td>
-                        <td className="text-right tabular font-medium">{formatCurrency(l.lineTotal)}</td>
-                        <td className="text-right tabular">{l.receivedQty.toLocaleString('en-IN')}</td>
-                        <td className={cn('text-right tabular', l.rejectedQty > 0 && 'text-danger')}>{l.rejectedQty.toLocaleString('en-IN')}</td>
-                        <td className="text-center text-2xs">{l.qcRequired ? 'Yes' : '—'}</td>
+                    {editing.lines?.map((l: any, i: number) => (
+                      <tr key={i}>
+                        <td className="text-center">{i + 1}</td>
+                        <td>{l.itemName} <span className="text-xs text-fg-muted">({l.uom})</span></td>
+                        <td>{l.qty}</td>
+                        <td className="text-right">{formatCurrency(l.rate)}</td>
+                        <td className="text-right">{l.taxPct}%</td>
+                        <td className="text-right font-medium">{formatCurrency(l.total)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              </div>
-            )}
-
-            {detailTab === 'schedule' && (
-              <div className="space-y-3">
-                {detail.lines.map((l) => (
-                  <div key={l.uid} className="rounded border border-border">
-                    <div className="border-b border-border px-3 py-2">
-                      <p className="text-xs font-medium text-fg">{l.itemName}</p>
-                      <p className="font-mono text-2xs text-fg-subtle">{l.itemCode}</p>
+                <div className="flex justify-end p-4 border-t border-border bg-gray-50/50">
+                  <div className="w-64 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-fg-muted">Basic Value</span>
+                      <span className="font-medium">{formatCurrency(editing.basicValue)}</span>
                     </div>
-                    <table className="grid-table">
-                      <thead>
-                        <tr>
-                          <th>Due date</th>
-                          <th className="text-right">Scheduled</th>
-                          <th className="text-right">Received</th>
-                          <th className="text-right">Balance</th>
-                          <th>Progress</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {l.schedules.map((s) => (
-                          <tr key={s.uid}>
-                            <td className="text-xs">
-                              {formatDate(s.dueDate)}
-                              {new Date(s.dueDate).getTime() < Date.now() && s.receivedQty < s.qty && (
-                                <span className="ml-2">
-                                  <DelayChip days={Math.ceil((Date.now() - new Date(s.dueDate).getTime()) / 86_400_000)} />
-                                </span>
-                              )}
-                            </td>
-                            <td className="text-right tabular">{s.qty.toLocaleString('en-IN')}</td>
-                            <td className="text-right tabular">{s.receivedQty.toLocaleString('en-IN')}</td>
-                            <td className="text-right tabular">{Math.max(0, s.qty - s.receivedQty).toLocaleString('en-IN')}</td>
-                            <td><FillBar pct={(s.receivedQty / s.qty) * 100} /></td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-fg-muted">Tax Value</span>
+                      <span className="font-medium">{formatCurrency(editing.taxValue)}</span>
+                    </div>
+                    <div className="flex justify-between border-t border-border pt-2">
+                      <span className="font-medium">Total Value</span>
+                      <span className="font-bold text-brand-600">{formatCurrency(editing.totalValue)}</span>
+                    </div>
                   </div>
-                ))}
-              </div>
-            )}
+                </div>
+              </CardBody>
+            </Card>
 
-            {detailTab === 'terms' && (
-              <DataGrid
-                columns={2}
-                items={[
-                  { label: 'Payment terms', value: detail.paymentTerms },
-                  { label: 'Delivery terms', value: detail.deliveryTerms },
-                  { label: 'Incoterm', value: detail.incoterm ?? '—' },
-                  { label: 'Currency', value: `${detail.currency} @ ${detail.exchangeRate}` },
-                  { label: 'Delivery warehouse', value: detail.deliveryWarehouse },
-                  { label: 'Promised date', value: formatDate(detail.promisedDate) },
-                  { label: 'RFQ reference', value: detail.rfqNo ?? '—' },
-                  { label: 'Requisitions', value: detail.prRefs.join(', ') || '—' },
-                  { label: 'Buyer', value: detail.buyer },
-                  { label: 'Plant', value: detail.plant },
-                ]}
-              />
-            )}
-
-            {detailTab === 'amendments' && (
-              <div className="space-y-3">
-                {detail.amendments.length === 0 ? (
-                  <p className="text-xs text-fg-subtle">
-                    No amendments. Once approved, this order can only be changed through a numbered revision with a
-                    reason — never edited in place.
-                  </p>
-                ) : (
-                  detail.amendments.map((a) => (
-                    <div key={a.revision} className="rounded border border-border p-3">
-                      <div className="mb-2 flex items-center gap-2">
-                        <GitBranch className="h-3.5 w-3.5 text-fg-subtle" />
-                        <span className="text-xs font-medium text-fg">Revision {a.revision}</span>
-                        <span className="text-2xs text-fg-muted">
-                          {a.amendedBy} · {formatDateTime(a.amendedAt)}
-                        </span>
-                      </div>
-                      <p className="mb-2 text-2xs italic text-fg-muted">{a.reason}</p>
-                      <table className="grid-table">
-                        <thead>
-                          <tr>
-                            <th>Field</th>
-                            <th>From</th>
-                            <th>To</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {a.changes.map((c, i) => (
-                            <tr key={i}>
-                              <td className="text-xs">{c.field}</td>
-                              <td className="text-xs text-danger line-through">{c.from}</td>
-                              <td className="text-xs text-success">{c.to}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-
-            {detailTab === 'approval' && (
-              <div className="space-y-4">
-                <ApprovalTrail steps={detail.approvals} />
-                {detail.shortCloseReason && (
-                  <DetailBlock title="Short close reason">
-                    <p className="text-xs text-fg-muted">{detail.shortCloseReason}</p>
-                  </DetailBlock>
-                )}
-                {detail.remarks && (
-                  <DetailBlock title="Remarks">
-                    <p className="text-xs text-fg-muted">{detail.remarks}</p>
-                  </DetailBlock>
-                )}
-              </div>
-            )}
+            <div className="flex justify-end gap-2 border-t border-border pt-4">
+              <Button variant="outline" onClick={() => setViewOpen(false)}>Close</Button>
+              {editing.status === 'DRAFT' && (
+                <Button variant="primary" onClick={() => handleSubmitApproval(editing)}>Submit for Approval</Button>
+              )}
+            </div>
           </div>
         )}
-      </Drawer>
-
-      {/* Create / edit --------------------------------------------------------- */}
-      <Modal
-        open={formOpen}
-        onClose={() => setFormOpen(false)}
-        title={editing ? `Edit ${editing.docNo}` : 'New purchase order'}
-        size="lg"
-        footer={
-          <>
-            <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
-            <Button variant="outline" onClick={() => save(false)}>Save draft</Button>
-            <Button variant="primary" onClick={() => save(true)}>{editing ? 'Save and submit' : 'Create and submit'}</Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          {!editing && !orderable.length && (
-            <Alert tone="warning" title="No awarded quotation is waiting for an order">
-              An order is raised from a requisition whose quotations have been compared and awarded. Award one on the
-              Quotation Comparison screen first.
-            </Alert>
-          )}
-
-          {!editing && (
-            <Select
-              label="Purchase requisition"
-              required
-              value={form.prNo}
-              error={errors.prNo}
-              onChange={(e) => applyPr(e.target.value)}
-              hint="Requisitions with an awarded quotation. Selecting one fills the vendor, rates and terms from that award."
-              options={[
-                { value: '', label: orderable.length ? 'Select a requisition…' : 'Nothing awarded and unordered' },
-                ...orderable.map((o) => ({
-                  value: o.pr.docNo,
-                  label: `${o.pr.docNo} — awarded to ${o.award.supplierName} · ${formatCurrency(o.award.landedValue)}`,
-                })),
-              ]}
-            />
-          )}
-
-          {!editing && awardPreview && (
-            <DetailBlock title={`Lines from ${awardPreview.docNo} (${awardPreview.lines.length})`}>
-              <div className="overflow-x-auto rounded border border-border">
-                <table className="grid-table">
-                  <thead>
-                    <tr>
-                      <th>Item</th>
-                      <th className="text-right">Qty</th>
-                      <th className="text-right">Awarded rate</th>
-                      <th className="text-right">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {awardPreview.lines.map((l) => (
-                      <tr key={l.uid}>
-                        <td>
-                          <p className="text-xs font-medium text-fg">{l.itemName}</p>
-                          <p className="font-mono text-2xs text-fg-subtle">{l.itemCode}</p>
-                        </td>
-                        <td className="text-right tabular">{l.qty.toLocaleString('en-IN')} {l.uom}</td>
-                        <td className="text-right tabular">{l.rate.toFixed(2)}</td>
-                        <td className="text-right tabular font-medium">{formatCurrency(l.rate * (1 - l.discountPct / 100) * l.qty)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </DetailBlock>
-          )}
-
-        <div className="grid gap-3.5 sm:grid-cols-2">
-          <Select label="Supplier" containerClassName="sm:col-span-2" value={form.supplierName} disabled={!editing && !!awardPreview} onChange={(e) => setForm({ ...form, supplierName: e.target.value })} options={SUPPLIERS.map((s) => ({ value: s, label: s }))} />
-          <Select label="Order type" value={form.poType} onChange={(e) => setForm({ ...form, poType: e.target.value })} options={PO_TYPES.map((t) => ({ value: t, label: t.replace('_', ' ').toLowerCase() }))} />
-          <Input label="Buyer" required value={form.buyer} error={errors.buyer} onChange={(e) => setForm({ ...form, buyer: e.target.value })} />
-          <Select label="Currency" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} options={[{ value: 'INR', label: 'INR' }, { value: 'USD', label: 'USD' }, { value: 'EUR', label: 'EUR' }]} />
-          <Input label="Promised date" type="date" required value={form.promisedDate} error={errors.promisedDate} onChange={(e) => setForm({ ...form, promisedDate: e.target.value })} />
-          <Select label="Payment terms" value={form.paymentTerms} onChange={(e) => setForm({ ...form, paymentTerms: e.target.value })} options={['15 days from invoice', '30 days from invoice', '45 days from invoice', 'Advance 50%, balance on delivery', 'LC at sight'].map((v) => ({ value: v, label: v }))} />
-          <Select label="Delivery warehouse" value={form.deliveryWarehouse} onChange={(e) => setForm({ ...form, deliveryWarehouse: e.target.value })} options={['RM Store — Chennai', 'Packing Store — Chennai', 'Spares Store — Chennai', 'Tool Room — Hosur', 'WIP Store — Hosur'].map((v) => ({ value: v, label: v }))} />
-          <Input label="Basic value" type="number" required value={form.basicValue} error={errors.basicValue} hint={form.currency === 'INR' ? 'GST at 18% is added automatically.' : 'Import — duty and IGST are computed at clearance.'} onChange={(e) => setForm({ ...form, basicValue: e.target.value })} />
-          <Select label="Plant" value={form.plant} onChange={(e) => setForm({ ...form, plant: e.target.value })} options={[{ value: 'Chennai — Unit 1', label: 'Chennai — Unit 1' }, { value: 'Hosur — Unit 2', label: 'Hosur — Unit 2' }]} />
-        </div>
-        </div>
       </Modal>
-
-      {/* Cancel ---------------------------------------------------------------- */}
-      <Modal
-        open={!!cancelling}
-        onClose={() => setCancelling(null)}
-        title={`Cancel ${cancelling?.docNo ?? ''}`}
-        size="md"
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setCancelling(null)}>Keep order</Button>
-            <Button variant="danger" onClick={doCancel}>Cancel order</Button>
-          </>
-        }
-      >
-        <div className="space-y-3.5">
-          <Select label="Reason code" required value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} options={CANCEL_REASONS.map((r) => ({ value: r, label: r }))} />
-          <Textarea label="Cancellation note" required rows={3} value={cancelNote} onChange={(e) => setCancelNote(e.target.value)} hint="Written to the audit log and visible to the supplier on the portal." />
-          {cancelling && cancelling.receivedPct > 0 && (
-            <p className="rounded border border-warning/30 bg-warning/5 p-2.5 text-xs text-warning">
-              {cancelling.receivedPct}% of this order has already been received. Cancellation applies only to the
-              undelivered balance; received quantities stay in stock and remain payable.
-            </p>
-          )}
-        </div>
-      </Modal>
-
-      <Modal
-        open={!!confirmDelete}
-        onClose={() => setConfirmDelete(null)}
-        title="Delete draft"
-        size="sm"
-        footer={
-          <>
-            <Button variant="outline" onClick={() => setConfirmDelete(null)}>Cancel</Button>
-            <Button
-              variant="danger"
-              onClick={() => {
-                if (confirmDelete) {
-                  remove(confirmDelete.uid)
-                  toast.success('Deleted', `${confirmDelete.docNo} soft-deleted.`)
-                }
-                setConfirmDelete(null)
-              }}
-            >
-              Delete
-            </Button>
-          </>
-        }
-      >
-        <p className="text-sm text-fg-muted">
-          Only drafts can be deleted. Approved orders must be cancelled with a reason so the document number and audit
-          trail survive.
-        </p>
-      </Modal>
-
-      <Card className="mt-4">
-        <CardHeader title="Order types in use" icon={<FileText className="h-4 w-4" />} />
-        <CardBody className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          {PO_TYPES.map((t) => {
-            const n = rows.filter((r) => r.poType === t).length
-            const v = rows.filter((r) => r.poType === t).reduce((s, r) => s + r.totalValue, 0)
-            return (
-              <div key={t} className="rounded border border-border p-2.5">
-                <p className="text-xs font-medium text-fg">{t.replace('_', ' ').toLowerCase()}</p>
-                <p className="mt-0.5 text-2xs text-fg-muted tabular">
-                  {n} orders · {formatCurrency(v)}
-                </p>
-              </div>
-            )
-          })}
-        </CardBody>
-      </Card>
-    </div>
-  )
-}
-
-function ValueTile({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
-  return (
-    <div className="rounded border border-border bg-surface-2 p-2.5">
-      <p className="text-2xs uppercase tracking-wide text-fg-subtle">{label}</p>
-      <p className={cn('mt-0.5 tabular', strong ? 'text-base font-semibold text-fg' : 'text-sm text-fg')}>{value}</p>
     </div>
   )
 }
