@@ -36,8 +36,6 @@ export interface User {
   status: string
   version: number
   roles: string[]
-  mfa_enabled?: boolean
-  last_login_at?: string | null
 }
 
 export interface RoleCreateBody {

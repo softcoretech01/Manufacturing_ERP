@@ -127,13 +127,6 @@ class CompanyService:
             payload["pan"] = payload["pan"].upper()
             if err := rules.validate_pan(payload["pan"]):
                 raise _rule_error(err)
-        if "code" in payload and payload["code"] != entity.code:
-            code = payload["code"].strip().upper()
-            payload["code"] = code
-            if await self.repo.exists_code(code, company_id=0):
-                raise DuplicateError(
-                    f"Company code '{code}' already exists.", rule_code="V1-ORG-BR-002"
-                )
         for key, value in payload.items():
             setattr(entity, key, value)
         self.repo.stamp_update(entity, expected_version=data.version)
@@ -270,9 +263,8 @@ class BranchService:
         return await self.repo.get_by_uid_or_404(uid)
 
     async def next_code(self) -> str:
-        company = await self._company()
         return await codegen.next_code(
-            self.session, m.SysBranch, company.code, company_id=self.ctx.company_id, width=3
+            self.session, m.SysBranch, "BR", company_id=self.ctx.company_id
         )
 
     async def _company(self) -> m.SysCompany:
@@ -311,16 +303,6 @@ class BranchService:
         await self._validate_gstin(data.gstin, data.gst_state_code, company)
         payload = data.model_dump()
         payload["code"] = code
-        # Auto-populate from company if not provided
-        if not payload.get("address_line1"):
-            payload["address_line1"] = getattr(company, "address_line1", None)
-        if not payload.get("pincode"):
-            payload["pincode"] = getattr(company, "pincode", None)
-        if not payload.get("phone"):
-            payload["phone"] = getattr(company, "phone", None)
-        if not payload.get("email"):
-            payload["email"] = getattr(company, "email", None)
-        
         if payload.get("gstin"):
             payload["gstin"] = payload["gstin"].upper()
         entity = m.SysBranch(company_id=self.ctx.company_id, **payload)
@@ -356,11 +338,6 @@ class BranchService:
             await self._validate_gstin(new_gstin, new_state, company, exclude_uid=entity.uid)
             if payload.get("gstin"):
                 payload["gstin"] = payload["gstin"].upper()
-        if "code" in payload and payload["code"] != entity.code:
-            code = payload["code"].strip().upper()
-            payload["code"] = code
-            if await self.repo.exists_code(code, company_id=self.ctx.company_id):
-                raise DuplicateError(f"Branch code '{code}' already exists in this company.")
         for key, value in payload.items():
             setattr(entity, key, value)
         self.repo.stamp_update(entity, expected_version=data.version)

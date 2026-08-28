@@ -39,14 +39,14 @@ async def get_next_plant_code(
     return {"code": code}
 
 @router.get("/plants/{uid}", response_model=PlantSchema)
-async def get_plant_legacy(
+async def get_plant(
     uid: str,
     service: AdminPlantsService = Depends(get_service)
 ):
     return await service.get_plant_by_id(uid)
 
 @router.post("/plants", response_model=PlantSchema, status_code=status.HTTP_201_CREATED)
-async def create_plant_legacy(
+async def create_plant(
     data: PlantCreateSchema,
     service: AdminPlantsService = Depends(get_service)
 ):
@@ -67,26 +67,17 @@ async def delete_plant(
 ):
     await service.delete_plant(uid, user_id="System")
 
-@router.get("/production-lines")
+@router.get("/production-lines", response_model=list[ProductionLineSchema])
 async def get_all_production_lines(
-    plant_uid: str | None = None,
     service: AdminPlantsService = Depends(get_service)
 ):
-    # Optionally scoped to a plant (by its public uid) for cascading dropdowns.
-    return await service.get_production_lines(plant_uid)
+    return await service.get_production_lines()
 
-@router.get("/work-centres")
+@router.get("/work-centres", response_model=list[WorkCentreSchema])
 async def get_all_work_centres(
-    line_id: int | None = None,
     service: AdminPlantsService = Depends(get_service)
 ):
-    return await service.get_work_centres(line_id)
-
-@router.get("/machine-groups")
-async def get_all_machine_groups(
-    service: AdminPlantsService = Depends(get_service)
-):
-    return await service.get_machine_groups()
+    return await service.get_work_centres()
 
 @router.get("/warehouses", response_model=list[WarehouseSchema])
 async def get_all_warehouses(

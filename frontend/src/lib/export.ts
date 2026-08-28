@@ -38,11 +38,6 @@ function download(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-/** Download raw CSV text as a real .csv file (BOM prefixed for Excel). */
-export function downloadCsv(filename: string, csv: string) {
-  download(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' }), filename)
-}
-
 function escapeHtml(s: string) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }

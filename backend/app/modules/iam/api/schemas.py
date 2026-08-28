@@ -213,8 +213,6 @@ class UserOut(ApiModel):
     status: str
     version: int
     roles: list[str] = Field(default_factory=list)
-    mfa_enabled: bool = False
-    last_login_at: datetime | None = None
 
 
 class UserRolesBody(InModel):

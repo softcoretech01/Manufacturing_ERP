@@ -23,7 +23,6 @@ const STATES = [
 ]
 
 interface FormState {
-  code: string
   legal_name: string
   trade_name: string
   pan: string
@@ -43,7 +42,7 @@ export function CompanyPage() {
   const updateCompany = useUpdateCompany()
 
   const [form, setForm] = useState<FormState>({
-    code: '', legal_name: '', trade_name: '', pan: '', gst_state_code: '33',
+    legal_name: '', trade_name: '', pan: '', gst_state_code: '33',
     phone: '', email: '', website: '', address_line1: '', pincode: '',
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -53,7 +52,6 @@ export function CompanyPage() {
     if (company) {
       setForm((f) => ({
         ...f,
-        code: company.code,
         legal_name: company.legal_name,
         trade_name: company.trade_name ?? '',
         pan: company.pan ?? '',
@@ -82,7 +80,6 @@ export function CompanyPage() {
         uid: company.uid,
         body: {
           version: company.version,
-          code: form.code.trim() || undefined,
           legal_name: form.legal_name.trim(),
           trade_name: form.trade_name.trim() || null,
           pan: form.pan.trim().toUpperCase() || null,
@@ -134,8 +131,8 @@ export function CompanyPage() {
           <Card>
             <CardHeader title="Legal identity" description="Statutory name and tax identifiers." />
             <CardBody className="space-y-3.5">
-              <Input label="Company code" required value={form.code} error={errors.code} maxLength={20}
-                onChange={(e) => set({ code: e.target.value.toUpperCase() })} />
+              <Input label="Company code" value={company.code} readOnly className="bg-surface-2"
+                hint="Auto-generated · not editable" onChange={() => {}} />
               <Input label="Legal name" required value={form.legal_name} error={errors.legal_name} maxLength={200}
                 onChange={(e) => set({ legal_name: e.target.value })} />
               <Input label="Trade name" value={form.trade_name} maxLength={200}

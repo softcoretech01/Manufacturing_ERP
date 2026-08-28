@@ -384,7 +384,7 @@ export const SIMPLE_MASTERS: SimpleMasterDef[] = [
     codePrefix: 'ST',
     fields: [
       { key: 'gstCode', label: 'GST code', type: 'text', required: true, inList: true, width: '100px' },
-      { key: 'country', label: 'Country', type: 'select', masterCode: 'COUNTRY', required: true, inList: true, width: '140px' },
+      { key: 'country', label: 'Country', type: 'text', inList: true, width: '110px' },
       { key: 'stateType', label: 'Type', type: 'select', options: ['STATE', 'UNION_TERRITORY'], inList: true, width: '140px' },
       { key: 'zone', label: 'Zone', type: 'select', options: ['NORTH', 'SOUTH', 'EAST', 'WEST', 'CENTRAL', 'NORTH_EAST'], inList: true, width: '120px' },
     ],
@@ -422,7 +422,7 @@ export const SIMPLE_MASTERS: SimpleMasterDef[] = [
     autoCode: true,
     codePrefix: 'CTY',
     fields: [
-      { key: 'state', label: 'State', type: 'select', masterCode: 'STATE', required: true, inList: true, width: '150px' },
+      { key: 'state', label: 'State', type: 'text', required: true, inList: true, width: '140px' },
       { key: 'pincodeRange', label: 'Pincode range', type: 'text', inList: true, width: '150px' },
       { key: 'deliveryZone', label: 'Delivery zone', type: 'select', options: ['ZONE-A', 'ZONE-B', 'ZONE-C', 'ZONE-D'], inList: true, width: '130px' },
       { key: 'transitDays', label: 'Transit days', type: 'number', inList: true, align: 'right', width: '110px' },
@@ -716,7 +716,7 @@ export const SIMPLE_MASTERS: SimpleMasterDef[] = [
       { key: 'stage', label: 'Stage', type: 'select', required: true, options: ['INCOMING', 'IN_PROCESS', 'FINAL', 'PRE_DISPATCH'], inList: true, width: '130px' },
       { key: 'nominal', label: 'Nominal', type: 'text', inList: true, align: 'right', width: '110px' },
       { key: 'tolerance', label: 'Tolerance', type: 'text', inList: true, align: 'right', width: '120px' },
-      { key: 'uom', label: 'UOM', type: 'select', masterCode: 'UOM', inList: true, width: '100px' },
+      { key: 'uom', label: 'UOM', type: 'text', inList: true, width: '80px' },
       { key: 'instrument', label: 'Instrument', type: 'text', inList: true, width: '160px' },
       { key: 'isCritical', label: 'Critical', type: 'boolean', inList: true, width: '90px' },
       { key: 'method', label: 'Test method', type: 'textarea' },

@@ -64,11 +64,6 @@ class TaxRepository:
         result = await self.db.execute(query, params)
         row = result.fetchone()
         await self.db.commit()
-        # SpTax('CREATE') returns only `SELECT LAST_INSERT_ID() AS id`; re-read the
-        # full row so the response matches the TaxSchema contract.
-        new_id = getattr(row, 'id', None) if row else None
-        if new_id is not None:
-            return await self.get_by_id(new_id)
         return self._row_to_dict(row) if row else None
 
     async def update(self, id: int, data: Dict[str, Any], current_user: str) -> Dict[str, Any]:
@@ -95,10 +90,10 @@ class TaxRepository:
             'usageCount': data.get('usageCount', 0),
             'modifiedBy': current_user
         }
-        await self.db.execute(query, params)
+        result = await self.db.execute(query, params)
+        row = result.fetchone()
         await self.db.commit()
-        # SpTax('UPDATE') does not return the row; re-read it by id.
-        return await self.get_by_id(id)
+        return self._row_to_dict(row) if row else None
 
     async def delete(self, id: int, current_user: str) -> None:
         query = text("CALL SpTax('DELETE', :id, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, :modifiedBy)")

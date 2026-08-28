@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { Activity, AlertTriangle, Check, HeartPulse } from 'lucide-react'
+import { Activity, AlertTriangle, Check, HeartPulse, Timer } from 'lucide-react'
 import { Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader, DataGrid } from '@/components/ui/Card'
@@ -15,8 +14,9 @@ import { useToast } from '@/components/ui/Toast'
 import { cn } from '@/lib/cn'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDateTime } from '@/lib/format'
+import { useCollection } from '@/store/data'
 import { LOG_SOURCE_LABEL, summariseLogs } from '@/lib/platformFlow'
-import { getApiMetrics, getHealthChecks, getSystemLogs } from '@/api/platform'
+import { apiTrend, endpointMetrics, healthChecks, systemLogs as seedLogs } from '@/mock/platform'
 import type { LogLevel, LogSource, SystemLog } from '@/types/platform'
 
 /**
@@ -52,34 +52,14 @@ function ChartTip({ active, payload, label }: { active?: boolean; payload?: { na
 
 export function MonitoringPage() {
   const toast = useToast()
-
-  // Live in-process telemetry. Metrics come from a ring buffer of real requests,
-  // so counts start low and grow as the server is used; an empty history is an
-  // honest empty screen, not a fabricated one.
-  const healthQ = useQuery({ queryKey: ['monitoring', 'health'], queryFn: getHealthChecks, refetchInterval: 15_000 })
-  const metricsQ = useQuery({ queryKey: ['monitoring', 'api-metrics'], queryFn: getApiMetrics, refetchInterval: 15_000 })
-  const logsQ = useQuery({ queryKey: ['monitoring', 'logs'], queryFn: getSystemLogs, refetchInterval: 15_000 })
-
-  const healthChecks = healthQ.data ?? []
-  const endpointMetrics = metricsQ.data?.endpointMetrics ?? []
-  const apiTrend = metricsQ.data?.apiTrend ?? []
+  const logs = useCollection<SystemLog>('plat:logs', useMemo(() => seedLogs, []))
 
   const [tab, setTab] = useState('health')
   const [levelFilter, setLevelFilter] = useState<LogLevel | 'ALL'>('ALL')
   const [sourceFilter, setSourceFilter] = useState<LogSource | 'ALL'>('ALL')
   const [openUid, setOpenUid] = useState<string | null>(null)
-  // Acknowledge/remove are view-state only (the logs are derived from live
-  // traffic, not a persistent store).
-  const [ackUids, setAckUids] = useState<Set<string>>(new Set())
-  const [removedUids, setRemovedUids] = useState<Set<string>>(new Set())
 
-  const live = useMemo(
-    () =>
-      (logsQ.data ?? [])
-        .filter((l) => !removedUids.has(l.uid))
-        .map((l) => (ackUids.has(l.uid) ? { ...l, acknowledged: true } : l)),
-    [logsQ.data, removedUids, ackUids],
-  )
+  const live = useMemo(() => logs.rows.filter((l) => !l.deletedAt), [logs.rows])
   const detail = live.find((l) => l.uid === openUid) ?? null
   const summary = useMemo(() => summariseLogs(live), [live])
 
@@ -95,7 +75,7 @@ export function MonitoringPage() {
     down: healthChecks.filter((h) => h.status === 'DOWN'),
     degraded: healthChecks.filter((h) => h.status === 'DEGRADED'),
     healthy: healthChecks.filter((h) => h.status === 'HEALTHY').length,
-  }), [healthChecks])
+  }), [])
 
   const api = useMemo(() => {
     const calls = endpointMetrics.reduce((s, e) => s + e.calls, 0)
@@ -106,21 +86,17 @@ export function MonitoringPage() {
       .map((e) => ({ ...e, rate: e.calls ? (e.errors / e.calls) * 100 : 0 }))
       .sort((a, b) => b.rate - a.rate)
     return { calls, errors, errorRate: calls ? (errors / calls) * 100 : 0, slowest, worstErrorRate }
-  }, [endpointMetrics])
+  }, [])
 
   function acknowledge(l: SystemLog) {
-    setAckUids((prev) => new Set(prev).add(l.uid))
+    logs.update(l.uid, { acknowledged: true })
     toast.success('Acknowledged', 'It stays in the log; it just stops counting as unseen.')
   }
 
   function acknowledgeGroup(message: string) {
     const affected = live.filter((l) => l.message === message && !l.acknowledged)
-    setAckUids((prev) => { const next = new Set(prev); for (const l of affected) next.add(l.uid); return next })
+    for (const l of affected) logs.update(l.uid, { acknowledged: true })
     toast.success(`${affected.length} entries acknowledged`, 'The whole group, since it is one fault.')
-  }
-
-  function removeLog(l: SystemLog) {
-    setRemovedUids((prev) => new Set(prev).add(l.uid))
   }
 
   const logColumns: Column<SystemLog>[] = [
@@ -337,7 +313,7 @@ export function MonitoringPage() {
               <>
                 <MenuItem label="Edit" onClick={() => setOpenUid(l.uid)} />
                 {!l.acknowledged && (l.level === 'ERROR' || l.level === 'FATAL') && <MenuItem label="Acknowledge" onClick={() => acknowledge(l)} />}
-                <MenuItem label="Delete" danger onClick={() => { removeLog(l); toast.success('Entry removed from the view') }} />
+                <MenuItem label="Delete" danger onClick={() => { logs.remove(l.uid); toast.success('Entry removed from the view') }} />
               </>
             )}
             emptyTitle="Nothing logged"

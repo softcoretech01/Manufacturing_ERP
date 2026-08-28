@@ -9,81 +9,20 @@ import { Tabs } from '@/components/ui/Tabs'
 import { Alert, PageHeader, ProgressBar } from '@/components/ui/Misc'
 import { Select, Switch } from '@/components/ui/Input'
 import { useToast } from '@/components/ui/Toast'
-import { columnsFromTable, downloadCsv, exportRows, type ExportFormat } from '@/lib/export'
+import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDateTime, formatTimeAgo } from '@/lib/format'
-import * as mastersApi from '@/api/masters'
 import { SIMPLE_MASTERS } from '@/mock/masterRegistry'
 import { importRuns } from '@/mock/masters'
-import type { ImportRun, MasterField } from '@/types/masters'
+import type { ImportRun } from '@/types/masters'
 
-/** Live row fetchers per master, so a template download carries current records. */
-const FETCHERS: Record<string, () => Promise<any[]>> = {
-  SUPPLIER: mastersApi.getSuppliers, CUSTOMER: mastersApi.getCustomers, ITEM: mastersApi.getItems,
-  EMPLOYEE: mastersApi.getEmployees, MACHINE: mastersApi.getMachines, UOM: mastersApi.getUOMs,
-  HSN: mastersApi.getHsns, TAX: mastersApi.getTaxes, PAYMENT_TERMS: mastersApi.getPaymentTerms,
-  REASON_CODE: mastersApi.getReasonCodes, COUNTRY: mastersApi.getCountries, STATE: mastersApi.getStates,
-  CITY: mastersApi.getCities, BOTTLE_MODEL: mastersApi.getBottleModels, BOTTLE_CAPACITY: mastersApi.getBottleCapacities,
-  BOTTLE_COLOUR: mastersApi.getBottleColours, LID_TYPE: mastersApi.getLidTypes, PACKAGING: mastersApi.getPackagings,
-  STEEL_GRADE: mastersApi.getSteelGrades, STEEL_THICKNESS: mastersApi.getSteelThicknesses, SHIFT: mastersApi.getShifts,
-  HOLIDAY_CALENDAR: mastersApi.getHolidayCalendars, QUALITY_PARAM: mastersApi.getQualityParameters, DEFECT: mastersApi.getDefects,
-}
-
-/**
- * Curated column sets for the complex masters that are not driven by the simple
- * master registry. Kept in step with the SP-backed tables so the template a user
- * fills in matches the columns the importer reads.
- */
-const COMPLEX_COLUMNS: Record<string, string[]> = {
-  SUPPLIER: ['code', 'name', 'legalName', 'vendorType', 'category', 'gstin', 'gstRegistrationType', 'pan', 'msmeNumber', 'currency', 'paymentTermsCode', 'creditDays', 'creditLimit', 'isApprovedVendor'],
-  CUSTOMER: ['code', 'name', 'legalName', 'customerType', 'customerGroup', 'category', 'gstin', 'gstRegistrationType', 'pan', 'currency', 'priceListCode', 'paymentTermsCode', 'creditDays', 'creditLimit', 'territory', 'salesPerson'],
-  ITEM: ['code', 'name', 'itemType', 'category', 'family', 'baseUom', 'purchaseUom', 'salesUom', 'hsnCode', 'gstRate', 'steelGrade', 'thicknessMm', 'capacityMl', 'valuationMethod', 'standardCost', 'reorderLevel'],
-  EMPLOYEE: ['code', 'name', 'designation', 'department', 'grade', 'employmentType', 'dateOfJoining', 'mobile', 'email', 'shiftCode', 'costCentre'],
-  MACHINE: ['code', 'name', 'manufacturer', 'modelNumber', 'serialNumber', 'assetCode', 'capacityPerHour', 'capacityUom', 'criticality'],
-}
-
-type MasterDef = { code: string; name: string; fields?: MasterField[] }
-
-const ALL_MASTERS: MasterDef[] = [
+const ALL_MASTERS = [
   { code: 'SUPPLIER', name: 'Supplier' },
   { code: 'CUSTOMER', name: 'Customer' },
   { code: 'ITEM', name: 'Item / Product' },
   { code: 'EMPLOYEE', name: 'Employee' },
   { code: 'MACHINE', name: 'Machine' },
-  ...SIMPLE_MASTERS.map((m) => ({ code: m.code, name: m.title, fields: m.fields })),
+  ...SIMPLE_MASTERS.map((m) => ({ code: m.code, name: m.title })),
 ]
-
-/** The column keys that make up a master's import template. */
-function templateColumns(m: MasterDef): string[] {
-  if (COMPLEX_COLUMNS[m.code]) return COMPLEX_COLUMNS[m.code]
-  if (m.fields) return ['code', 'name', ...m.fields.map((f) => f.key), 'isActive']
-  return ['code', 'name']
-}
-
-/** A CSV escape that quotes anything with a comma, quote or newline. */
-function csvEscape(v: string): string {
-  return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v
-}
-
-/** Render one cell value for the CSV export. */
-function cellValue(v: unknown): string {
-  if (v === null || v === undefined) return ''
-  if (typeof v === 'boolean') return v ? 'true' : 'false'
-  return String(v)
-}
-
-/**
- * Build a CSV for one master: header row of column keys, then the current
- * records as data rows. If there are no records it stays header-only — an empty
- * but correctly-shaped template. Values are pulled by column key from each row.
- */
-function buildCsv(m: MasterDef, rows: any[]): string {
-  const cols = templateColumns(m)
-  const lines = [cols.map(csvEscape).join(',')]
-  for (const row of rows) {
-    lines.push(cols.map((c) => csvEscape(cellValue(row?.[c]))).join(','))
-  }
-  return lines.join('\r\n')
-}
 
 export function ImportExportPage() {
   const toast = useToast()
@@ -94,45 +33,6 @@ export function ImportExportPage() {
       toast.success('Export ready', n + ' rows written as ' + (format === 'xlsx' ? 'Excel' : format.toUpperCase()) + '.')
     } catch (e) {
       toast.error('Export failed', e instanceof Error ? e.message : 'Unknown error.')
-    }
-  }
-
-  const [downloading, setDownloading] = useState(false)
-
-  async function rowsFor(m: MasterDef): Promise<any[]> {
-    const fetcher = FETCHERS[m.code]
-    if (!fetcher) return []
-    try {
-      const data = await fetcher()
-      return Array.isArray(data) ? data : []
-    } catch {
-      return []
-    }
-  }
-
-  /** Download one master's current records as a CSV (header + data rows). */
-  async function downloadTemplate(m: MasterDef) {
-    const rows = await rowsFor(m)
-    downloadCsv(`${m.code.toLowerCase()}-export.csv`, buildCsv(m, rows))
-    if (rows.length) toast.success(`${m.name} exported`, `${rows.length} record(s) — edit and re-import, or use as a filled example.`)
-    else toast.info(`${m.name} has no records yet`, 'Downloaded an empty template with the correct columns.')
-  }
-
-  /** Download every master's current data concatenated into one CSV, section by section. */
-  async function downloadAllTemplates() {
-    setDownloading(true)
-    try {
-      const sections = await Promise.all(
-        ALL_MASTERS.map(async (m) => {
-          const rows = await rowsFor(m)
-          return `# ===== ${m.code} (${m.name}) — ${rows.length} record(s) =====\r\n${buildCsv(m, rows)}`
-        }),
-      )
-      downloadCsv('all-master-data.csv', sections.join('\r\n\r\n'))
-      const total = sections.length
-      toast.success('Master data downloaded', `${total} masters in one file, with their current records.`)
-    } finally {
-      setDownloading(false)
     }
   }
   const [tab, setTab] = useState('runs')
@@ -195,8 +95,8 @@ export function ImportExportPage() {
         breadcrumbs={[{ label: 'Home', to: '/masters' }, { label: 'Masters' }, { label: 'Import & export' }]}
         actions={
           <>
-            <Button variant="outline" size="sm" icon={<Download className="h-4 w-4" />} loading={downloading} onClick={downloadAllTemplates}>
-              Download all data
+            <Button variant="outline" size="sm" icon={<Download className="h-4 w-4" />} onClick={() => toast.success('Templates downloaded', 'One workbook per master, with validation rules and picklists embedded.')}>
+              Download templates
             </Button>
             <Button variant="primary" size="sm" icon={<Upload className="h-4 w-4" />} onClick={() => setNewOpen(true)}>
               New import
@@ -239,15 +139,15 @@ export function ImportExportPage() {
       {tab === 'templates' && (
         <Card>
           <CardHeader
-            title="Master data & templates"
-            description="Download a master's current records as CSV (header + data rows) — edit and re-import, or use as a filled example. Masters with no records download an empty, correctly-shaped template."
+            title="Import templates"
+            description="Each template carries the column order, data types, picklists and mandatory-field marking for that master"
           />
           <CardBody className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {ALL_MASTERS.map((m) => (
               <button
                 key={m.code}
                 type="button"
-                onClick={() => downloadTemplate(m)}
+                onClick={() => toast.success(`${m.name} template downloaded`)}
                 className="flex items-center justify-between gap-2 rounded border border-border p-2.5 text-left transition-colors hover:border-brand-500/50 hover:bg-surface-2"
               >
                 <span className="min-w-0">

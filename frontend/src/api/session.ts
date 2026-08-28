@@ -21,17 +21,6 @@ interface SessionState {
   userName: string | null
   companyUid: string | null
 
-  /**
-   * The active branch / plant / financial year the user is working in. These
-   * are a client-side view filter over data the backend already scopes by
-   * company (§4.3): the header pickers set them, and screens that care read
-   * them. `null` branch/plant means "all"; `fyUid` defaults to the current FY
-   * once the list loads.
-   */
-  branchUid: string | null
-  plantUid: string | null
-  fyUid: string | null
-
   setAuth: (v: {
     accessToken: string
     refreshToken: string
@@ -41,9 +30,6 @@ interface SessionState {
   }) => void
   setTokens: (accessToken: string, refreshToken: string) => void
   setCompany: (companyUid: string) => void
-  setBranch: (branchUid: string | null) => void
-  setPlant: (plantUid: string | null) => void
-  setFy: (fyUid: string | null) => void
   clear: () => void
 }
 
@@ -55,9 +41,6 @@ export const useSession = create<SessionState>()(
       userUid: null,
       userName: null,
       companyUid: null,
-      branchUid: null,
-      plantUid: null,
-      fyUid: null,
       setAuth: (v) =>
         set({
           accessToken: v.accessToken,
@@ -65,19 +48,9 @@ export const useSession = create<SessionState>()(
           userUid: v.userUid,
           userName: v.userName,
           companyUid: v.companyUid,
-          // A fresh login re-resolves context; never carry a prior company's
-          // branch/plant/FY selection across (§4.3).
-          branchUid: null,
-          plantUid: null,
-          fyUid: null,
         }),
       setTokens: (accessToken, refreshToken) => set({ accessToken, refreshToken }),
-      // Switching company drops the branch/plant/FY picks that belonged to the
-      // old company so stale cross-company selections cannot linger.
-      setCompany: (companyUid) => set({ companyUid, branchUid: null, plantUid: null, fyUid: null }),
-      setBranch: (branchUid) => set({ branchUid }),
-      setPlant: (plantUid) => set({ plantUid }),
-      setFy: (fyUid) => set({ fyUid }),
+      setCompany: (companyUid) => set({ companyUid }),
       clear: () =>
         set({
           accessToken: null,
@@ -85,9 +58,6 @@ export const useSession = create<SessionState>()(
           userUid: null,
           userName: null,
           companyUid: null,
-          branchUid: null,
-          plantUid: null,
-          fyUid: null,
         }),
     }),
     { name: 'ssberp.session' },

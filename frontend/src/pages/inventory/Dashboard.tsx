@@ -1,91 +1,82 @@
 import { useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
+  AlertTriangle,
   ArrowRight,
   Boxes,
   ClipboardCheck,
+  Hourglass,
   IndianRupee,
+  PackageCheck,
   ShieldAlert,
-  TrendingDown,
+  Timer,
+  Truck,
 } from 'lucide-react'
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
-import { Alert, PageHeader, Section, StatTile } from '@/components/ui/Misc'
-import { DataTable, type Column } from '@/components/ui/DataTable'
-import { ChartTip, InvStatusBadge, useCanSeeValue } from '@/components/inventory/InvShell'
+import { PageHeader, ProgressBar, Section, StatTile } from '@/components/ui/Misc'
+import { Badge } from '@/components/ui/Badge'
+import { ChartTip, CoverChip, InvStatusBadge, SlaChip, useCanSeeValue } from '@/components/inventory/InvShell'
 import { formatCompact, formatDate, formatQty } from '@/lib/format'
 import { cn } from '@/lib/cn'
-import { useSession } from '@/api/session'
-import { useMovements, useStockEnquiry } from '@/hooks/useStock'
-import { useValuation, useReorder, useMovement, useAgeing } from '@/hooks/useAnalysis'
-import { useCounts } from '@/hooks/useCount'
-import type { MovementRow as LedgerRow } from '@/api/stock'
+import {
+  accuracyTrend,
+  batches,
+  counts,
+  jobworkChallans,
+  movementDays,
+  nonMoving,
+  putaways,
+  quarantineLots,
+  reorderRows,
+  stockPositions,
+  transfers,
+  valuationRows,
+  valueTrend,
+  warehouseSummaries,
+} from '@/mock/inventory'
 
-/**
- * Inventory dashboard — every figure is live from the stock engine and analysis
- * endpoints (valuation, reorder, ageing, movement, counts). No mock data: panels
- * that have no backend yet (batch expiry, put-away queue, job-work) are omitted
- * rather than faked.
- */
 export function InventoryDashboardPage() {
   const navigate = useNavigate()
   const canSeeValue = useCanSeeValue()
-  const companyUid = useSession((s) => s.companyUid)
 
-  const valuationQ = useValuation()
-  const reorderQ = useReorder()
-  const movementQ = useMovement()
-  const ageingQ = useAgeing()
-  const countsQ = useCounts()
-  const recentQ = useMovements()
-  const stockQ = useStockEnquiry()
-
-  const valuation = valuationQ.data
-  const reorder = reorderQ.data ?? []
-  const movement = movementQ.data
-  const ageing = ageingQ.data
-  const counts = countsQ.data ?? []
-  const recent = recentQ.data ?? []
-  const stockLines = stockQ.data ?? []
-
-  const openCounts = useMemo(
-    () => counts.filter((c) => !['APPROVED', 'CANCELLED'].includes(c.status)),
-    [counts],
-  )
-  const skuCount = valuation?.items.length ?? stockLines.length
-  const dead = movement?.counts.DEAD ?? 0
-  const slow = movement?.counts.SLOW ?? 0
-
-  // Stock value (or item count) by category — from the valuation breakdown.
-  const byType = useMemo(() => {
-    if (canSeeValue && valuation?.by_type.length) {
-      return valuation.by_type.map((t) => ({ label: t.item_type, value: Number(t.value ?? 0) }))
+  const kpis = useMemo(() => {
+    const closingValue = valuationRows.reduce((s, r) => s + r.closing, 0)
+    const belowReorder = reorderRows.filter((r) => r.action === 'RAISE_PR' || r.action === 'TRANSFER' || r.action === 'URGENT')
+    const pendingPutaway = putaways.filter((p) => p.totalBinned < p.totalReceived)
+    const openQuarantine = quarantineLots.filter((q) => q.decision === 'PENDING')
+    const git = transfers.filter((t) => t.status === 'IN_TRANSIT' || t.status === 'PARTIALLY_RECEIVED')
+    const jobwork = jobworkChallans.filter((j) => j.balanceQty > 0)
+    const expiring = batches.filter((b) => b.expiresOn && new Date(b.expiresOn).getTime() - Date.now() < 30 * 86_400_000 && b.status !== 'CONSUMED')
+    return {
+      closingValue,
+      turns: 7.4,
+      accuracy: accuracyTrend[accuracyTrend.length - 1].accuracyPct,
+      belowReorder,
+      belowReorderValue: belowReorder.reduce((s, r) => s + r.suggestedQty * r.lastRate, 0),
+      pendingPutaway,
+      oldestPutaway: Math.max(0, ...pendingPutaway.map((p) => p.ageHours)),
+      openQuarantine,
+      quarantineValue: openQuarantine.reduce((s, q) => s + q.value, 0),
+      gitValue: git.reduce((s, t) => s + t.totalValue, 0),
+      gitOldest: Math.max(0, ...git.map((t) => t.transitDays)),
+      jobworkValue: jobwork.reduce((s, j) => s + j.value, 0),
+      jobworkAtRisk: jobwork.filter((j) => new Date(j.statutoryDueOn).getTime() - Date.now() < 60 * 86_400_000).length,
+      expiring,
+      nonMovingValue: nonMoving.reduce((s, n) => s + n.value, 0),
+      countsDue: counts.filter((c) => c.status === 'ASSIGNED' || c.status === 'RECOUNT_REQUIRED').length,
+      stockouts: stockPositions.filter((p) => p.available === 0 && p.reorderLevel > 0).length,
     }
-    const c: Record<string, number> = {}
-    for (const it of valuation?.items ?? []) c[it.item_type] = (c[it.item_type] ?? 0) + 1
-    return Object.entries(c).map(([label, value]) => ({ label, value }))
-  }, [canSeeValue, valuation])
+  }, [])
 
-  // Ageing distribution — value per bucket when permitted, else quantity.
-  const ageingData = useMemo(() => {
-    if (!ageing) return []
-    return ageing.labels.map((label, i) => ({
-      label,
-      value: canSeeValue
-        ? Number(ageing.totals_value[i] ?? 0)
-        : ageing.rows.reduce((s, r) => s + (r.buckets_qty[i] ?? 0), 0),
-    }))
-  }, [ageing, canSeeValue])
-
-  const loading = valuationQ.isLoading || reorderQ.isLoading || movementQ.isLoading
-
-  const recentCols: Column<LedgerRow>[] = [
-    { key: 'business_date', header: 'Date', width: '96px', render: (m) => formatDate(m.business_date) },
-    { key: 'document_no', header: 'Document', width: '150px', render: (m) => <span className="font-mono text-2xs text-brand-600">{m.document_no}</span> },
-    { key: 'item_code', header: 'Item', render: (m) => <span className="text-xs">{m.item_code}</span> },
-    { key: 'warehouse_code', header: 'WH', width: '80px', render: (m) => <span className="text-2xs text-fg-muted">{m.warehouse_code ?? '—'}</span> },
-    { key: 'quantity', header: 'Qty', align: 'right', width: '100px', render: (m) => <span className={cn('tabular text-xs', m.direction === 'IN' ? 'text-success' : 'text-danger')}>{m.direction === 'IN' ? '+' : '−'}{formatQty(m.quantity)}</span> },
+  const actionQueue = [
+    { label: 'Lines awaiting put-away', count: kpis.pendingPutaway.reduce((s, p) => s + p.lines.length, 0), to: '/inventory/putaway', icon: PackageCheck, tone: 'warning' as const },
+    { label: 'Lots awaiting QC decision', count: kpis.openQuarantine.length, to: '/inventory/putaway', icon: ClipboardCheck, tone: 'pending' as const },
+    { label: 'Items below reorder level', count: kpis.belowReorder.length, to: '/inventory/replenishment', icon: AlertTriangle, tone: 'danger' as const },
+    { label: 'Counts assigned or in recount', count: kpis.countsDue, to: '/inventory/counting', icon: ClipboardCheck, tone: 'progress' as const },
+    { label: 'Consignments in transit', count: transfers.filter((t) => t.status === 'IN_TRANSIT').length, to: '/inventory/transfers', icon: Truck, tone: 'progress' as const },
+    { label: 'Batches expiring in 30 days', count: kpis.expiring.length, to: '/inventory/batches', icon: Hourglass, tone: 'warning' as const },
   ]
 
   return (
@@ -95,85 +86,213 @@ export function InventoryDashboardPage() {
         breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Inventory' }]}
         actions={
           <>
-            <Button variant="outline" size="sm" onClick={() => navigate('/inventory/stock')}>Stock enquiry</Button>
-            <Button variant="primary" size="sm" onClick={() => navigate('/inventory/issues')}>New issue</Button>
+            <Button variant="outline" size="sm" onClick={() => navigate('/inventory/stock')}>
+              Stock enquiry
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => navigate('/inventory/issues')}>
+              New issue
+            </Button>
           </>
         }
       />
 
-      {!companyUid && <Alert tone="warning" title="Not signed in to the backend">Sign in first so the app has an API session.</Alert>}
-
-      {/* KPI row --------------------------------------------------------- */}
+      {/* KPI row ------------------------------------------------------------ */}
       <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {canSeeValue && valuation?.total_value != null ? (
-          <StatTile label="Closing stock value" value={`₹${formatCompact(valuation.total_value)}`} sub={`${skuCount} items on hand`} icon={<IndianRupee />} tone="brand" />
+        {canSeeValue ? (
+          <StatTile label="Closing stock value" value={`₹${formatCompact(kpis.closingValue)}`} sub={`${valuationRows.length} valuation groups · reconciles to GL`} icon={<IndianRupee />} tone="brand" />
         ) : (
-          <StatTile label="Items on hand" value={skuCount} sub={canSeeValue ? 'Awaiting valuation' : 'Value hidden for your role'} icon={<Boxes />} tone="brand" />
+          <StatTile label="Stock lines tracked" value={stockPositions.length} sub="Value is hidden for your role" icon={<Boxes />} tone="brand" />
         )}
-        <StatTile label="Below reorder" value={reorder.length} sub={reorder.length ? 'Need replenishment' : 'All above reorder level'} icon={<ShieldAlert />} tone={reorder.length ? 'warning' : 'success'} />
-        <StatTile label="Dead stock" value={dead} sub={`${slow} slow-moving`} icon={<TrendingDown />} tone={dead ? 'warning' : 'success'} />
-        <StatTile label="Open counts" value={openCounts.length} sub={`${counts.length} total counts`} icon={<ClipboardCheck />} tone={openCounts.length ? 'progress' : 'neutral'} />
+        <StatTile
+          label="Inventory accuracy"
+          value={`${kpis.accuracy.toFixed(1)}%`}
+          delta={{ value: kpis.accuracy - accuracyTrend[accuracyTrend.length - 2].accuracyPct, label: 'vs last month' }}
+          sub="Bins counted with zero variance"
+          icon={<ClipboardCheck />}
+          tone={kpis.accuracy >= 98 ? 'success' : 'warning'}
+        />
+        <StatTile
+          label="Put-away backlog"
+          value={kpis.pendingPutaway.length}
+          sub={`Oldest ${kpis.oldestPutaway.toFixed(1)} h against a 4 h target`}
+          icon={<Timer />}
+          tone={kpis.oldestPutaway >= 4 ? 'danger' : kpis.oldestPutaway >= 3 ? 'warning' : 'success'}
+        />
+        <StatTile
+          label="Below reorder"
+          value={kpis.belowReorder.length}
+          sub={canSeeValue ? `₹${formatCompact(kpis.belowReorderValue)} to cover` : `${kpis.stockouts} at zero free stock`}
+          icon={<ShieldAlert />}
+          tone={kpis.belowReorder.length > 0 ? 'warning' : 'success'}
+        />
       </div>
 
-      {/* Charts --------------------------------------------------------- */}
+      {/* Action queue ------------------------------------------------------- */}
+      <Section title="Needs attention">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {actionQueue.map((a) => (
+            <Link
+              key={a.label}
+              to={a.to}
+              className={cn(
+                'card flex items-center gap-3 p-3 transition-colors hover:border-border-strong hover:bg-surface-2',
+                a.count === 0 && 'opacity-55',
+              )}
+            >
+              <span
+                className={cn(
+                  'flex h-9 w-9 shrink-0 items-center justify-center rounded [&>svg]:h-4 [&>svg]:w-4',
+                  a.tone === 'danger' && 'bg-danger/10 text-danger',
+                  a.tone === 'warning' && 'bg-warning/10 text-warning',
+                  a.tone === 'pending' && 'bg-pending/10 text-pending',
+                  a.tone === 'progress' && 'bg-progress/10 text-progress',
+                )}
+              >
+                <a.icon />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-lg font-semibold leading-none text-fg tabular">{a.count}</span>
+                <span className="mt-1 block truncate text-xs text-fg-muted">{a.label}</span>
+              </span>
+              <ArrowRight className="h-3.5 w-3.5 shrink-0 text-fg-subtle" />
+            </Link>
+          ))}
+        </div>
+      </Section>
+
+      {/* Charts ------------------------------------------------------------- */}
+      <div className="mb-6 grid gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader title="Movement volume" description="Documents posted per day — receipts, issues and transfers" />
+          <CardBody className="h-60">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={movementDays} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" vertical={false} />
+                <XAxis dataKey="day" tick={{ fontSize: 10, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} interval={1} />
+                <YAxis tick={{ fontSize: 11, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} width={30} />
+                <Tooltip content={<ChartTip />} cursor={{ fill: 'rgb(var(--surface-3))' }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} iconSize={8} />
+                <Bar dataKey="receipts" name="Receipts" stackId="a" fill="#10b981" maxBarSize={22} />
+                <Bar dataKey="issues" name="Issues" stackId="a" fill="#3b82f6" maxBarSize={22} />
+                <Bar dataKey="transfers" name="Transfers" stackId="a" fill="#f59e0b" radius={[3, 3, 0, 0]} maxBarSize={22} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader title="Warehouse occupancy" description="Bins occupied against capacity" />
+          <CardBody className="space-y-3">
+            {warehouseSummaries
+              .filter((w) => w.isBinManaged)
+              .map((w) => {
+                const pct = w.binCount ? (w.binsOccupied / w.binCount) * 100 : 0
+                return (
+                  <div key={w.uid}>
+                    <div className="mb-1 flex items-center justify-between gap-2 text-xs">
+                      <span className="truncate font-mono text-2xs text-fg">{w.code}</span>
+                      <span className={cn('tabular text-2xs', pct > 85 ? 'text-warning' : 'text-fg-muted')}>
+                        {w.binsOccupied}/{w.binCount} · {pct.toFixed(0)}%
+                      </span>
+                    </div>
+                    <ProgressBar value={pct} tone={pct > 85 ? 'warning' : 'brand'} />
+                  </div>
+                )
+              })}
+            <Link to="/inventory/warehouses" className="mt-1 inline-flex items-center gap-1 text-2xs text-brand-600 hover:underline">
+              Open warehouse map <ArrowRight className="h-3 w-3" />
+            </Link>
+          </CardBody>
+        </Card>
+      </div>
+
+      {/* Value + accuracy --------------------------------------------------- */}
       <div className="mb-6 grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader title={canSeeValue ? 'Stock value by category' : 'Items by category'} description={canSeeValue ? 'Closing value grouped by item type' : 'Item count grouped by type'} />
-          <CardBody className="h-60">
-            {byType.length === 0 ? (
-              <p className="grid h-full place-content-center text-xs text-fg-subtle">{loading ? 'Loading…' : 'No stock yet.'}</p>
-            ) : (
+        {canSeeValue && (
+          <Card>
+            <CardHeader title="Stock value trend" description="Closing value by class, ₹ lakh" />
+            <CardBody className="h-56">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={byType} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <AreaChart data={valueTrend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} width={38} tickFormatter={(v) => formatCompact(v as number)} />
-                  <Tooltip content={<ChartTip prefix={canSeeValue ? '₹' : ''} />} cursor={{ fill: 'rgb(var(--surface-3))' }} />
-                  <Bar dataKey="value" name={canSeeValue ? 'Value' : 'Items'} fill="#3b82f6" radius={[3, 3, 0, 0]} maxBarSize={46} />
-                </BarChart>
+                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} width={34} />
+                  <Tooltip content={<ChartTip prefix="₹" suffix=" L" />} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} iconSize={8} />
+                  <Area type="monotone" dataKey="rawMaterial" name="Raw material" stackId="1" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.55} />
+                  <Area type="monotone" dataKey="wip" name="WIP" stackId="1" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.55} />
+                  <Area type="monotone" dataKey="finishedGoods" name="Finished goods" stackId="1" stroke="#10b981" fill="#10b981" fillOpacity={0.55} />
+                  <Area type="monotone" dataKey="other" name="Other" stackId="1" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.55} />
+                </AreaChart>
               </ResponsiveContainer>
-            )}
-          </CardBody>
-        </Card>
+            </CardBody>
+          </Card>
+        )}
 
-        <Card>
-          <CardHeader title="Stock ageing" description={canSeeValue ? 'Value held in each age bucket' : 'Quantity held in each age bucket'} />
-          <CardBody className="h-60">
-            {ageingData.length === 0 ? (
-              <p className="grid h-full place-content-center text-xs text-fg-subtle">{ageingQ.isLoading ? 'Loading…' : 'No stock yet.'}</p>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={ageingData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} width={38} tickFormatter={(v) => formatCompact(v as number)} />
-                  <Tooltip content={<ChartTip prefix={canSeeValue ? '₹' : ''} />} cursor={{ fill: 'rgb(var(--surface-3))' }} />
-                  <Bar dataKey="value" name={canSeeValue ? 'Value' : 'Qty'} fill="#f59e0b" radius={[3, 3, 0, 0]} maxBarSize={46} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
+        <Card className={canSeeValue ? undefined : 'lg:col-span-2'}>
+          <CardHeader title="Inventory accuracy" description="Bins with zero variance, and absolute value variance" />
+          <CardBody className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={accuracyTrend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" vertical={false} />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} />
+                <YAxis yAxisId="l" domain={[94, 100]} tick={{ fontSize: 11, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} width={34} />
+                <YAxis yAxisId="r" orientation="right" domain={[0, 1.2]} tick={{ fontSize: 11, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} width={34} />
+                <Tooltip content={<ChartTip suffix="%" />} />
+                <Legend wrapperStyle={{ fontSize: 11 }} iconSize={8} />
+                <Line yAxisId="l" type="monotone" dataKey="accuracyPct" name="Accuracy %" stroke="#10b981" strokeWidth={2} dot={false} />
+                <Line yAxisId="r" type="monotone" dataKey="variancePct" name="Value variance %" stroke="#ef4444" strokeWidth={2} strokeDasharray="4 3" dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
           </CardBody>
         </Card>
       </div>
 
-      {/* Reorder + recent movements ------------------------------------ */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader title="Reorder watch" description="Items below their reorder level"
-            actions={<Button variant="ghost" size="sm" onClick={() => navigate('/inventory/reorder')}>Full report</Button>} />
+      {/* Watch lists -------------------------------------------------------- */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader
+            title="Reorder watch"
+            description="Free stock against reorder level, with coverage in days"
+            actions={
+              <Button variant="ghost" size="sm" onClick={() => navigate('/inventory/replenishment')}>
+                Workbench
+              </Button>
+            }
+          />
           <CardBody className="p-0">
             <div className="overflow-x-auto">
               <table className="grid-table">
-                <thead><tr><th>Item</th><th className="text-right">Available</th><th className="text-right">Reorder</th><th className="text-right">Suggested</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th className="text-right">Free</th>
+                    <th className="text-right">Reorder</th>
+                    <th className="text-right">On order</th>
+                    <th>Cover</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
                 <tbody>
-                  {reorder.length === 0 ? (
-                    <tr><td colSpan={4} className="py-6 text-center text-xs text-fg-subtle">{reorderQ.isLoading ? 'Loading…' : 'Everything is above its reorder level.'}</td></tr>
-                  ) : reorder.slice(0, 8).map((r) => (
-                    <tr key={r.item_code}>
-                      <td className="max-w-[16rem]"><p className="truncate text-xs font-medium text-fg">{r.item_name}</p><p className="font-mono text-2xs text-fg-subtle">{r.item_code}</p></td>
-                      <td className="text-right tabular text-danger">{formatQty(r.available)}</td>
-                      <td className="text-right tabular text-fg-muted">{formatQty(r.reorder_level)}</td>
-                      <td className="text-right tabular font-medium">{formatQty(r.suggested_order)}</td>
+                  {reorderRows.slice(0, 7).map((r) => (
+                    <tr key={r.uid}>
+                      <td className="max-w-[16rem]">
+                        <p className="truncate text-xs font-medium text-fg">{r.itemName}</p>
+                        <p className="font-mono text-2xs text-fg-subtle">{r.itemCode}</p>
+                      </td>
+                      <td className="text-right tabular">{formatQty(r.free)}</td>
+                      <td className="text-right tabular text-fg-muted">{formatQty(r.reorderLevel)}</td>
+                      <td className="text-right tabular text-fg-muted">{formatQty(r.onOrder)}</td>
+                      <td><CoverChip days={r.coverageDays} /></td>
+                      <td>
+                        <Badge
+                          size="sm"
+                          dot={false}
+                          tone={r.action === 'URGENT' ? 'danger' : r.action === 'RAISE_PR' ? 'warning' : r.action === 'TRANSFER' ? 'brand' : r.action === 'COVERED' ? 'progress' : 'success'}
+                        >
+                          {r.action === 'RAISE_PR' ? 'Raise PR' : r.action === 'TRANSFER' ? 'Transfer' : r.action.charAt(0) + r.action.slice(1).toLowerCase()}
+                        </Badge>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -182,35 +301,110 @@ export function InventoryDashboardPage() {
           </CardBody>
         </Card>
 
-        <Card>
-          <CardHeader title="Recent movements" description="Latest postings through the stock ledger"
-            actions={<Button variant="ghost" size="sm" onClick={() => navigate('/inventory/ledger')}>Ledger</Button>} />
-          <CardBody className="p-0">
-            <DataTable rows={recent.slice(0, 8)} columns={recentCols} rowKey={(m) => m.uid} loading={recentQ.isLoading}
-              searchable={false} emptyTitle="No movements yet" />
-          </CardBody>
-        </Card>
+        <div className="space-y-4">
+          <Card>
+            <CardHeader title="Put-away queue" description="Received, not yet binned" />
+            <CardBody className="space-y-2.5">
+              {kpis.pendingPutaway.length === 0 ? (
+                <p className="text-xs text-fg-subtle">Everything received today has been binned.</p>
+              ) : (
+                kpis.pendingPutaway.map((p) => (
+                  <Link key={p.uid} to="/inventory/putaway" className="flex items-start justify-between gap-3 border-b border-border pb-2.5 last:border-0 last:pb-0">
+                    <div className="min-w-0">
+                      <p className="truncate font-mono text-2xs font-medium text-brand-600">{p.docNo}</p>
+                      <p className="truncate text-2xs text-fg-muted">
+                        {p.sourceParty} · {p.lines.length} lines
+                      </p>
+                    </div>
+                    <SlaChip hours={p.ageHours} target={4} />
+                  </Link>
+                ))
+              )}
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader title="Expiry watch" description="Batches expiring within 30 days" />
+            <CardBody className="space-y-2.5">
+              {kpis.expiring.length === 0 ? (
+                <p className="text-xs text-fg-subtle">Nothing expiring in the next 30 days.</p>
+              ) : (
+                kpis.expiring.map((b) => {
+                  const days = Math.ceil((new Date(b.expiresOn!).getTime() - Date.now()) / 86_400_000)
+                  return (
+                    <Link key={b.uid} to="/inventory/batches" className="flex items-start justify-between gap-3 border-b border-border pb-2.5 last:border-0 last:pb-0">
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-medium text-fg">{b.itemName}</p>
+                        <p className="truncate font-mono text-2xs text-fg-subtle">
+                          {b.batchNo} · {formatQty(b.quantityRemaining)} {b.uom}
+                        </p>
+                      </div>
+                      <Badge size="sm" tone={days <= 0 ? 'danger' : days <= 14 ? 'warning' : 'pending'}>
+                        {days <= 0 ? 'Expired' : `${days} d`}
+                      </Badge>
+                    </Link>
+                  )
+                })
+              )}
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader title="Stock away from the plant" description="In transit and at job workers" />
+            <CardBody className="space-y-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-fg">Goods in transit</p>
+                  <p className="text-2xs text-fg-muted">Oldest {kpis.gitOldest} days</p>
+                </div>
+                <span className="shrink-0 text-xs font-semibold tabular text-fg">
+                  {canSeeValue ? `₹${formatCompact(kpis.gitValue)}` : `${transfers.filter((t) => t.status === 'IN_TRANSIT').length} docs`}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-3 border-t border-border pt-2.5">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-fg">At subcontractor</p>
+                  <p className="text-2xs text-fg-muted">{kpis.jobworkAtRisk} challan(s) near the statutory window</p>
+                </div>
+                <span className="shrink-0 text-xs font-semibold tabular text-fg">
+                  {canSeeValue ? `₹${formatCompact(kpis.jobworkValue)}` : `${jobworkChallans.filter((j) => j.balanceQty > 0).length} open`}
+                </span>
+              </div>
+            </CardBody>
+          </Card>
+        </div>
       </div>
 
-      {/* Recent counts ------------------------------------------------- */}
+      {/* Latest counts ------------------------------------------------------ */}
       <Section title="Recent counts" className="mt-6">
         <Card>
           <CardBody className="p-0">
             <div className="overflow-x-auto">
               <table className="grid-table">
-                <thead><tr><th>Count</th><th>Warehouse</th><th>Type</th><th>Counter</th><th className="text-right">Lines</th><th className="text-right">Variances</th><th>Date</th><th>Status</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>Count</th>
+                    <th>Scope</th>
+                    <th>Counter</th>
+                    <th className="text-right">Bins</th>
+                    <th className="text-right">Variance lines</th>
+                    <th className="text-right">Accuracy</th>
+                    <th>Due</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
                 <tbody>
-                  {counts.length === 0 ? (
-                    <tr><td colSpan={8} className="py-6 text-center text-xs text-fg-subtle">{countsQ.isLoading ? 'Loading…' : 'No counts recorded yet.'}</td></tr>
-                  ) : counts.slice(0, 10).map((c) => (
+                  {counts.map((c) => (
                     <tr key={c.uid}>
-                      <td className="font-mono text-2xs font-medium text-brand-600">{c.document_no}</td>
-                      <td className="text-xs">{c.warehouse_code ?? '—'}</td>
-                      <td className="text-2xs text-fg-muted">{c.count_type}</td>
-                      <td className="text-xs">{c.counted_by_name ?? '—'}</td>
-                      <td className="text-right tabular">{c.line_count}</td>
-                      <td className={cn('text-right tabular', c.variance_lines ? 'text-warning' : '')}>{c.variance_lines}</td>
-                      <td className="text-2xs text-fg-muted">{formatDate(c.count_date)}</td>
+                      <td className="font-mono text-2xs font-medium text-brand-600">{c.docNo}</td>
+                      <td className="max-w-[16rem] truncate text-xs">{c.warehouse} · {c.scope}</td>
+                      <td className="text-xs">{c.counter}</td>
+                      <td className="text-right tabular">{c.binsCounted}/{c.binsPlanned}</td>
+                      <td className="text-right tabular">{c.linesWithVariance}</td>
+                      <td className={cn('text-right tabular', c.accuracyPct && c.accuracyPct < 95 ? 'text-warning' : '')}>
+                        {c.binsCounted ? `${c.accuracyPct.toFixed(1)}%` : '—'}
+                      </td>
+                      <td className="text-2xs text-fg-muted">{formatDate(c.dueOn)}</td>
                       <td><InvStatusBadge status={c.status} size="sm" /></td>
                     </tr>
                   ))}

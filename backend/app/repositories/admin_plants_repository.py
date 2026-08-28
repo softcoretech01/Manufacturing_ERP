@@ -120,34 +120,16 @@ class AdminPlantsRepository:
         await self.db.execute(query, {"p_Uid": uid, "p_ModifiedBy": user_id})
         await self.db.commit()
 
-    # PRODUCTION LINE (normalized: FK to sys_plant.id). Accepts the plant's
-    # public uid and resolves it to the integer id the tables are keyed by.
-    async def resolve_plant_id(self, plant_uid: str) -> int | None:
-        if not plant_uid:
-            return None
-        row = (await self.db.execute(
-            text("SELECT id FROM sys_plant WHERE uid = :uid AND deleted_at IS NULL"),
-            {"uid": plant_uid},
-        )).fetchone()
-        return int(row[0]) if row else None
-
-    async def get_production_lines(self, plant_uid: str | None = None) -> List[Dict[str, Any]]:
-        plant_id = await self.resolve_plant_id(plant_uid) if plant_uid else None
-        result = await self.db.execute(
-            text("CALL SpProductionLineByPlant(:pid)"), {"pid": plant_id}
-        )
+    # PRODUCTION LINE
+    async def get_production_lines(self) -> List[Dict[str, Any]]:
+        query = text("CALL SpProductionLine('LIST', NULL)")
+        result = await self.db.execute(query)
         return [self._row_to_dict(r) for r in result.fetchall()]
 
-    # WORK CENTRE (normalized: FK to ProductionLine.Id)
-    async def get_work_centres(self, line_id: int | None = None) -> List[Dict[str, Any]]:
-        result = await self.db.execute(
-            text("CALL SpWorkCentreByLine(:lid)"), {"lid": line_id}
-        )
-        return [self._row_to_dict(r) for r in result.fetchall()]
-
-    # MACHINE GROUP master
-    async def get_machine_groups(self) -> List[Dict[str, Any]]:
-        result = await self.db.execute(text("CALL SpMachineGroup('LIST')"))
+    # WORK CENTRE
+    async def get_work_centres(self) -> List[Dict[str, Any]]:
+        query = text("CALL SpWorkCentre('LIST', NULL)")
+        result = await self.db.execute(query)
         return [self._row_to_dict(r) for r in result.fetchall()]
 
     # WAREHOUSE
