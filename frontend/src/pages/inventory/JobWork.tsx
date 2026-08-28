@@ -201,6 +201,7 @@ export function JobWorkPage() {
       </p>
 
       <DataTable
+          density="comfortable"
         rows={challans}
         columns={columns}
         rowKey={(c) => c.uid}

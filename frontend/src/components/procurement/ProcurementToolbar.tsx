@@ -1,6 +1,5 @@
 import { Input } from '@/components/ui/Input'
-import { Button } from '@/components/ui/Button'
-import { X } from 'lucide-react'
+import { ProcDateFilter, type ProcDateRange } from './ProcDateFilter'
 
 export interface ProcurementToolbarProps {
   search: string
@@ -17,9 +16,18 @@ export interface ProcurementToolbarProps {
 }
 
 /**
- * The one filter bar every Procurement list uses: search + a business-date range
- * + a clear action. Filtering is live as you type, so there is no "Search" button
- * to press — the only action offered is the one that does something.
+ * The one filter bar every Procurement list uses: a live text search plus a
+ * From/To business-date range that is applied on demand.
+ *
+ * The two filters behave differently on purpose. Typing narrows the list as you
+ * go, which is what you want from a search box. Dates do not: a `type="date"`
+ * input emits a value on every keystroke, so filtering live meant the grid
+ * re-ran against half-typed years on the way to the range the buyer wanted.
+ * So the range is a draft until Search is pressed, and Cancel clears the whole
+ * filter set — text and dates — in one go.
+ *
+ * The props are unchanged from the live-filtering version, so the screens using
+ * this need no edit: the toolbar simply holds the dates back until Search.
  */
 export function ProcurementToolbar({
   search,
@@ -34,6 +42,14 @@ export function ProcurementToolbar({
 }: ProcurementToolbarProps) {
   const dirty = Boolean(search || dateFrom || dateTo)
 
+  const range: ProcDateRange = { from: dateFrom, to: dateTo }
+  const applyRange = (r: ProcDateRange) => {
+    // The screens keep the two bounds as separate pieces of state, so an applied
+    // range lands as two updates.
+    onDateFromChange(r.from)
+    onDateToChange(r.to)
+  }
+
   return (
     <div className="flex flex-wrap items-end gap-3 border-b border-border bg-surface px-4 py-3">
       <div className="min-w-[240px] max-w-sm flex-1">
@@ -44,31 +60,16 @@ export function ProcurementToolbar({
           onChange={(e) => onSearchChange(e.target.value)}
         />
       </div>
-      <div className="w-44">
-        <Input
-          type="date"
-          label={`${dateLabel} from`}
-          value={dateFrom}
-          onChange={(e) => onDateFromChange(e.target.value)}
-        />
-      </div>
-      <div className="w-44">
-        <Input
-          type="date"
-          label={`${dateLabel} to`}
-          value={dateTo}
-          onChange={(e) => onDateToChange(e.target.value)}
-        />
-      </div>
-      <Button
-        variant="outline"
-        onClick={onReset}
-        disabled={!dirty}
-        className="gap-2"
-        title="Clear all filters"
-      >
-        <X className="h-4 w-4" /> Clear filters
-      </Button>
+
+      <ProcDateFilter
+        label={dateLabel}
+        value={range}
+        onChange={applyRange}
+        // Cancel is the screen's own reset, so it clears the search text too —
+        // one button that undoes every filter, as before.
+        onCancel={onReset}
+        cancelDisabled={!dirty}
+      />
     </div>
   )
 }

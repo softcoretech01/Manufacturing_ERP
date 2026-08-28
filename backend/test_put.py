@@ -1,44 +1,42 @@
-import requests
+import urllib.request, json
 
-payload = {
-    "docNo": "ECN-0001",
-    "changeType": "ECN",
-    "title": "Test Title",
-    "reason": "This is a test reason that is at least 15 characters long.",
-    "category": "DESIGN",
-    "priority": "NORMAL",
-    "productCode": "PRD-0001",
-    "productName": "Vaccum Flask",
-    "changeLines": [
-        {
-            "uid": "chl-123-0",
-            "bomDocNo": "BOM-0001",
-            "action": "QTY_CHANGE",
-            "itemCode": "ITM-0001",
-            "itemName": "Vaccum Flask",
-            "newItemCode": "",
-            "newItemName": "",
-            "newQtyPer": 5,
-            "newScrapPct": 0,
-            "note": "Testing"
-        }
-    ],
-    "impactNote": "",
-    "effectiveFrom": "2026-08-13",
-    "status": "PENDING_APPROVAL",
-    "sourceEcr": None,
-    "resultingBom": None,
-    "approvals": [
-        {"level": 1, "role": "Engineering Head", "approver": "Rahul Iyer", "status": "PENDING"},
-        {"level": 2, "role": "Quality Head", "approver": "S. Meena", "status": "PENDING"},
-        {"level": 3, "role": "Works Head", "approver": "S. Balaji", "status": "PENDING"}
-    ],
-    "requestedBy": "Rahul Iyer",
-    "requestedOn": "2026-08-13",
-    "createdAt": "2026-08-13T12:00:00Z",
-    "version": 1
-}
+req = urllib.request.Request(
+    'http://localhost:8000/api/v1/procurement/purchase-orders/10',
+    data=json.dumps({
+        'uid': 10,
+        'docNo': 'PO/26-27/00001',
+        'docDate': '2026-08-28',
+        'status': 'PENDING_APPROVAL',
+        'plant': 'DEFAULT',
+        'poType': 'STANDARD',
+        'supplierUid': '1',
+        'supplierName': 'Test',
+        'buyer': 'Procurement',
+        'currency': 'INR',
+        'exchangeRate': 1,
+        'paymentTerms': 'NET30',
+        'deliveryWarehouse': 'W1',
+        'promisedDate': '2026-09-05',
+        'basicValue': 100,
+        'taxValue': 18,
+        'totalValue': 118,
+        'lines': []
+    }).encode('utf-8'),
+    headers={
+        'Content-Type': 'application/json',
+        'X-Tenant-ID': 'ssb01',
+        'X-User-Roles': 'PROCUREMENT.PO.EDIT',
+        'X-User-ID': '1'
+    },
+    method='PUT'
+)
 
-res = requests.put("http://localhost:8000/api/v1/engineering/changes/1", json=payload)
-print(res.status_code)
-print(res.text)
+try:
+    with urllib.request.urlopen(req) as response:
+        print("Status:", response.status)
+        print("Body:", response.read().decode('utf-8'))
+except urllib.error.HTTPError as e:
+    print("HTTP Error:", e.code)
+    print("Body:", e.read().decode('utf-8'))
+except Exception as e:
+    print("Error:", e)

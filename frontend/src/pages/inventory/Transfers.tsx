@@ -3,7 +3,7 @@ import { ArrowRight, Truck } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
-import { Alert } from '@/components/ui/Misc'
+import { Alert, PageHeader } from '@/components/ui/Misc'
 import { Input, Select } from '@/components/ui/Input'
 import { useToast } from '@/components/ui/Toast'
 import { formatQty } from '@/lib/format'
@@ -12,35 +12,41 @@ import { useSession } from '@/api/session'
 import { useItems, useTransfer } from '@/hooks/useStock'
 import { useWarehouses } from '@/hooks/useOrganisation'
 import { DataTable, type Column } from '@/components/ui/DataTable'
-import { PageHeader } from '@/components/ui/Misc'
+import { InvFilterBar, InvSearch } from '@/components/inventory/InvFilterBar'
 
 export function TransfersPage() {
   const [modalOpen, setModalOpen] = useState(false)
+  const [search, setSearch] = useState('')
   const columns: Column<any>[] = [
     { key: 'date', header: 'Date', width: '120px' },
     { key: 'item', header: 'Item' },
-    { key: 'qty', header: 'Quantity' },
+    { key: 'qty', header: 'Quantity', align: 'right' },
     { key: 'from', header: 'From Warehouse' },
-    { key: 'to', header: 'To Warehouse' }
+    { key: 'to', header: 'To Warehouse' },
   ]
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <PageHeader 
-        title="Stock transfer" 
-        description="Move material from one warehouse/store to another immediately."
-        breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Inventory' }, { label: 'Transfers' }]} 
-        actions={<Button variant="primary" onClick={() => setModalOpen(true)}>New Transfer</Button>}
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <PageHeader
+        title="Stock Transfer"
+        description="Move material from one warehouse or store to another immediately."
+        breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Inventory' }, { label: 'Transfers' }]}
+        actions={<Button variant="primary" icon={<Truck className="h-4 w-4" />} onClick={() => setModalOpen(true)}>New Transfer</Button>}
       />
-      <div className="flex-1 min-h-0 flex flex-col gap-4">
-        <DataTable
+
+      <InvFilterBar
+        left={<InvSearch value={search} onChange={setSearch} placeholder="Search transfers…" />}
+      />
+
+      <DataTable
+          density="comfortable"
+          searchable={false}
           rows={[]}
           columns={columns}
           rowKey={(r) => r.id}
-          searchPlaceholder="Search transfers…"
           emptyTitle="No recent transfers"
+          emptyDescription="Click New Transfer to move stock between warehouses."
         />
-      </div>
       {modalOpen && <TransferModal onClose={() => setModalOpen(false)} />}
     </div>
   )
@@ -114,7 +120,7 @@ function TransferModal({ onClose }: { onClose: () => void }) {
 
         <Select label="Item" required value={itemUid} error={errors.item} onChange={(e) => setItemUid(e.target.value)}
           options={[{ value: '', label: 'Select an item…' }, ...items.map((i) => ({ value: i.uid, label: `${i.code} — ${i.name}` }))]} />
-        
+
         <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
           <Select label="From" required value={fromWh} error={errors.from} onChange={(e) => setFromWh(e.target.value)}
             options={[{ value: '', label: 'Source…' }, ...warehouses.map((w) => ({ value: w.uid, label: w.code }))]} />
@@ -122,11 +128,11 @@ function TransferModal({ onClose }: { onClose: () => void }) {
           <Select label="To" required value={toWh} error={errors.to} onChange={(e) => setToWh(e.target.value)}
             options={[{ value: '', label: 'Destination…' }, ...warehouses.map((w) => ({ value: w.uid, label: w.code }))]} />
         </div>
-        
+
         <Input label={`Quantity${item ? ` (${item.base_uom})` : ''}`} type="number" required value={qty} error={errors.quantity} onChange={(e) => setQty(e.target.value)} />
-        
+
         {needsBatch && <Input label="Batch number" required value={batch} error={errors.batch_no} onChange={(e) => setBatch(e.target.value)} />}
-        
+
         <Alert tone="info">Moving material between warehouses never changes its value — it ships at the source moving-average rate.</Alert>
       </div>
     </Modal>

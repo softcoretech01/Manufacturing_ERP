@@ -147,7 +147,13 @@ def create_app() -> FastAPI:
     app.include_router(txn_router, prefix=api)
     app.include_router(count_router, prefix=api)
     app.include_router(analysis_router, prefix=api)
-    # app.include_router(masters_router, prefix=api)
+    # Two item masters exist: `Item` (SpItem, integer id) which procurement and
+    # the Masters portal use, and `mst_item` (ULID) which the stock ledger is
+    # keyed on. Both routers declare `/items`, so this one is mounted under
+    # `/inventory` rather than colliding. Stock movements are posted by item
+    # ULID, so the inventory screens must read from here — reading procurement's
+    # `/items` gives them no `uid` and every movement fails validation.
+    app.include_router(masters_router, prefix=f"{api}/inventory")
     app.include_router(workflow_router, prefix=api)
     app.include_router(numbering_router, prefix=api)
     app.include_router(security_router, prefix=api)

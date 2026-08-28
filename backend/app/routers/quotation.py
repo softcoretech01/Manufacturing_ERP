@@ -5,8 +5,11 @@ from sqlalchemy import text
 from typing import List, Any
 from pydantic import BaseModel
 from app.core.database import get_session
-from app.core.deps import ContextDep, SessionDep
+from app.core.context import TenantContext
+from app.core.deps import SessionDep, require
 from app.schemas.procurement import SupplierQuotationSchema
+from app.services.totals import recalc_quotation
+from app.services.rfq_sync import rfq_no_for_quotation, sync_rfq_supplier_response
 
 router = APIRouter(prefix="/procurement/quotations", tags=["Procurement - Quotations"])
 
@@ -15,9 +18,9 @@ class SupplierSelectionRequest(BaseModel):
     remarks: str | None = None
 
 
-@router.post("/{uid}/select")
+@router.post("/{uid}/select", dependencies=[Depends(require("PROCUREMENT.QUOTATION.SELECT"))])
 async def select_quotation(
-    uid: str, body: SupplierSelectionRequest, session: SessionDep, ctx: ContextDep
+    uid: str, body: SupplierSelectionRequest, session: SessionDep, ctx: TenantContext = Depends(require("PROCUREMENT.QUOTATION.SELECT"))
 ) -> Any:
     """Award an RFQ to one supplier's quotation.
 
@@ -100,7 +103,7 @@ async def select_quotation(
         "status": "SELECTED",
     }
 
-@router.get("", response_model=List[SupplierQuotationSchema])
+@router.get("", response_model=List[SupplierQuotationSchema], dependencies=[Depends(require("PROCUREMENT.QUOTATION.VIEW"))])
 async def get_all_quotations(session: AsyncSession = Depends(get_session)) -> Any:
     query = text("CALL ERP_Procurement.SpManageSupplierQuotation('READ_ALL', NULL, NULL)")
     result = await session.execute(query)
@@ -110,7 +113,7 @@ async def get_all_quotations(session: AsyncSession = Depends(get_session)) -> An
         return data
     return []
 
-@router.get("/{uid}", response_model=SupplierQuotationSchema)
+@router.get("/{uid}", response_model=SupplierQuotationSchema, dependencies=[Depends(require("PROCUREMENT.QUOTATION.VIEW"))])
 async def get_quotation(uid: str, session: AsyncSession = Depends(get_session)) -> Any:
     query = text("CALL ERP_Procurement.SpManageSupplierQuotation('READ', :uid, NULL)")
     result = await session.execute(query, {"uid": uid})
@@ -120,34 +123,54 @@ async def get_quotation(uid: str, session: AsyncSession = Depends(get_session)) 
         return data
     raise HTTPException(status_code=404, detail="Quotation not found")
 
-@router.post("", response_model=Any, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=Any, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require("PROCUREMENT.QUOTATION.CREATE"))])
 async def create_quotation(req: SupplierQuotationSchema, session: AsyncSession = Depends(get_session)) -> Any:
+    # Never trust client-supplied money — recompute from the lines.
+    await recalc_quotation(session, req)
     payload = req.model_dump_json()
     query = text("CALL ERP_Procurement.SpManageSupplierQuotation('CREATE', NULL, :payload)")
     result = await session.execute(query, {"payload": payload})
     row = result.fetchone()
     if row and row[0]:
         data = json.loads(row[0])
+        # Receiving the quote is what marks the invited supplier as having
+        # responded. Without this the RFQ goes on reporting them as pending
+        # even though their quotation is sitting in the system.
+        await sync_rfq_supplier_response(session, req.rfqNo)
         return data
     raise HTTPException(status_code=500, detail="Failed to create Quotation")
 
-@router.put("/{uid}", response_model=Any)
+@router.put("/{uid}", response_model=Any, dependencies=[Depends(require("PROCUREMENT.QUOTATION.EDIT"))])
 async def update_quotation(uid: str, req: SupplierQuotationSchema, session: AsyncSession = Depends(get_session)) -> Any:
     if req.uid and str(req.uid) != str(uid):
         raise HTTPException(status_code=400, detail="UID in path does not match UID in payload")
-    
+
+    # The RFQ this quotation sat on before the edit. If it has been re-pointed at
+    # a different RFQ, the old one still shows that supplier as having responded
+    # unless it is resynced too.
+    previous_rfq_no = await rfq_no_for_quotation(session, uid)
+
     req.uid = int(uid) if uid.isdigit() else uid
+    # Never trust client-supplied money — recompute from the lines.
+    await recalc_quotation(session, req)
     payload = req.model_dump_json()
     query = text("CALL ERP_Procurement.SpManageSupplierQuotation('UPDATE', :uid, :payload)")
     result = await session.execute(query, {"uid": req.uid, "payload": payload})
     row = result.fetchone()
     if row and row[0]:
         data = json.loads(row[0])
+        await sync_rfq_supplier_response(session, req.rfqNo)
+        if previous_rfq_no and previous_rfq_no != req.rfqNo:
+            await sync_rfq_supplier_response(session, previous_rfq_no)
         return data
     raise HTTPException(status_code=404, detail="Quotation not found or update failed")
 
-@router.delete("/{uid}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{uid}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require("PROCUREMENT.QUOTATION.DELETE"))])
 async def delete_quotation(uid: str, session: AsyncSession = Depends(get_session)) -> None:
+    # Read the RFQ link before the row is soft-deleted, or the RFQ can never be
+    # told that this supplier is outstanding again.
+    rfq_no = await rfq_no_for_quotation(session, uid)
     payload = json.dumps({"modifiedBy": "System"})
     query = text("CALL ERP_Procurement.SpManageSupplierQuotation('DELETE', :uid, :payload)")
     await session.execute(query, {"uid": uid, "payload": payload})
+    await sync_rfq_supplier_response(session, rfq_no)

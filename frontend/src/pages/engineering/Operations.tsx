@@ -234,7 +234,7 @@ export function OperationsPage() {
         onRowClick={openEdit}
         emptyTitle="No operations"
         emptyDescription="Routings are assembled from this library."
-        isLoading={isLoading}
+        loading={isLoading}
         rowActions={(o) => (
           <>
             <MenuItem label="Edit" onClick={() => openEdit(o)} />

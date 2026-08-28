@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from 'react'
-import { Eye, Edit, Plus, Send } from 'lucide-react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import { DataTable, type Column } from '@/components/ui/DataTable'
@@ -12,6 +12,7 @@ import { ProcStatusBadge } from '@/components/procurement/ProcShell'
 import { ProcurementToolbar } from '@/components/procurement/ProcurementToolbar'
 import * as api from '@/api/procurement'
 import { useDocDetail } from '@/hooks/useDocDetail'
+import { useItemLookup } from '@/hooks/useItemLookup'
 import {
   ProcModal, ModalFooter, Section, FieldGrid, Field,
   LineItemsTable, TotalsPanel, RowActions, money, qty as fmtQty,
@@ -35,13 +36,17 @@ export function OrdersPage() {
     stores: any[], 
     currencies: any[], 
     plants: any[],
-    quotes: any[]
-  }>({ suppliers: [], terms: [], taxes: [], stores: [], currencies: [], plants: [], quotes: [] })
+    quotes: any[],
+    rfqs: any[],
+    prs: any[]
+  }>({ suppliers: [], terms: [], taxes: [], stores: [], currencies: [], plants: [], quotes: [], rfqs: [], prs: [] })
 
   const [formOpen, setFormOpen] = useState(false)
   const [viewOpen, setViewOpen] = useState(false)
   const [editing, setEditing] = useState<any | null>(null)
+  const [saving, setSaving] = useState(false)
   const detail = useDocDetail<any>(api.getPurchaseOrder)
+  const lookup = useItemLookup()
   
   const [form, setForm] = useState<any>({
     supplierUid: '',
@@ -73,12 +78,12 @@ export function OrdersPage() {
     fetchList()
     Promise.all([
       getSuppliers(), getPaymentTerms(), getTaxes(), 
-      getWarehouses(), getCurrencies(), getPlants(), api.getQuotations()
-    ]).then(([suppliers, terms, taxes, stores, currencies, plants, quotes]) => {
+      getWarehouses(), getCurrencies(), getPlants(), api.getQuotations(), api.getRfqs(), api.getRequisitions()
+    ]).then(([suppliers, terms, taxes, stores, currencies, plants, quotes, rfqs, prs]) => {
       // Only a quotation that won its comparison may become a purchase order,
       // and only until it has been used — a USED quotation never reappears.
       setMasters({ suppliers, terms, taxes, stores, currencies, plants,
-        quotes: quotes.filter((q: any) => q.status === 'SELECTED') })
+        quotes: quotes.filter((q: any) => q.status === 'SELECTED'), rfqs, prs })
     }).catch(() => toast.error('Error', 'Failed to load master data'))
   }, [])
 
@@ -115,6 +120,7 @@ export function OrdersPage() {
         currency: po.currency || 'INR',
         promisedDate: po.promisedDate ? new Date(po.promisedDate).toISOString().split('T')[0] : '',
         rfqNo: po.rfqNo || '',
+        prRefs: po.prRefs || [],
         remarks: po.remarks || '',
         lines: po.lines || [],
         basicValue: po.basicValue || 0,
@@ -131,6 +137,7 @@ export function OrdersPage() {
         currency: 'INR',
         promisedDate: '',
         rfqNo: '',
+        prRefs: [],
         remarks: '',
         lines: [],
         basicValue: 0,
@@ -147,6 +154,12 @@ export function OrdersPage() {
     setEditing(await detail.load(po))
   }
 
+  const unusedQuotes = useMemo(() => {
+    return masters.quotes.filter((q: any) => {
+      return !data.some((po: any) => po.rfqNo === q.rfqNo)
+    })
+  }, [masters.quotes, data])
+
   const handleQuoteSelect = (quoteNo: string) => {
     const quote = masters.quotes.find(q => q.docNo === quoteNo)
     if (quote) {
@@ -161,9 +174,11 @@ export function OrdersPage() {
         freight: l.freight,
         total: (l.qty * l.rate) + ((l.qty * l.rate) * (l.taxPct / 100)) + (l.qty * l.freight)
       }))
+      const rfq = masters.rfqs?.find((r: any) => r.docNo === quote.rfqNo)
       setForm({
         ...form, 
         rfqNo: quote.rfqNo, 
+        prRefs: rfq?.prRefs || [],
         supplierUid: quote.supplierUid,
         lines: newLines,
         basicValue: quote.basicValue,
@@ -172,6 +187,22 @@ export function OrdersPage() {
       })
     }
   }
+
+  // Auto-calculate totals when lines change
+  useEffect(() => {
+    if (!formOpen || !form.lines) return
+    const basic = form.lines.reduce((acc: number, l: any) => acc + ((Number(l.qty) || 0) * (Number(l.rate) || 0)), 0)
+    const tax = form.lines.reduce((acc: number, l: any) => acc + ((Number(l.qty) || 0) * (Number(l.rate) || 0) * (Number(l.taxRate) || 0) / 100), 0)
+    
+    if (form.basicValue !== basic || form.taxValue !== tax) {
+      setForm((prev: any) => ({
+        ...prev,
+        basicValue: basic,
+        taxValue: tax,
+        totalValue: basic + tax
+      }))
+    }
+  }, [form.lines, formOpen, form.basicValue, form.taxValue])
 
   // Build a complete, correctly-typed PO payload the backend schema accepts.
   const buildPoPayload = (status: string) => {
@@ -192,6 +223,7 @@ export function OrdersPage() {
       deliveryWarehouse: form.deliveryWarehouse || '',
       promisedDate: form.promisedDate ? String(form.promisedDate).slice(0, 10) : today,
       rfqNo: form.rfqNo || null,
+      prRefs: form.prRefs || null,
       remarks: form.remarks || null,
       basicValue: Number(form.basicValue) || 0,
       discountValue: 0,
@@ -215,26 +247,44 @@ export function OrdersPage() {
     }
   }
 
-  const handleSave = async () => {
+  // Saving and submitting are two different intents, exactly as on the
+  // requisition screen. A PO saved as a draft is deliberately parked; one that
+  // is submitted enters the approval workflow and appears in the Approval
+  // Center. Without the second option a new PO could only ever be created as a
+  // draft, so it never reached an approver.
+  const handleSave = (isDraft: boolean) => async () => {
+    if (saving) {
+      toast.success('Success', 'Already created successfully')
+      return
+    }
+
     if (!form.supplierUid) return toast.error('Validation', 'Supplier is required')
     if (!form.paymentTerms) return toast.error('Validation', 'Payment Terms is required')
     if (!form.deliveryWarehouse) return toast.error('Validation', 'Delivery warehouse is required')
     if (!form.promisedDate) return toast.error('Validation', 'Expected delivery date is required')
     if (form.lines.length === 0) return toast.error('Validation', 'At least one item is required')
 
+    const targetStatus = isDraft ? 'DRAFT' : 'PENDING_APPROVAL'
+    setSaving(true)
     try {
-      const payload = buildPoPayload(editing?.status || 'DRAFT')
+      const payload = buildPoPayload(targetStatus)
       if (editing) {
         await api.updatePurchaseOrder(editing.uid || editing.id, payload)
-        toast.success('Success', 'Purchase Order updated')
       } else {
         await api.createPurchaseOrder(payload)
-        toast.success('Success', 'Purchase Order created')
       }
+      toast.success(
+        'Success',
+        isDraft
+          ? `Purchase Order saved as draft`
+          : `Purchase Order submitted for approval`,
+      )
       setFormOpen(false)
       fetchList()
     } catch (err: any) {
       toast.error('Error', err.message || 'Failed to save PO')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -242,6 +292,11 @@ export function OrdersPage() {
   // status — the update SP rewrites the row from the payload, so a partial body
   // would wipe the PO's fields and lines.
   const handleSubmitApproval = async (po: any) => {
+    if (saving) {
+      toast.success('Success', 'Already created successfully')
+      return
+    }
+    setSaving(true)
     try {
       const payload = {
         ...po,
@@ -260,6 +315,8 @@ export function OrdersPage() {
       fetchList()
     } catch (err: any) {
       toast.error('Error', err.message || 'Failed to submit')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -323,7 +380,11 @@ export function OrdersPage() {
             <CardBody className="grid gap-4 sm:grid-cols-3">
               <Select label="Load from Quote" value="" onChange={e => handleQuoteSelect(e.target.value)} disabled={!!editing}>
                 <option value="">Select Approved Quote...</option>
-                {masters.quotes.map(q => <option key={q.docNo} value={q.docNo}>{q.docNo} (RFQ: {q.rfqNo})</option>)}
+                {unusedQuotes.map((q: any) => {
+                  const rfq = masters.rfqs?.find((r: any) => r.docNo === q.rfqNo)
+                  const prs = rfq?.prRefs?.length ? rfq.prRefs.join(', ') : 'No PR'
+                  return <option key={q.docNo} value={q.docNo}>{q.docNo} (PR: {prs})</option>
+                })}
               </Select>
               <Select label="Supplier" value={form.supplierUid} onChange={e => setForm({...form, supplierUid: e.target.value})} disabled={!!editing}>
                 <option value="">Select Supplier</option>
@@ -353,35 +414,24 @@ export function OrdersPage() {
           <Card>
             <CardHeader title="Order Lines" />
             <CardBody className="p-0 overflow-x-auto">
-              <table className="grid-table w-full text-sm min-w-[800px]">
-                <thead>
-                  <tr>
-                    <th className="w-10">#</th>
-                    <th>Item</th>
-                    <th className="w-20">Qty</th>
-                    <th className="text-right">Rate</th>
-                    <th className="text-right">Tax %</th>
-                    <th className="text-right">Freight</th>
-                    <th className="text-right">Line Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {form.lines.map((l: any, i: number) => (
-                    <tr key={i}>
-                      <td className="text-center">{i + 1}</td>
-                      <td>{l.itemName} <span className="text-xs text-fg-muted block">{l.uom}</span></td>
-                      <td>{l.qty}</td>
-                      <td className="text-right">{formatCurrency(l.rate)}</td>
-                      <td className="text-right">{l.taxPct}%</td>
-                      <td className="text-right">{formatCurrency(l.qty * l.freight)}</td>
-                      <td className="text-right font-medium">{formatCurrency(l.total)}</td>
-                    </tr>
-                  ))}
-                  {form.lines.length === 0 && (
-                    <tr><td colSpan={7} className="text-center text-fg-muted py-4">Select a Quotation to load items.</td></tr>
-                  )}
-                </tbody>
-              </table>
+              <LineItemsTable
+                rows={form.lines}
+                empty="Select a Quotation to load items."
+                columns={[
+                  { key: 'item', header: 'Item', render: (l) => (
+                    <>
+                      {l.itemName} <span className="block text-xs text-fg-muted">{l.uom}</span>
+                    </>
+                  )},
+                  { key: 'qty', header: 'Qty', align: 'right', width: '90px', render: (l) => l.qty },
+                  { key: 'rate', header: 'Rate', align: 'right', width: '120px', render: (l) => formatCurrency(l.rate) },
+                  { key: 'taxPct', header: 'Tax %', align: 'right', width: '80px', render: (l) => `${l.taxPct}%` },
+                  { key: 'freight', header: 'Freight', align: 'right', width: '120px', render: (l) => formatCurrency((Number(l.qty) || 0) * (Number(l.freight) || 0)) },
+                  { key: 'total', header: 'Line Total', align: 'right', width: '130px', render: (l) => (
+                    <span className="font-medium">{formatCurrency(l.total)}</span>
+                  )},
+                ]}
+              />
               {form.lines.length > 0 && (
                 <div className="flex justify-end p-4 border-t border-border bg-gray-50/50">
                   <div className="w-64 space-y-2">
@@ -405,7 +455,8 @@ export function OrdersPage() {
 
           <div className="flex justify-end gap-2 border-t border-border pt-4">
             <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={handleSave}>{editing ? 'Update PO' : 'Save PO'}</Button>
+            <Button variant="outline" onClick={handleSave(true)}>Save Draft</Button>
+            <Button variant="primary" onClick={handleSave(false)}>Submit for Approval</Button>
           </div>
         </div>
       </Modal>
@@ -435,15 +486,22 @@ export function OrdersPage() {
                 <FieldGrid>
                   <Field label="PO Number" mono value={editing.docNo} />
                   <Field label="PO Date" value={formatDate(editing.docDate)} />
-                  <Field label="Supplier" value={
-                    masters.suppliers.find((x: any) => String(x.uid || x.id) === String(editing.supplierUid))?.name
-                    || editing.supplierName || editing.supplierUid} />
-                  <Field label="Reference Quotation" mono value={editing.rfqNo} />
+                  <Field label="Supplier" value={masters.suppliers.find(s => (s.uid || s.id) === editing?.supplierUid)?.name || editing?.supplierUid || '-'} />
+                  <Field label="Reference Quotation" value={editing?.rfqNo || '-'} />
+                  <Field label="PR Numbers" value={editing?.prRefs?.length ? editing.prRefs.map((prId: any) => {
+                    const pr = masters.prs.find(p => String(p.uid || p.id) === String(prId))
+                    return pr ? pr.docNo : prId
+                  }).join(', ') : '-'} />
                   <Field label="Delivery Store" value={
                     masters.stores.find((w: any) => String(w.code) === String(editing.deliveryWarehouse))?.name
                     || editing.deliveryWarehouse} />
                   <Field label="Expected Delivery" value={editing.promisedDate ? formatDate(editing.promisedDate) : null} />
-                  <Field label="Payment Terms" value={editing.paymentTerms} />
+                  {/* Stored as the master's id — resolve it, never show the raw id. */}
+                  <Field label="Payment Terms" value={
+                    masters.terms.find((t: any) => String(t.uid ?? t.id) === String(editing.paymentTerms))?.name
+                    || editing.paymentTerms} />
+                  <Field label="Buyer" value={editing.buyer} />
+                  <Field label="Currency" value={editing.currency} />
                   <Field label="Status" value={<ProcStatusBadge status={editing.status} />} />
                   <Field label="Remarks" span value={editing.remarks} />
                 </FieldGrid>
@@ -454,6 +512,10 @@ export function OrdersPage() {
                   rows={lines}
                   empty="This order has no items."
                   columns={[
+                    { key: 'itemType', header: 'Type', width: '130px', render: (l) =>
+                        lookup.itemTypeOf(l.itemCode) || <span className="text-fg-subtle">—</span> },
+                    { key: 'category', header: 'Category', width: '150px', render: (l) =>
+                        lookup.categoryOf(l.itemCode) || <span className="text-fg-subtle">—</span> },
                     { key: 'itemName', header: 'Item', render: (l) => <span className="font-medium text-fg">{l.itemName}</span> },
                     { key: 'qty', header: 'Ordered', align: 'right', width: '95px', render: (l) => fmtQty(l.qty) },
                     { key: 'uom', header: 'UOM', align: 'center', width: '70px' },

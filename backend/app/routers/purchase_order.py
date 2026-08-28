@@ -4,10 +4,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from typing import List, Any
 from app.core.database import get_session
-from app.core.deps import ContextDep, SessionDep
+from app.core.deps import ContextDep, SessionDep, require
 from app.core.context import TenantContext
 from app.core.doc_status import register_status_writer
 from app.schemas.procurement import PurchaseOrderSchema
+from app.services.totals import recalc_purchase_order
 from app.modules.workflow.application.engine import WorkflowService
 
 router = APIRouter(prefix="/procurement/purchase-orders", tags=["Procurement Purchase Orders"])
@@ -38,7 +39,7 @@ async def _po_status_writer(
 
 register_status_writer("PURCHASE_ORDER", _po_status_writer)
 
-@router.get("", response_model=List[PurchaseOrderSchema])
+@router.get("", response_model=List[PurchaseOrderSchema], dependencies=[Depends(require("PROCUREMENT.PO.VIEW"))])
 async def get_purchase_orders(session: AsyncSession = Depends(get_session)) -> Any:
     query = text("CALL ERP_Procurement.SpManagePurchaseOrder('READ_ALL', NULL, NULL)")
     result = await session.execute(query)
@@ -48,7 +49,7 @@ async def get_purchase_orders(session: AsyncSession = Depends(get_session)) -> A
         return data
     return []
 
-@router.get("/{uid}", response_model=PurchaseOrderSchema)
+@router.get("/{uid}", response_model=PurchaseOrderSchema, dependencies=[Depends(require("PROCUREMENT.PO.VIEW"))])
 async def get_purchase_order(uid: str = Path(...), session: AsyncSession = Depends(get_session)) -> Any:
     query = text("CALL ERP_Procurement.SpManagePurchaseOrder('READ', :uid, NULL)")
     result = await session.execute(query, {"uid": uid})
@@ -98,8 +99,10 @@ async def _submit_po_for_approval(session: AsyncSession, ctx: TenantContext, req
     )
 
 
-@router.post("", response_model=Any, status_code=status.HTTP_201_CREATED)
-async def create_purchase_order(req: PurchaseOrderSchema, session: SessionDep, ctx: ContextDep) -> Any:
+@router.post("", response_model=Any, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require("PROCUREMENT.PO.CREATE"))])
+async def create_purchase_order(req: PurchaseOrderSchema, session: SessionDep, ctx: TenantContext = Depends(require("PROCUREMENT.PO.CREATE"))) -> Any:
+    # Never trust client-supplied money — recompute from the lines.
+    await recalc_purchase_order(session, req)
     payload = req.model_dump_json(by_alias=True)
     query = text("CALL ERP_Procurement.SpManagePurchaseOrder('CREATE', NULL, :payload)")
     result = await session.execute(query, {"payload": payload})
@@ -114,12 +117,14 @@ async def create_purchase_order(req: PurchaseOrderSchema, session: SessionDep, c
         return data
     raise HTTPException(status_code=500, detail="Failed to create purchase order")
 
-@router.put("/{uid}", response_model=Any)
-async def update_purchase_order(uid: str, req: PurchaseOrderSchema, session: SessionDep, ctx: ContextDep) -> Any:
+@router.put("/{uid}", response_model=Any, dependencies=[Depends(require("PROCUREMENT.PO.EDIT"))])
+async def update_purchase_order(uid: str, req: PurchaseOrderSchema, session: SessionDep, ctx: TenantContext = Depends(require("PROCUREMENT.PO.EDIT"))) -> Any:
     if req.uid and str(req.uid) != str(uid):
         raise HTTPException(status_code=400, detail="UID in path does not match UID in payload")
 
     req.uid = int(uid) if uid.isdigit() else uid
+    # Never trust client-supplied money — recompute from the lines.
+    await recalc_purchase_order(session, req)
     payload = req.model_dump_json(by_alias=True)
     query = text("CALL ERP_Procurement.SpManagePurchaseOrder('UPDATE', :uid, :payload)")
     result = await session.execute(query, {"uid": req.uid, "payload": payload})
@@ -131,7 +136,7 @@ async def update_purchase_order(uid: str, req: PurchaseOrderSchema, session: Ses
         return data
     raise HTTPException(status_code=404, detail="Purchase order not found or update failed")
 
-@router.delete("/{uid}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{uid}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require("PROCUREMENT.PO.DELETE"))])
 async def delete_purchase_order(uid: str, session: AsyncSession = Depends(get_session)) -> None:
     payload = json.dumps({"modifiedBy": "System"})
     query = text("CALL ERP_Procurement.SpManagePurchaseOrder('DELETE', :uid, :payload)")

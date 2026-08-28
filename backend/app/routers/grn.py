@@ -4,15 +4,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from typing import List, Any
 from app.core.database import get_session
-from app.core.deps import ContextDep, SessionDep
+from app.core.context import TenantContext
+from app.core.deps import ContextDep, SessionDep, require
 from app.schemas.procurement import GrnSchema, IncomingInspectionSchema
+from app.services.totals import recalc_grn
 from app.services.grn_posting import GrnPostingService
 
 router = APIRouter(prefix="/procurement", tags=["Procurement GRN & IQC"])
 
 # --- GRN Endpoints ---
 
-@router.get("/grn/", response_model=List[GrnSchema])
+@router.get("/grn/", response_model=List[GrnSchema], dependencies=[Depends(require("PROCUREMENT.GRN.VIEW"))])
 async def get_grns(session: AsyncSession = Depends(get_session)) -> Any:
     query = text("CALL ERP_Procurement.SpManageGrn('READ_ALL', NULL, NULL)")
     result = await session.execute(query)
@@ -22,7 +24,7 @@ async def get_grns(session: AsyncSession = Depends(get_session)) -> Any:
         return data
     return []
 
-@router.get("/grn/{uid}", response_model=GrnSchema)
+@router.get("/grn/{uid}", response_model=GrnSchema, dependencies=[Depends(require("PROCUREMENT.GRN.VIEW"))])
 async def get_grn(uid: str = Path(...), session: AsyncSession = Depends(get_session)) -> Any:
     query = text("CALL ERP_Procurement.SpManageGrn('READ', :uid, NULL)")
     result = await session.execute(query, {"uid": uid})
@@ -33,7 +35,7 @@ async def get_grn(uid: str = Path(...), session: AsyncSession = Depends(get_sess
     raise HTTPException(status_code=404, detail="GRN not found")
 
 @router.post("/grn/", status_code=status.HTTP_201_CREATED)
-async def create_grn(req: GrnSchema, session: SessionDep, ctx: ContextDep) -> Any:
+async def create_grn(req: GrnSchema, session: SessionDep, ctx: TenantContext = Depends(require("PROCUREMENT.GRN.CREATE"))) -> Any:
     """Create a GRN and, unless it is saved as a draft, post it to inventory.
 
     Creation and stock posting share this request's transaction, so a GRN that
@@ -47,6 +49,8 @@ async def create_grn(req: GrnSchema, session: SessionDep, ctx: ContextDep) -> An
     if req.poNo:
         await posting._po_or_error(req.poNo)
 
+    # Never trust client-supplied money — recompute from the lines.
+    await recalc_grn(session, req)
     payload = req.model_dump_json(by_alias=True)
     query = text("CALL ERP_Procurement.SpManageGrn('CREATE', NULL, :payload)")
     result = await session.execute(query, {"payload": payload})
@@ -75,7 +79,7 @@ async def create_grn(req: GrnSchema, session: SessionDep, ctx: ContextDep) -> An
 
 
 @router.post("/grn/{uid}/post")
-async def post_grn(uid: str, session: SessionDep, ctx: ContextDep) -> Any:
+async def post_grn(uid: str, session: SessionDep, ctx: TenantContext = Depends(require("PROCUREMENT.GRN.POST"))) -> Any:
     """Post an existing draft GRN to inventory.
 
     Refuses a GRN that is already POSTED, so a retried request or a double click
@@ -93,12 +97,14 @@ async def post_grn(uid: str, session: SessionDep, ctx: ContextDep) -> Any:
     posting = await GrnPostingService(session, ctx).post(grn)
     return {"uid": uid, "status": "POSTED", "posting": posting}
 
-@router.put("/grn/{uid}")
+@router.put("/grn/{uid}", dependencies=[Depends(require("PROCUREMENT.GRN.EDIT"))])
 async def update_grn(uid: str, req: GrnSchema, session: AsyncSession = Depends(get_session)) -> Any:
     if req.uid and str(req.uid) != str(uid):
         raise HTTPException(status_code=400, detail="UID in path does not match UID in payload")
     
     req.uid = int(uid) if uid.isdigit() else uid
+    # Never trust client-supplied money — recompute from the lines.
+    await recalc_grn(session, req)
     payload = req.model_dump_json(by_alias=True)
     query = text("CALL ERP_Procurement.SpManageGrn('UPDATE', :uid, :payload)")
     result = await session.execute(query, {"uid": req.uid, "payload": payload})
@@ -108,14 +114,14 @@ async def update_grn(uid: str, req: GrnSchema, session: AsyncSession = Depends(g
         return data
     raise HTTPException(status_code=404, detail="GRN not found or update failed")
 
-@router.delete("/grn/{uid}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/grn/{uid}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require("PROCUREMENT.GRN.DELETE"))])
 async def delete_grn(uid: str, session: AsyncSession = Depends(get_session)) -> None:
     query = text("CALL ERP_Procurement.SpManageGrn('DELETE', :uid, NULL)")
     await session.execute(query, {"uid": uid})
 
 # --- IQC Endpoints ---
 
-@router.get("/iqc/", response_model=List[IncomingInspectionSchema])
+@router.get("/iqc/", response_model=List[IncomingInspectionSchema], dependencies=[Depends(require("PROCUREMENT.IQC.VIEW"))])
 async def get_iqcs(session: AsyncSession = Depends(get_session)) -> Any:
     query = text("CALL ERP_Procurement.SpManageIqc('READ_ALL', NULL, NULL)")
     result = await session.execute(query)
@@ -125,7 +131,7 @@ async def get_iqcs(session: AsyncSession = Depends(get_session)) -> Any:
         return data
     return []
 
-@router.get("/iqc/{uid}", response_model=IncomingInspectionSchema)
+@router.get("/iqc/{uid}", response_model=IncomingInspectionSchema, dependencies=[Depends(require("PROCUREMENT.IQC.VIEW"))])
 async def get_iqc(uid: str = Path(...), session: AsyncSession = Depends(get_session)) -> Any:
     query = text("CALL ERP_Procurement.SpManageIqc('READ', :uid, NULL)")
     result = await session.execute(query, {"uid": uid})
@@ -135,7 +141,7 @@ async def get_iqc(uid: str = Path(...), session: AsyncSession = Depends(get_sess
         return data
     raise HTTPException(status_code=404, detail="IQC not found")
 
-@router.post("/iqc/", status_code=status.HTTP_201_CREATED)
+@router.post("/iqc/", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require("PROCUREMENT.IQC.CREATE"))])
 async def create_iqc(req: IncomingInspectionSchema, session: AsyncSession = Depends(get_session)) -> Any:
     payload = req.model_dump_json(by_alias=True)
     query = text("CALL ERP_Procurement.SpManageIqc('CREATE', NULL, :payload)")
@@ -146,7 +152,7 @@ async def create_iqc(req: IncomingInspectionSchema, session: AsyncSession = Depe
         return data
     raise HTTPException(status_code=500, detail="Failed to create IQC")
 
-@router.put("/iqc/{uid}")
+@router.put("/iqc/{uid}", dependencies=[Depends(require("PROCUREMENT.IQC.EDIT"))])
 async def update_iqc(uid: str, req: IncomingInspectionSchema, session: AsyncSession = Depends(get_session)) -> Any:
     if req.uid and str(req.uid) != str(uid):
         raise HTTPException(status_code=400, detail="UID in path does not match UID in payload")
@@ -161,7 +167,7 @@ async def update_iqc(uid: str, req: IncomingInspectionSchema, session: AsyncSess
         return data
     raise HTTPException(status_code=404, detail="IQC not found or update failed")
 
-@router.delete("/iqc/{uid}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/iqc/{uid}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require("PROCUREMENT.IQC.DELETE"))])
 async def delete_iqc(uid: str, session: AsyncSession = Depends(get_session)) -> None:
     query = text("CALL ERP_Procurement.SpManageIqc('DELETE', :uid, NULL)")
     await session.execute(query, {"uid": uid})

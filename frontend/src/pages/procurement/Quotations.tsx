@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Eye, Edit, Plus, Send } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { Modal } from '@/components/ui/Modal'
-import { Input, Select, Textarea } from '@/components/ui/Input'
+import { Input, Select } from '@/components/ui/Input'
 import { PageHeader } from '@/components/ui/Misc'
 import { useToast } from '@/components/ui/Toast'
 import { formatDate, formatCurrency } from '@/lib/format'
@@ -13,6 +13,7 @@ import { ProcurementToolbar } from '@/components/procurement/ProcurementToolbar'
 import * as api from '@/api/procurement'
 import { getSuppliers, getItems } from '@/api/masters'
 import { useDocDetail } from '@/hooks/useDocDetail'
+import { useItemLookup } from '@/hooks/useItemLookup'
 import {
   ProcModal, ModalFooter, Section, FieldGrid, Field,
   LineItemsTable, TotalsPanel, RowActions, money, qty as fmtQty,
@@ -36,6 +37,7 @@ export function QuotationsPage() {
   const [viewOpen, setViewOpen] = useState(false)
   const [editing, setEditing] = useState<any | null>(null)
   const detail = useDocDetail<any>(api.getQuotation)
+  const lookup = useItemLookup()
   
   const [form, setForm] = useState<any>({
     rfqNo: '',
@@ -61,7 +63,7 @@ export function QuotationsPage() {
   useEffect(() => {
     fetchList()
     api.getRfqs().then(res => {
-      setRfqs(res?.filter((r:any) => r.status === 'OPEN') || [])
+      setRfqs(res || [])
     }).catch(console.error)
     api.getRequisitions().then(res => {
       setPrs(res || [])
@@ -108,14 +110,31 @@ export function QuotationsPage() {
     const quote = quoteRow ? await detail.load(quoteRow) : undefined
     if (quote) {
       setEditing(quote)
+      
+      let basic = 0, tax = 0, landed = 0
+      const updatedLines = (quote.lines || []).map((l: any) => {
+        const rate = l.rate || 0
+        const taxPct = 0 // Force tax to 0% for existing lines
+        const freight = l.freight || 0
+        const qty = l.qty || 0
+        
+        const landedRate = rate + rate * (taxPct / 100) + freight
+        
+        basic += (qty * rate)
+        tax += (qty * rate * (taxPct / 100))
+        landed += (qty * landedRate)
+
+        return { ...l, taxPct, landedRate }
+      })
+
       setForm({
         rfqNo: quote.rfqNo || '',
         supplierUid: quote.supplierUid || '',
         validTill: quote.validTill ? new Date(quote.validTill).toISOString().split('T')[0] : '',
-        lines: quote.lines || [],
-        basicValue: quote.basicValue || 0,
-        taxValue: quote.taxValue || 0,
-        landedValue: quote.landedValue || 0
+        lines: updatedLines,
+        basicValue: basic,
+        taxValue: tax,
+        landedValue: landed
       })
     } else {
       setEditing(null)
@@ -143,7 +162,7 @@ export function QuotationsPage() {
     if (selectedRfq) {
       const newLines = selectedRfq.lines.map((l:any) => {
         const rate = priceForItem(l.itemCode)   // suggested unit price from item master
-        const taxPct = 18
+        const taxPct = 0
         return {
           itemCode: l.itemCode,
           itemName: l.itemName,
@@ -253,34 +272,22 @@ export function QuotationsPage() {
     }
   }
 
-  const handleSubmitApproval = async (uid: string) => {
-    try {
-      await api.updateQuotation(uid, { status: 'PENDING_APPROVAL' })
-      toast.success('Success', 'Submitted for approval')
-      setViewOpen(false)
-      fetchList()
-    } catch (err: any) {
-      toast.error('Error', err.message || 'Failed to submit')
-    }
-  }
-
   const columns: Column<any>[] = [
-    { key: 'sno', header: 'S.No', width: '52px', align: 'center' as const, render: (_, i) => i + 1 },
+    { key: 'sno', header: 'S.No', width: '64px', align: 'center' as const, render: (_, i) => i + 1 },
     { key: 'docNo', header: 'Quote No', width: '140px', render: (r) => <span className="text-xs font-semibold text-brand-700">{r.docNo || '-'}</span> },
     { key: 'docDate', header: 'Date', render: (r) => formatDate(r.docDate), width: '130px' },
-    { key: 'rfqNo', header: 'RFQ Ref', width: '130px' },
+    { key: 'rfqNo', header: 'RFQ Ref', width: '160px' },
     { key: 'supplier', header: 'Supplier', render: (r) => {
       const sup = suppliers.find(s => String(s.uid || s.id) === String(r.supplierUid))
       return sup ? sup.name : (r.supplierName || r.supplierUid)
     } },
-    { key: 'validTill', header: 'Valid Till', render: (r) => r.validTill ? formatDate(r.validTill) : '-', width: '130px' },
     { key: 'items', header: 'Items', align: 'center' as const, render: (r) => r.lines?.length || 0, width: '72px' },
     { key: 'landedValue', header: 'Total Value', align: 'right' as const, render: (r) => formatCurrency(r.landedValue), width: '120px' },
-    { key: 'status', header: 'Status', width: '150px', className: 'col-flex', render: (r) => <ProcStatusBadge status={r.status} /> },
+    { key: 'status', header: 'Status', width: '130px', className: 'col-flex', render: (r) => <ProcStatusBadge status={r.status} /> },
     {
       key: 'actions',
       header: 'Action',
-      width: '120px',
+      width: '100px',
       className: 'col-flex',
       render: (r) => (
         <RowActions
@@ -327,6 +334,7 @@ export function QuotationsPage() {
                 <option value="">Select RFQ</option>
                 {rfqs.filter(r => {
                    if (editing && editing.rfqNo === r.docNo) return true;
+                   if (r.status !== 'OPEN') return false;
                    const quotedSupplierUids = data.filter(q => q.rfqNo === r.docNo).map(q => String(q.supplierUid));
                    const rfqSupplierUids = (r.suppliers || []).map((rs:any) => String(rs.supplierUid));
                    const hasPendingSuppliers = rfqSupplierUids.length === 0 || rfqSupplierUids.some((uid: string) => !quotedSupplierUids.includes(uid));
@@ -435,6 +443,8 @@ export function QuotationsPage() {
                 <Field label="Reference PR" mono value={getPrNoForRfq(editing.rfqNo)} />
                 <Field label="Valid Till" value={editing.validTill ? formatDate(editing.validTill) : null} />
                 <Field label="Payment Terms" value={editing.paymentTerms} />
+                <Field label="Delivery Terms" value={editing.deliveryTerms} />
+                <Field label="Lead Time" value={editing.leadTimeDays ? `${editing.leadTimeDays} days` : null} />
                 <Field label="Status" value={<ProcStatusBadge status={editing.status} />} />
               </FieldGrid>
             </Section>
@@ -444,6 +454,10 @@ export function QuotationsPage() {
                 rows={editing.lines || []}
                 empty="This quotation has no items."
                 columns={[
+                  { key: 'itemType', header: 'Type', width: '130px', render: (l) =>
+                      lookup.itemTypeOf(l.itemCode) || <span className="text-fg-subtle">—</span> },
+                  { key: 'category', header: 'Category', width: '150px', render: (l) =>
+                      lookup.categoryOf(l.itemCode) || <span className="text-fg-subtle">—</span> },
                   { key: 'itemName', header: 'Item', render: (l) => <span className="font-medium text-fg">{l.itemName}</span> },
                   { key: 'qty', header: 'Qty', align: 'right', width: '90px', render: (l) => fmtQty(l.qty) },
                   { key: 'uom', header: 'UOM', align: 'center', width: '70px' },

@@ -254,6 +254,7 @@ export function LabelsPage() {
         </div>
       ) : (
         <DataTable
+          density="comfortable"
           rows={templates}
           columns={columns}
           rowKey={(t) => t.uid}

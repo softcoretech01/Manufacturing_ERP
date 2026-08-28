@@ -33,3 +33,11 @@ export const getGrn = (id: string) => api.get<any>(`/procurement/grn/${id}`)
 export const createGrn = (data: any) => api.post<any>('/procurement/grn/', data)
 export const updateGrn = (id: string, data: any) => api.put<any>(`/procurement/grn/${id}`, data)
 export const deleteGrn = (id: string) => api.del(`/procurement/grn/${id}`)
+/** Post a draft GRN into the stock ledger.
+ *
+ *  The one authoritative stock-posting path for procurement (see the backend's
+ *  GrnPostingService): it books only accepted quantity, sends inspection-gated
+ *  items to quarantine, rolls the quantities back onto the PO and refuses a GRN
+ *  that is already POSTED. Never receive a GRN through the generic stock
+ *  endpoint — that bypasses all of it and double-counts stock. */
+export const postGrn = (id: string) => api.post<any>(`/procurement/grn/${id}/post`, {})

@@ -119,7 +119,7 @@ class SupplierQuotationLineSchema(ProcBase):
     qty: float
     rate: float
     discountPct: float = 0
-    taxPct: float = 18
+    taxPct: float = 0
     freight: float = 0
     landedRate: float = 0
     leadTimeDays: int = 0
@@ -174,7 +174,7 @@ class PoLineSchema(ProcBase):
     rate: float
     discountPct: float = 0
     hsn: str
-    taxPct: float = 18
+    taxPct: float = 0
     amount: float = 0
     taxAmount: float = 0
     lineTotal: float = 0

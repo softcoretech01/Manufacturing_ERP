@@ -196,6 +196,13 @@ export interface DataTableProps<T> {
   emptyAction?: ReactNode
   className?: string
   dense?: boolean
+  /**
+   * Row rhythm. `compact` (default) keeps the dense 46px grid every
+   * existing screen is built around; `comfortable` is the 68px enterprise
+   * reading grid used by the inventory registers, where a row carries an
+   * item, a code, a warehouse, a batch and several figures at once.
+   */
+  density?: 'compact' | 'comfortable'
   maxHeight?: string
 }
 
@@ -221,7 +228,10 @@ export function DataTable<T>({
   onRowClick,
   rowActions,
   rowClassName,
-  pageSize = 25,
+  // 15 rows per page: a screenful on a laptop without the grid needing its own
+  // scrollbar. Screens that genuinely want more (audit trails, reports) still
+  // pass their own pageSize.
+  pageSize = 15,
   page: controlledPage,
   onPageChange,
   totalOverride,
@@ -230,6 +240,7 @@ export function DataTable<T>({
   emptyAction,
   className,
   dense,
+  density = 'compact',
   maxHeight,
 }: DataTableProps<T>) {
   const [innerSearch, setInnerSearch] = useState('')
@@ -328,7 +339,17 @@ export function DataTable<T>({
   }
 
   return (
-    <div className={cn('card flex flex-col overflow-hidden', className)}>
+    // Deliberately not the `.card` utility: that carries 24px of padding, which
+    // inset the grid from its own card — the header band stopped short of the
+    // edges and 48px of width was lost, which was enough to push a grid that
+    // otherwise fits into a horizontal scrollbar. The table brings its own
+    // gutters, so the card here is border + radius + surface only.
+    <div
+      className={cn(
+        'flex flex-col overflow-hidden rounded-card border border-border bg-surface shadow-card',
+        className,
+      )}
+    >
       {/* Toolbar ------------------------------------------------------------ */}
       {(searchable || toolbar || onRefresh || onExport || filterPanel) && (
         <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
@@ -437,10 +458,25 @@ export function DataTable<T>({
         ref={tableRef}
         tabIndex={0}
         onKeyDown={onKeyDown}
-        className="min-h-0 flex-1 overflow-x-auto focus:outline-none xl:overflow-x-visible"
+        // Scrolls on both axes, always.
+        //
+        // Vertically: without it, a grid given a bounded height (a page that
+        // fills the viewport) let its rows spill straight out of the scroll box
+        // and paint over the pagination footer.
+        //
+        // Horizontally: `xl:overflow-x-visible` meant that on a desktop a table
+        // wider than its card was not scrolled but simply clipped by the card's
+        // own `overflow-hidden` — the last columns were cut off mid-word with no
+        // way to reach them. A scrollbar on a wide grid beats unreachable data.
+        className="min-h-0 flex-1 overflow-auto focus:outline-none"
         style={maxHeight ? { maxHeight } : undefined}
       >
-        <table className="grid-table w-full xl:table-fixed">
+        <table
+          className={cn(
+            'grid-table w-full xl:table-fixed',
+            density === 'comfortable' && 'grid-table--comfortable',
+          )}
+        >
           <thead>
             <tr>
               {selectable && (
@@ -544,7 +580,7 @@ export function DataTable<T>({
                       </td>
                     ))}
                     {rowActions && (
-                      <td onClick={(e) => e.stopPropagation()} className="col-sticky-right" style={{ textAlign: 'right' }}>
+                      <td onClick={(e) => e.stopPropagation()} className="col-sticky-right col-flex" style={{ textAlign: 'right' }}>
                         <RowActionCell actions={rowActions(row)} />
                       </td>
                     )}
@@ -600,7 +636,7 @@ export function DataTable<T>({
                   key={p}
                   onClick={() => setPage(p as number)}
                   className={cn(
-                    'h-7 min-w-[1.75rem] rounded px-1.5 text-xs tabular transition-colors',
+                    'h-9 min-w-[2.25rem] rounded-lg px-2 text-xs tabular transition-colors',
                     p === page ? 'bg-brand-600 font-medium text-white' : 'text-fg-muted hover:bg-surface-3',
                   )}
                 >

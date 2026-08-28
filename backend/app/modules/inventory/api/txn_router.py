@@ -8,6 +8,7 @@ from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import select
 
 from app.core.context import TenantContext
 from app.core.deps import SessionDep, require
@@ -15,6 +16,18 @@ from app.modules.inventory.api import txn_schemas as s
 from app.modules.inventory.application.transaction_service import TransactionService
 
 router = APIRouter(tags=["Inventory · Transactions"])
+
+
+async def _resolve_dept_remarks(session: Any, company_id: int, department_uid: str | None, base_remarks: str | None) -> str | None:
+    if not department_uid:
+        return base_remarks
+    from app.modules.organisation.infrastructure.models import SysDepartment
+    stmt = select(SysDepartment.code, SysDepartment.name).where(SysDepartment.uid == department_uid, SysDepartment.company_id == company_id)
+    res = (await session.execute(stmt)).first()
+    if res:
+        code, name = res
+        return f"{code} - {name}"
+    return base_remarks
 
 
 @router.get("/inventory/movements", response_model=list[s.MovementRow])
@@ -37,10 +50,11 @@ async def post_issue(
     session: SessionDep,
     ctx: TenantContext = Depends(require("INVENTORY.ISSUE.POST")),
 ) -> Any:
+    remarks = await _resolve_dept_remarks(session, ctx.company_id, body.department_uid, body.remarks)
     return await TransactionService(session, ctx).issue(
         item_uid=body.item_uid, warehouse_uid=body.warehouse_uid,
         quantity=Decimal(str(body.quantity)), bin_uid=body.bin_uid,
-        batch_no=body.batch_no, remarks=body.remarks, business_date=body.business_date,
+        batch_no=body.batch_no, remarks=remarks, business_date=body.business_date,
     )
 
 
@@ -112,3 +126,94 @@ async def post_scrap(
         quantity=Decimal(str(body.quantity)), reason=body.reason,
         bin_uid=body.bin_uid, batch_no=body.batch_no, business_date=body.business_date,
     )
+
+
+@router.post("/inventory/issues/bulk", response_model=list[s.MovementResult], status_code=201)
+async def post_issue_bulk(
+    body: list[s.IssueRequest],
+    session: SessionDep,
+    ctx: TenantContext = Depends(require("INVENTORY.ISSUE.POST")),
+) -> Any:
+    svc = TransactionService(session, ctx)
+    results = []
+    dept_uid = body[0].department_uid if body else None
+    remarks = await _resolve_dept_remarks(session, ctx.company_id, dept_uid, None)
+    for row in body:
+        row_remarks = remarks or row.remarks
+        res = await svc.issue(
+            item_uid=row.item_uid, warehouse_uid=row.warehouse_uid,
+            quantity=Decimal(str(row.quantity)), bin_uid=row.bin_uid,
+            batch_no=row.batch_no, remarks=row_remarks, business_date=row.business_date,
+        )
+        results.append(res)
+    return results
+
+@router.post("/inventory/returns/bulk", response_model=list[s.MovementResult], status_code=201)
+async def post_return_bulk(
+    body: list[s.ReturnRequest],
+    session: SessionDep,
+    ctx: TenantContext = Depends(require("INVENTORY.RETURN.POST")),
+) -> Any:
+    svc = TransactionService(session, ctx)
+    results = []
+    for row in body:
+        res = await svc.return_material(
+            item_uid=row.item_uid, warehouse_uid=row.warehouse_uid,
+            quantity=Decimal(str(row.quantity)),
+            rate=Decimal(str(row.rate)) if row.rate is not None else None,
+            bin_uid=row.bin_uid, batch_no=row.batch_no, remarks=row.remarks,
+            business_date=row.business_date,
+        )
+        results.append(res)
+    return results
+
+@router.post("/inventory/adjustments/bulk", response_model=list[s.MovementResult], status_code=201)
+async def post_adjustment_bulk(
+    body: list[s.AdjustRequest],
+    session: SessionDep,
+    ctx: TenantContext = Depends(require("INVENTORY.ADJUST.POST")),
+) -> Any:
+    svc = TransactionService(session, ctx)
+    results = []
+    for row in body:
+        res = await svc.adjust(
+            item_uid=row.item_uid, warehouse_uid=row.warehouse_uid,
+            direction=row.direction, quantity=Decimal(str(row.quantity)),
+            reason=row.reason, bin_uid=row.bin_uid, batch_no=row.batch_no,
+            business_date=row.business_date,
+        )
+        results.append(res)
+    return results
+
+@router.post("/inventory/transfers/bulk", response_model=list[s.TransferResult], status_code=201)
+async def post_transfer_bulk(
+    body: list[s.TransferRequest],
+    session: SessionDep,
+    ctx: TenantContext = Depends(require("INVENTORY.TRANSFER.POST")),
+) -> Any:
+    svc = TransactionService(session, ctx)
+    results = []
+    for row in body:
+        res = await svc.transfer(
+            item_uid=row.item_uid, from_warehouse_uid=row.from_warehouse_uid,
+            to_warehouse_uid=row.to_warehouse_uid, quantity=Decimal(str(row.quantity)),
+            from_bin_uid=row.from_bin_uid, to_bin_uid=row.to_bin_uid, batch_no=row.batch_no,
+            remarks=row.remarks, business_date=row.business_date,
+        )
+        results.append(res)
+    return results
+
+
+@router.post("/inventory/documents/{document_no:path}/reverse", status_code=200)
+async def post_reverse_document(
+    document_no: str,
+    session: SessionDep,
+    ctx: TenantContext = Depends(require(
+        "INVENTORY.ISSUE.POST",
+        "INVENTORY.RECEIPT.POST",
+        "INVENTORY.TRANSFER.POST",
+        "INVENTORY.ADJUSTMENT.POST",
+        "INVENTORY.RETURN.POST"
+    )),
+) -> Any:
+    return await TransactionService(session, ctx).reverse_document(document_no)

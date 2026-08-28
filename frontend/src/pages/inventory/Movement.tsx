@@ -47,7 +47,8 @@ export function StockMovementPage() {
         </div>}
       </CardBody></Card>
 
-      <DataTable rows={rows} columns={columns} rowKey={(r) => r.item_code} loading={isLoading} searchPlaceholder="Item…" emptyTitle="No stock to classify" />
+      <DataTable
+          density="comfortable" rows={rows} columns={columns} rowKey={(r) => r.item_code} loading={isLoading} searchPlaceholder="Item…" emptyTitle="No stock to classify" />
       <p className="mt-2 text-2xs text-fg-subtle">Fast ≤ 60 days since last issue · Slow 60–180 · Dead over 180 days or never issued.</p>
     </div>
   )

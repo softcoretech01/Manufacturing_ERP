@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Eye, Edit, Plus } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import { DataTable, type Column } from '@/components/ui/DataTable'
@@ -12,6 +12,7 @@ import { ProcStatusBadge } from '@/components/procurement/ProcShell'
 import { ProcurementToolbar } from '@/components/procurement/ProcurementToolbar'
 import * as api from '@/api/procurement'
 import { useDocDetail } from '@/hooks/useDocDetail'
+import { useItemLookup } from '@/hooks/useItemLookup'
 import {
   ProcModal, ModalFooter, Section, FieldGrid, Field,
   LineItemsTable, TotalsPanel, RowActions, money, qty as fmtQty,
@@ -38,6 +39,7 @@ export function GrnPage() {
   const [viewOpen, setViewOpen] = useState(false)
   const [editing, setEditing] = useState<any | null>(null)
   const detail = useDocDetail<any>(api.getGrn)
+  const lookup = useItemLookup()
   const [saving, setSaving] = useState(false)
   
   const emptyForm = {
@@ -193,7 +195,7 @@ export function GrnPage() {
       const payload = {
         docNo: editing?.docNo && editing.docNo !== 'null' ? editing.docNo : null,
         docDate: editing?.docDate ? String(editing.docDate).slice(0, 10) : today,
-        status: 'POSTED',
+        status: 'DRAFT',
         poNo: form.poNo,
         supplierUid: String(form.supplierUid),
         supplierName: supplier?.name || editing?.supplierName || '',
@@ -206,24 +208,32 @@ export function GrnPage() {
           (a: number, l: any) => a + (Number(l.acceptedQty) || 0) * (Number(l.rate) || 0), 0),
         vehicleNo: form.vehicleNo || '-',
         lrNo: '',
-        receivedBy: form.receivedBy || 'Store',
-        remarks: form.remarks || null,
+        receivedBy: 'Procurement',
+        qcStatus: 'PENDING',
         totalReceived: sum('receivedQty'),
         totalAccepted: sum('acceptedQty'),
         totalRejected: sum('rejectedQty'),
-        lines: form.lines.map((l: any) => ({
-          itemCode: String(l.itemCode ?? ''),
-          itemName: l.itemName || '',
-          uom: l.uom || '',
-          poQty: Number(l.poQty) || 0,
-          challanQty: Number(l.challanQty) || Number(l.receivedQty) || 0,
-          receivedQty: Number(l.receivedQty) || 0,
-          acceptedQty: Number(l.acceptedQty) || 0,
-          rejectedQty: Number(l.rejectedQty) || 0,
-          rate: Number(l.rate) || 0,
-          batchNo: l.batchNo || null,
-          binCode: l.binCode || 'MAIN',
-        })),
+        grnValue: form.lines.reduce(
+          (a: number, l: any) => a + (Number(l.acceptedQty) || 0) * (Number(l.rate) || 0), 0),
+        delayDays: 0,
+        lines: form.lines
+          .filter((l: any) => Number(l.receivedQty) > 0)
+          .map((l: any) => ({
+            ...l,
+            id: l.id || null,
+            uid: l.uid || null,
+            itemCode: String(l.itemCode ?? ''),
+            itemName: l.itemName || '',
+            uom: l.uom || '',
+            poQty: Number(l.poQty) || 0,
+            challanQty: Number(l.challanQty) || Number(l.receivedQty) || 0,
+            receivedQty: Number(l.receivedQty) || 0,
+            acceptedQty: Number(l.acceptedQty) || 0,
+            rejectedQty: Number(l.rejectedQty) || 0,
+            rate: Number(l.rate) || 0,
+            batchNo: l.batchNo || null,
+            binCode: l.binCode || 'MAIN',
+          })),
       }
 
       if (editing) {
@@ -231,7 +241,7 @@ export function GrnPage() {
         toast.success('Success', 'GRN updated')
       } else {
         await api.createGrn(payload)
-        toast.success('Posted', 'GRN posted and stock updated')
+        toast.success('Success', 'GRN saved as draft')
       }
       setFormOpen(false)
       fetchList()
@@ -388,6 +398,10 @@ export function GrnPage() {
             rows={form.lines}
             empty="Select a purchase order to load its items."
             columns={[
+              { key: 'itemType', header: 'Type', width: '130px', render: (l) =>
+                  lookup.itemTypeOf(l.itemCode) || <span className="text-fg-subtle">—</span> },
+              { key: 'category', header: 'Category', width: '140px', render: (l) =>
+                  lookup.categoryOf(l.itemCode) || <span className="text-fg-subtle">—</span> },
               { key: 'itemName', header: 'Item', render: (l) => (
                   <div>
                     <span className="font-medium text-fg">{l.itemName}</span>
@@ -477,6 +491,10 @@ export function GrnPage() {
                   rows={lines}
                   empty="This GRN has no items."
                   columns={[
+                    { key: 'itemType', header: 'Type', width: '130px', render: (l) =>
+                        lookup.itemTypeOf(l.itemCode) || <span className="text-fg-subtle">—</span> },
+                    { key: 'category', header: 'Category', width: '140px', render: (l) =>
+                        lookup.categoryOf(l.itemCode) || <span className="text-fg-subtle">—</span> },
                     { key: 'itemName', header: 'Item', render: (l) => <span className="font-medium text-fg">{l.itemName}</span> },
                     { key: 'poQty', header: 'Ordered', align: 'right', width: '90px', render: (l) => fmtQty(l.poQty) },
                     { key: 'receivedQty', header: 'Received', align: 'right', width: '95px', render: (l) => fmtQty(l.receivedQty) },

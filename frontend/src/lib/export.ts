@@ -123,3 +123,17 @@ export function columnsFromTable<T>(
         c.accessor ? c.accessor(row) : ((row as Record<string, unknown>)[c.key] as string | number | null | undefined),
     }))
 }
+
+/**
+ * CareFusions-compatible alias.
+ * exportToExcel(rows, filename) → produces a CSV download,
+ * identical result to calling exportRows('csv', ...) directly.
+ */
+export function exportToExcel<T extends object>(rows: T[], filename: string): number {
+  if (rows.length === 0) return 0
+  const cols = Object.keys(rows[0]).map((k) => ({
+    header: k,
+    value: (r: T) => (r as Record<string, unknown>)[k] as string | number | null | undefined,
+  }))
+  return exportRows('csv', filename, filename, cols, rows)
+}

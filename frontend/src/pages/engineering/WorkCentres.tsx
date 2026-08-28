@@ -213,7 +213,7 @@ export function WorkCentresPage() {
         columns={columns}
         rowKey={(w) => w.uid}
         searchPlaceholder="Search code, name or plant…"
-        isLoading={isLoading}
+        loading={isLoading}
         onExport={(f: ExportFormat) => {
           const n = exportRows(f, 'work-centres', 'Work centres', columnsFromTable(columns), rows)
           toast.success('Export ready', `${n} rows written.`)

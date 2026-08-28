@@ -1,0 +1,1 @@
+SELECT JSON_EXTRACT('["1"]', '$');

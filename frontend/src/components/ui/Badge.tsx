@@ -52,6 +52,10 @@ export function Badge({
 }) {
   return (
     <span
+      // Stable hook for the grid: a chip is a fixed-size object, not text, so
+      // the data grid must neither ellipsise it nor let it drive row height.
+      // index.css already targets [data-chip] — nothing emitted it until now.
+      data-chip=""
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full font-medium ring-1 ring-inset whitespace-nowrap',
         size === 'sm' ? 'px-1.5 py-0.5 text-2xs' : 'px-2 py-0.5 text-xs',

@@ -45,6 +45,9 @@ export interface StockBalanceRow {
   item_uid: string
   item_code: string
   item_name: string
+  /** Raw enum, e.g. RAW_MATERIAL — for filtering and sorting. */
+  item_type: string
+  /** The same value as a human label, e.g. "Raw Material" — for display. */
   category: string
   uom: string
   warehouse_uid: string | null
@@ -126,12 +129,20 @@ export interface ReceiptResult {
 }
 
 export const items = {
+  /** The stock item master (`mst_item`).
+   *
+   *  Must NOT be `/items` — that is procurement's separate item master, which
+   *  returns camelCase fields and an integer `id`, so every `uid`, `base_uom`
+   *  and `is_batch_tracked` read below came back `undefined` and the item
+   *  pickers silently posted `item_uid: undefined`. */
   list: (params: { item_type?: string; active_only?: boolean; search?: string } = {}) =>
-    api.get<Item[]>('/items', params),
-  create: (body: Record<string, unknown>) => api.post<Item>('/items', body),
-  update: (uid: string, body: Record<string, unknown>) => api.patch<Item>(`/items/${uid}`, body),
-  deactivate: (uid: string) => api.post<Item>(`/items/${uid}/deactivate`),
-  restore: (uid: string) => api.post<Item>(`/items/${uid}/restore`),
+    api.get<Item[]>('/inventory/items', params),
+  // Read only, on purpose. There were create/update/deactivate/restore wrappers
+  // here, all unused and all pointing at `/items` — the *procurement* master —
+  // while `list` reads the stock master. They would have written to a different
+  // table than they read from, and `/items/{uid}/deactivate` and `/restore` do
+  // not exist on the server at all. Item maintenance belongs to the Item master
+  // screen; the stock screens only ever need to read.
 }
 
 export const stock = {
@@ -193,10 +204,15 @@ export const transactions = {
   movements: (params: { movement_type?: string; item?: string; warehouse?: string; limit?: number } = {}) =>
     api.get<MovementRow[]>('/inventory/movements', params),
   issue: (body: Record<string, unknown>) => api.post<MovementResult>('/inventory/issues', body),
+  issueBulk: (body: Record<string, unknown>[]) => api.post<MovementResult[]>('/inventory/issues/bulk', body),
   returnMaterial: (body: Record<string, unknown>) => api.post<MovementResult>('/inventory/returns', body),
+  returnBulk: (body: Record<string, unknown>[]) => api.post<MovementResult[]>('/inventory/returns/bulk', body),
   adjust: (body: Record<string, unknown>) => api.post<MovementResult>('/inventory/adjustments', body),
+  adjustBulk: (body: Record<string, unknown>[]) => api.post<MovementResult[]>('/inventory/adjustments/bulk', body),
   transfer: (body: Record<string, unknown>) => api.post<TransferResult>('/inventory/transfers', body),
+  transferBulk: (body: Record<string, unknown>[]) => api.post<TransferResult[]>('/inventory/transfers/bulk', body),
   scrap: (body: Record<string, unknown>) => api.post<MovementResult>('/inventory/scrap', body),
+  reverseDocument: (documentNo: string) => api.post<any>(`/inventory/documents/${documentNo}/reverse`),
   putaway: (body: Record<string, unknown>) => api.post<PutawayResult>('/inventory/putaway', body),
 }
 

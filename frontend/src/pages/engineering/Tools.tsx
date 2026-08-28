@@ -266,7 +266,7 @@ export function ToolsPage() {
         rows={filtered}
         columns={columns}
         rowKey={(t) => t.uid}
-        isLoading={isLoading}
+        loading={isLoading}
         searchPlaceholder="Search code, name, machine or location…"
         onExport={(f: ExportFormat) => {
           const n = exportRows(f, 'tools', 'Tool register', columnsFromTable(columns), filtered)

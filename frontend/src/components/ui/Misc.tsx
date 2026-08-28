@@ -79,7 +79,8 @@ export function Alert({
   action?: ReactNode
   className?: string
 }) {
-  const { cls, Icon } = ALERT_STYLES[tone]
+  const style = ALERT_STYLES[tone] || ALERT_STYLES['info']
+  const { cls, Icon } = style
   return (
     <div className={cn('flex items-start gap-2.5 rounded border px-3 py-2.5', cls, className)}>
       <Icon className="mt-0.5 h-4 w-4 shrink-0" />

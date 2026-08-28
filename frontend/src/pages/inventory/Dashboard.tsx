@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -11,15 +11,22 @@ import {
   ShieldAlert,
   Timer,
   Truck,
+  TrendingUp,
+  TrendingDown,
 } from 'lucide-react'
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+// defs / linearGradient / stop are plain SVG elements — they are written as
+// lowercase JSX and must not be imported from recharts.
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, Line, LineChart, Legend } from 'recharts'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
-import { PageHeader, ProgressBar, Section, StatTile } from '@/components/ui/Misc'
+import { PageHeader, ProgressBar, Section } from '@/components/ui/Misc'
 import { Badge } from '@/components/ui/Badge'
 import { ChartTip, CoverChip, InvStatusBadge, SlaChip, useCanSeeValue } from '@/components/inventory/InvShell'
 import { formatCompact, formatDate, formatQty } from '@/lib/format'
 import { cn } from '@/lib/cn'
+import { InvKpiTile } from '@/components/inventory/InvKpiTile'
+import { InvDetailsPanel, type InvDetailCol } from '@/components/inventory/InvDetailsPanel'
+import { InvDateFilter, type DateRange } from '@/components/inventory/InvDateFilter'
 import {
   accuracyTrend,
   batches,
@@ -40,6 +47,12 @@ import {
 export function InventoryDashboardPage() {
   const navigate = useNavigate()
   const canSeeValue = useCanSeeValue()
+  const [openPanel, setOpenPanel] = useState<string | null>(null)
+  const [dateRange, setDateRange] = useState<DateRange>({ from: '', to: '' })
+
+  function togglePanel(key: string) {
+    setOpenPanel((p) => (p === key ? null : key))
+  }
 
   const kpis = useMemo(() => {
     const closingValue = valuationRows.reduce((s, r) => s + r.closing, 0)
@@ -85,55 +98,119 @@ export function InventoryDashboardPage() {
         title="Inventory & stores"
         breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Inventory' }]}
         actions={
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => navigate('/inventory/stock')}>
-              Stock Balance
-            </Button>
-            <Button variant="primary" size="sm" onClick={() => navigate('/inventory/receipts')}>
-              Stock Inward
-            </Button>
-            <Button variant="primary" size="sm" onClick={() => navigate('/inventory/issues')}>
-              Stock Outward
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => navigate('/inventory/transfers')}>
-              Transfer
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => navigate('/inventory/adjustments')}>
-              Adjust
-            </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <InvDateFilter value={dateRange} onChange={setDateRange} />
+            <Button variant="primary" size="sm" onClick={() => navigate('/inventory/receipts')}>Stock Inward</Button>
+            <Button variant="primary" size="sm" onClick={() => navigate('/inventory/issues')}>Stock Outward</Button>
+            <Button variant="outline" size="sm" onClick={() => navigate('/inventory/transfers')}>Transfer</Button>
           </div>
         }
       />
 
-      {/* KPI row ------------------------------------------------------------ */}
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {canSeeValue ? (
-          <StatTile label="Closing stock value" value={`₹${formatCompact(kpis.closingValue)}`} sub={`${valuationRows.length} valuation groups · reconciles to GL`} icon={<IndianRupee />} tone="brand" />
-        ) : (
-          <StatTile label="Stock lines tracked" value={stockPositions.length} sub="Value is hidden for your role" icon={<Boxes />} tone="brand" />
-        )}
-        <StatTile
-          label="Inventory accuracy"
+      {/* KPI tiles ----------------------------------------------------------- */}
+      <div className="mb-3 grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
+        <InvKpiTile
+          label="Stock Value"
+          value={canSeeValue ? `₹${formatCompact(kpis.closingValue)}` : `${stockPositions.length} lines`}
+          sub={canSeeValue ? `${valuationRows.length} groups` : 'Value hidden'}
+          icon={<IndianRupee />}
+          tone="brand"
+          active={openPanel === 'value'}
+          onClick={() => togglePanel('value')}
+        />
+        <InvKpiTile
+          label="Accuracy"
           value={`${kpis.accuracy.toFixed(1)}%`}
-          delta={{ value: kpis.accuracy - accuracyTrend[accuracyTrend.length - 2].accuracyPct, label: 'vs last month' }}
-          sub="Bins counted with zero variance"
+          sub="Bins at zero variance"
           icon={<ClipboardCheck />}
           tone={kpis.accuracy >= 98 ? 'success' : 'warning'}
+          active={openPanel === 'accuracy'}
+          onClick={() => togglePanel('accuracy')}
         />
-        <StatTile
-          label="Put-away backlog"
+        <InvKpiTile
+          label="Put-away Backlog"
           value={kpis.pendingPutaway.length}
-          sub={`Oldest ${kpis.oldestPutaway.toFixed(1)} h against a 4 h target`}
-          icon={<Timer />}
+          sub={`Oldest ${kpis.oldestPutaway.toFixed(1)} h`}
+          icon={<PackageCheck />}
           tone={kpis.oldestPutaway >= 4 ? 'danger' : kpis.oldestPutaway >= 3 ? 'warning' : 'success'}
+          active={openPanel === 'putaway'}
+          onClick={() => togglePanel('putaway')}
         />
-        <StatTile
-          label="Below reorder"
+        <InvKpiTile
+          label="Below Reorder"
           value={kpis.belowReorder.length}
-          sub={canSeeValue ? `₹${formatCompact(kpis.belowReorderValue)} to cover` : `${kpis.stockouts} at zero free stock`}
+          sub={`${kpis.stockouts} at zero stock`}
           icon={<ShieldAlert />}
           tone={kpis.belowReorder.length > 0 ? 'warning' : 'success'}
+          active={openPanel === 'reorder'}
+          onClick={() => togglePanel('reorder')}
         />
+        <InvKpiTile
+          label="In Transit"
+          value={transfers.filter(t => t.status === 'IN_TRANSIT').length}
+          sub={canSeeValue ? `₹${formatCompact(kpis.gitValue)}` : 'Value hidden'}
+          icon={<Truck />}
+          tone="progress"
+          active={openPanel === 'transit'}
+          onClick={() => togglePanel('transit')}
+        />
+        <InvKpiTile
+          label="Expiring (30d)"
+          value={kpis.expiring.length}
+          sub="Batches nearing expiry"
+          icon={<Hourglass />}
+          tone={kpis.expiring.length > 0 ? 'danger' : 'success'}
+          active={openPanel === 'expiring'}
+          onClick={() => togglePanel('expiring')}
+        />
+      </div>
+
+      {/* Details panel -------------------------------------------------------- */}
+      <div className="mb-4 grid grid-cols-1">
+        {openPanel === 'reorder' && (
+          <InvDetailsPanel
+            label="Items Below Reorder Level"
+            cols={[
+              { key: 'itemCode', header: 'Code' },
+              { key: 'itemName', header: 'Item' },
+              { key: 'available', header: 'Available', align: 'right', render: (r) => <span className="text-danger font-medium">{formatQty(r.available)}</span> },
+              { key: 'reorderLevel', header: 'Reorder At', align: 'right', render: (r) => formatQty(r.reorderLevel) },
+              { key: 'suggestedQty', header: 'Suggested Order', align: 'right', render: (r) => <span className="text-brand-600 font-medium">{formatQty(r.suggestedQty)}</span> },
+            ]}
+            rows={kpis.belowReorder}
+            note="Items whose available stock has fallen below their reorder level."
+            onClose={() => setOpenPanel(null)}
+          />
+        )}
+        {openPanel === 'putaway' && (
+          <InvDetailsPanel
+            label="Pending Put-away"
+            cols={[
+              { key: 'grnNo', header: 'GRN' },
+              { key: 'supplierName', header: 'Supplier' },
+              { key: 'lines', header: 'Lines', align: 'right', render: (r) => r.lines?.length ?? 0 },
+              { key: 'ageHours', header: 'Age (h)', align: 'right', render: (r) => <span className={r.ageHours >= 4 ? 'text-danger font-medium' : ''}>{r.ageHours?.toFixed(1)}</span> },
+            ]}
+            rows={kpis.pendingPutaway}
+            note="GRNs received but not yet binned. SLA: 4 h from receipt."
+            onClose={() => setOpenPanel(null)}
+          />
+        )}
+        {openPanel === 'expiring' && (
+          <InvDetailsPanel
+            label="Batches Expiring in 30 Days"
+            cols={[
+              { key: 'itemCode', header: 'Code' },
+              { key: 'itemName', header: 'Item' },
+              { key: 'batchNo', header: 'Batch' },
+              { key: 'expiresOn', header: 'Expiry Date', render: (r) => formatDate(r.expiresOn) },
+              { key: 'currentStock', header: 'Qty', align: 'right', render: (r) => formatQty(r.currentStock) },
+            ]}
+            rows={kpis.expiring}
+            note="Batches where expiry is within 30 days and stock is not yet consumed."
+            onClose={() => setOpenPanel(null)}
+          />
+        )}
       </div>
 
       {/* Action queue ------------------------------------------------------- */}
@@ -172,19 +249,27 @@ export function InventoryDashboardPage() {
       {/* Charts ------------------------------------------------------------- */}
       <div className="mb-6 grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <CardHeader title="Movement volume" description="Documents posted per day — receipts, issues and transfers" />
+          <CardHeader title="Movement trend" description="Inward vs Outward quantity — smooth area chart" />
           <CardBody className="h-60">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={movementDays} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <AreaChart data={movementDays} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="gradIn" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.02} />
+                  </linearGradient>
+                  <linearGradient id="gradOut" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" vertical={false} />
                 <XAxis dataKey="day" tick={{ fontSize: 10, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} interval={1} />
                 <YAxis tick={{ fontSize: 11, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} width={30} />
-                <Tooltip content={<ChartTip />} cursor={{ fill: 'rgb(var(--surface-3))' }} />
-                <Legend wrapperStyle={{ fontSize: 11 }} iconSize={8} />
-                <Bar dataKey="receipts" name="Receipts" stackId="a" fill="#10b981" maxBarSize={22} />
-                <Bar dataKey="issues" name="Issues" stackId="a" fill="#3b82f6" maxBarSize={22} />
-                <Bar dataKey="transfers" name="Transfers" stackId="a" fill="#f59e0b" radius={[3, 3, 0, 0]} maxBarSize={22} />
-              </BarChart>
+                <Tooltip content={<ChartTip />} />
+                <Area type="monotone" dataKey="receipts" name="Inward" stroke="#10b981" strokeWidth={2} fill="url(#gradIn)" dot={false} />
+                <Area type="monotone" dataKey="issues" name="Outward" stroke="#3b82f6" strokeWidth={2} fill="url(#gradOut)" dot={false} />
+              </AreaChart>
             </ResponsiveContainer>
           </CardBody>
         </Card>

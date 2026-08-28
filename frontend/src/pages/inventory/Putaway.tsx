@@ -186,6 +186,7 @@ export function PutawayPage() {
 
       {view === 'putaway' ? (
         <DataTable
+          density="comfortable"
           rows={putaways}
           columns={putawayColumns}
           rowKey={(p) => p.uid}

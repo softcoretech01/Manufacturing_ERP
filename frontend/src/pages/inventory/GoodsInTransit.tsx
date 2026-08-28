@@ -140,6 +140,7 @@ export function GoodsInTransitPage() {
       </p>
 
       <DataTable
+          density="comfortable"
         rows={inTransit}
         columns={columns}
         rowKey={(t) => t.uid}

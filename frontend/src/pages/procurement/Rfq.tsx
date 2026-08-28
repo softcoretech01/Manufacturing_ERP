@@ -13,6 +13,7 @@ import { ProcurementToolbar } from '@/components/procurement/ProcurementToolbar'
 import * as api from '@/api/procurement'
 import { getSuppliers } from '@/api/masters'
 import { useDocDetail } from '@/hooks/useDocDetail'
+import { useItemLookup } from '@/hooks/useItemLookup'
 import {
   ProcModal, ModalFooter, Section, FieldGrid, Field,
   LineItemsTable, RowActions, qty as fmtQty,
@@ -34,6 +35,7 @@ export function RfqPage() {
   const [viewOpen, setViewOpen] = useState(false)
   const [editing, setEditing] = useState<any | null>(null)
   const detail = useDocDetail<any>(api.getRfq)
+  const lookup = useItemLookup()
 
   const [form, setForm] = useState<any>({
     title: '',
@@ -212,11 +214,16 @@ export function RfqPage() {
           requiredBy: l.requiredBy ? String(l.requiredBy).slice(0, 10) : today,
           specification: l.specification || l.remarks || null,
         })),
+        // Carry the response fields through an edit. The update rewrites the
+        // supplier rows wholesale, so dropping these would blank out who had
+        // already quoted (the backend re-derives them as a safety net).
         suppliers: form.suppliers.map((s: any) => ({
           supplierUid: String(s.supplierUid),
           supplierName: s.supplierName || '',
           invitedAt: s.invitedAt || nowIso,
+          respondedAt: s.respondedAt || null,
           responseStatus: s.responseStatus || 'PENDING',
+          quotationUid: s.quotationUid || null,
         })),
       }
 
@@ -239,6 +246,7 @@ export function RfqPage() {
     { key: 'docNo', header: 'RFQ Number', width: '160px', render: (r) => <span className="text-xs font-semibold text-brand-700">{r.docNo || '-'}</span> },
     { key: 'docDate', header: 'Date', render: (r) => formatDate(r.docDate), width: '130px' },
     { key: 'title', header: 'Title' },
+    { key: 'category', header: 'Category', width: '150px', render: (r) => r.category || '-' },
     { key: 'quoteDueBy', header: 'Quote Due By', render: (r) => r.quoteDueBy ? formatDate(r.quoteDueBy) : '-', width: '130px' },
     { key: 'suppliers', header: 'Suppliers', align: 'center' as const, render: (r) => r.suppliers?.length || 0, width: '80px' },
     { key: 'items', header: 'Items', align: 'center' as const, render: (r) => r.lines?.length || 0, width: '72px' },
@@ -316,6 +324,7 @@ export function RfqPage() {
                 <thead>
                   <tr>
                     <th className="w-12 col-center">S.No</th>
+                    <th className="w-44">Category</th>
                     <th>Item</th>
                     <th className="col-right w-28">Quantity</th>
                     <th className="w-24">UOM</th>
@@ -326,6 +335,7 @@ export function RfqPage() {
                   {form.lines.map((l: any, i: number) => (
                     <tr key={i}>
                       <td className="col-center">{i + 1}</td>
+                      <td className="text-fg-muted">{lookup.categoryOf(l.itemCode) || '-'}</td>
                       <td className="font-medium text-fg">{l.itemName}</td>
                       <td className="col-right tabular-nums">{fmtQty(l.qty)}</td>
                       <td>{l.uom}</td>
@@ -403,7 +413,10 @@ export function RfqPage() {
                 <Field label="Reference PR" mono value={prLabel(editing.prRefs)} />
                 <Field label="Quotation Due Date" value={editing.quoteDueBy ? formatDate(editing.quoteDueBy) : null} />
                 <Field label="Category" value={editing.category} />
+                <Field label="Title" value={editing.title} />
+                <Field label="Buyer" value={editing.buyer} />
                 <Field label="Status" value={<ProcStatusBadge status={editing.status} />} />
+                <Field label="Awarded To" value={editing.awardedTo} />
                 <Field label="Remarks" span value={editing.remarks} />
               </FieldGrid>
             </Section>
@@ -413,9 +426,15 @@ export function RfqPage() {
                 rows={editing.lines || []}
                 empty="This RFQ has no items."
                 columns={[
+                  { key: 'itemType', header: 'Type', width: '130px', render: (l) =>
+                      lookup.itemTypeOf(l.itemCode) || <span className="text-fg-subtle">—</span> },
+                  { key: 'category', header: 'Category', width: '160px', render: (l) =>
+                      lookup.categoryOf(l.itemCode) || <span className="text-fg-subtle">—</span> },
                   { key: 'itemName', header: 'Item', render: (l) => <span className="font-medium text-fg">{l.itemName}</span> },
                   { key: 'qty', header: 'Quantity', align: 'right', width: '110px', render: (l) => fmtQty(l.qty) },
                   { key: 'uom', header: 'UOM', align: 'center', width: '80px' },
+                  { key: 'requiredBy', header: 'Required Date', width: '140px', render: (l) =>
+                      l.requiredBy ? formatDate(l.requiredBy) : '—' },
                 ]}
               />
             </Section>
@@ -427,8 +446,18 @@ export function RfqPage() {
                 columns={[
                   { key: 'supplierName', header: 'Supplier', render: (s) =>
                       s.supplierName || suppliers.find(x => String(x.uid || x.id) === String(s.supplierUid))?.name || s.supplierUid },
+                  // A supplier counts as having quoted the moment a quotation
+                  // exists for them; the backend keeps responseStatus in step
+                  // with that. Anything that is not an outstanding invitation
+                  // reads as Quoted, so a new response value cannot silently
+                  // fall back to showing "Pending".
                   { key: 'responseStatus', header: 'Quotation Status', width: '190px', render: (s) =>
-                      <ProcStatusBadge status={s.responseStatus === 'RESPONDED' ? 'QUOTED' : 'PENDING'} size="sm" /> },
+                      <ProcStatusBadge
+                        status={!s.responseStatus || s.responseStatus === 'PENDING' || s.responseStatus === 'INVITED'
+                          ? 'PENDING' : 'QUOTED'}
+                        size="sm" /> },
+                  { key: 'respondedAt', header: 'Quoted On', width: '150px', render: (s) =>
+                      s.respondedAt ? formatDate(s.respondedAt) : <span className="text-fg-subtle">—</span> },
                 ]}
               />
             </Section>

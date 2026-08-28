@@ -60,6 +60,20 @@ _MODULES: dict[str, dict[str, tuple[str, ...]]] = {
     "MASTERS": {
         "ITEM": _CRUD,
     },
+    # Procurement (Vol 3). Raising a document, approving it and receiving against
+    # it are separate duties — segregation of duties depends on them being
+    # separate permissions, so APPROVE is never bundled into EDIT.
+    "PROCUREMENT": {
+        "PR": ("VIEW", "CREATE", "EDIT", "DELETE", "SUBMIT", "APPROVE"),
+        "RFQ": ("VIEW", "CREATE", "EDIT", "DELETE"),
+        "QUOTATION": ("VIEW", "CREATE", "EDIT", "DELETE", "SELECT"),
+        "PO": ("VIEW", "CREATE", "EDIT", "DELETE", "SUBMIT", "APPROVE", "RELEASE"),
+        "GRN": ("VIEW", "CREATE", "EDIT", "DELETE", "POST"),
+        "IQC": ("VIEW", "CREATE", "EDIT", "DELETE"),
+        "DASHBOARD": ("VIEW",),
+        "ANALYTICS": ("VIEW", "EDIT"),
+        "SETTINGS": ("VIEW", "EDIT"),
+    },
 }
 
 _LABELS = {
@@ -74,6 +88,12 @@ _LABELS = {
     "GRANT": "Grant permissions on",
     "GENERATE": "Bulk-generate",
     "BLOCK": "Block / unblock",
+    "DELETE": "Delete",
+    "SUBMIT": "Submit for approval",
+    "APPROVE": "Approve",
+    "RELEASE": "Release",
+    "POST": "Post",
+    "SELECT": "Select supplier on",
 }
 
 _SENSITIVE = {"SYSTEM.FINANCIAL_YEAR.REOPEN", "SYSTEM.CROSS_COMPANY_READ.VIEW"}

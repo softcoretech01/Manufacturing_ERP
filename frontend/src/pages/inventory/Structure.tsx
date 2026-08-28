@@ -198,6 +198,7 @@ export function WarehouseStructurePage() {
 
       {tab === 'zones' && hasWarehouse && (
         <DataTable
+          density="comfortable"
           rows={zones}
           columns={zoneColumns}
           rowKey={(z) => z.uid}

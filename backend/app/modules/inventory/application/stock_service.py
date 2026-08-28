@@ -277,11 +277,18 @@ class StockService:
         out = []
         for it, wh, batch_no, available, reserved, total, value, last_movement in rows:
             tot = float(total or 0)
+            # SUM() over a DECIMAL column comes back as Decimal (or None when the
+            # group is empty). Narrow it to float once, here: dividing Decimal by
+            # the float `tot` below raises TypeError, and an unhandled error on
+            # this endpoint surfaces in the browser as a CORS failure, because the
+            # 500 is produced outside CORSMiddleware and carries no CORS headers.
+            val = float(value or 0)
             if hide_zero and tot == 0:
                 continue
             out.append(
                 {
                     "item_uid": it.uid, "item_code": it.code, "item_name": it.name,
+                    "item_type": it.item_type,
                     "category": it.item_type.replace('_', ' ').title(),
                     "uom": it.base_uom,
                     "warehouse_uid": wh.uid if wh else None,
@@ -290,8 +297,8 @@ class StockService:
                     "available_qty": float(available or 0),
                     "reserved_qty": float(reserved or 0),
                     "total_qty": tot,
-                    "unit_cost": float(value / tot) if tot > 0 else 0.0,
-                    "stock_value": float(value or 0),
+                    "unit_cost": val / tot if tot > 0 else 0.0,
+                    "stock_value": val,
                     "last_movement_date": last_movement,
                 }
             )
