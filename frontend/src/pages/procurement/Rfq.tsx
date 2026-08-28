@@ -7,7 +7,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Input, Select } from '@/components/ui/Input'
 import { PageHeader } from '@/components/ui/Misc'
 import { useToast } from '@/components/ui/Toast'
-import { formatDate } from '@/lib/format'
+import { formatDate, formatCurrency } from '@/lib/format'
 import { ProcStatusBadge } from '@/components/procurement/ProcShell'
 import { ProcurementToolbar } from '@/components/procurement/ProcurementToolbar'
 import * as api from '@/api/procurement'
@@ -28,7 +28,7 @@ export function RfqPage() {
   const [formOpen, setFormOpen] = useState(false)
   const [viewOpen, setViewOpen] = useState(false)
   const [editing, setEditing] = useState<any | null>(null)
-  
+
   const [form, setForm] = useState<any>({
     title: '',
     category: '',
@@ -54,7 +54,7 @@ export function RfqPage() {
     fetchList()
     // Fetch APPROVED PRs for referencing
     api.getRequisitions().then(res => {
-      setPrs(res?.filter((pr:any) => pr.status === 'APPROVED') || [])
+      setPrs(res?.filter((pr: any) => pr.status === 'APPROVED') || [])
     }).catch(console.error)
     getSuppliers().then(setSuppliers).catch(console.error)
   }, [])
@@ -109,13 +109,13 @@ export function RfqPage() {
 
   const handlePrSelect = async (prUid: string) => {
     if (!prUid) {
-      setForm({...form, prRefs: [], lines: []})
+      setForm({ ...form, prRefs: [], lines: [] })
       return
     }
     try {
       const fullPr = await api.getRequisition(prUid)
       if (fullPr && fullPr.lines) {
-        const newLines = fullPr.lines.map((l:any) => ({
+        const newLines = fullPr.lines.map((l: any) => ({
           itemCode: l.itemUid || l.itemCode,
           itemName: l.itemName,
           uom: l.uom,
@@ -123,10 +123,10 @@ export function RfqPage() {
           requiredBy: l.requiredBy,
           specification: l.remarks
         }))
-        setForm({...form, prRefs: [prUid], lines: newLines, category: fullPr.department || fullPr.itemType || ''})
+        setForm({ ...form, prRefs: [prUid], lines: newLines, category: fullPr.department || fullPr.itemType || '' })
       } else {
         toast.error('Error', 'No items found in selected PR')
-        setForm({...form, prRefs: [prUid], lines: [], category: fullPr?.department || fullPr?.itemType || ''})
+        setForm({ ...form, prRefs: [prUid], lines: [], category: fullPr?.department || fullPr?.itemType || '' })
       }
     } catch (err) {
       console.error(err)
@@ -136,15 +136,23 @@ export function RfqPage() {
 
   const handleSupplierAdd = (supUid: string) => {
     if (!supUid) return
-    if (form.suppliers.some((s:any) => s.supplierUid === supUid)) return
-    
+    if (form.suppliers.some((s: any) => s.supplierUid === supUid)) return
+
     const sup = suppliers.find(s => s.uid === supUid || s.id === supUid)
     if (sup) {
-      setForm({...form, suppliers: [...form.suppliers, {
-        supplierUid: sup.uid || sup.id,
-        supplierName: sup.name
-      }]})
+      setForm({
+        ...form, suppliers: [...form.suppliers, {
+          supplierUid: sup.uid || sup.id,
+          supplierName: sup.name
+        }]
+      })
     }
+  }
+
+  const handleLineChange = (index: number, field: string, value: string | number) => {
+    const newLines = [...form.lines]
+    newLines[index] = { ...newLines[index], [field]: value }
+    setForm({ ...form, lines: newLines })
   }
 
   const handleSave = async () => {
@@ -153,7 +161,7 @@ export function RfqPage() {
     if (!form.quoteDueBy) return toast.error('Validation', 'Quote Due By date is required')
 
 
-    
+
     if (!form.quoteDueBy) return toast.error('Validation', 'Quotation Due Date is required')
     if (!form.suppliers || form.suppliers.length === 0) return toast.error('Validation', 'Select at least one supplier')
 
@@ -239,8 +247,8 @@ export function RfqPage() {
           </Button>
         }
       />
-      
-      <ProcurementToolbar 
+
+      <ProcurementToolbar
         search={search} onSearchChange={setSearch}
         dateFrom={dateFrom} onDateFromChange={setDateFrom}
         dateTo={dateTo} onDateToChange={setDateTo}
@@ -272,21 +280,23 @@ export function RfqPage() {
           <Card>
             <CardHeader title="RFQ Details" />
             <CardBody className="grid gap-4 sm:grid-cols-2">
-              <Input label="Category" value={form.category} onChange={e => setForm({...form, category: e.target.value})} />
-              <Input type="date" label="Quote Due By" value={form.quoteDueBy} onChange={e => setForm({...form, quoteDueBy: e.target.value})} />
+              <Input label="Category" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} />
+              <Input type="date" label="Quote Due By" value={form.quoteDueBy} onChange={e => setForm({ ...form, quoteDueBy: e.target.value })} />
             </CardBody>
           </Card>
 
           <Card>
             <CardHeader title="Items" />
-            <CardBody className="p-0">
-              <table className="grid-table w-full text-sm">
+            <CardBody className="p-0 overflow-x-auto">
+              <table className="grid-table w-full text-sm min-w-[700px]">
                 <thead>
                   <tr>
                     <th className="w-10 col-center">S.No</th>
                     <th>Item</th>
                     <th>UOM</th>
                     <th className="col-right">Qty</th>
+                    <th className="col-right w-28">Unit Price</th>
+                    <th className="col-right w-32">Total</th>
                     <th>Required Date</th>
                   </tr>
                 </thead>
@@ -297,14 +307,24 @@ export function RfqPage() {
                       <td>{l.itemName}</td>
                       <td>{l.uom}</td>
                       <td className="col-right">{l.qty}</td>
+                      <td><Input type="number" value={l.estimatedRate || 0} onChange={e => handleLineChange(i, 'estimatedRate', e.target.value)} className="h-8 text-right" /></td>
+                      <td className="col-right font-medium">{formatCurrency((l.qty || 0) * (l.estimatedRate || 0))}</td>
                       <td>{l.requiredBy ? formatDate(l.requiredBy) : '-'}</td>
                     </tr>
                   ))}
                   {form.lines.length === 0 && (
-                    <tr><td colSpan={5} className="col-center text-fg-muted py-4">No items loaded. Please select a PR.</td></tr>
+                    <tr><td colSpan={7} className="text-center text-fg-muted py-4">No items loaded. Please select a PR.</td></tr>
                   )}
                 </tbody>
               </table>
+              {form.lines.length > 0 && (
+                <div className="flex justify-end p-4 border-t border-border bg-gray-50/50">
+                  <div className="flex justify-between w-64 text-sm font-medium">
+                    <span>Grand Total</span>
+                    <span className="text-brand-600">{formatCurrency(form.lines.reduce((acc: number, l: any) => acc + (Number(l.qty) || 0) * (Number(l.estimatedRate) || 0), 0))}</span>
+                  </div>
+                </div>
+              )}
             </CardBody>
           </Card>
 
@@ -317,8 +337,8 @@ export function RfqPage() {
                   const isChecked = form.suppliers.some((fs: any) => fs.supplierUid === supUid);
                   return (
                     <label key={supUid || idx} className="flex items-center space-x-3 cursor-pointer">
-                      <input 
-                        type="checkbox" 
+                      <input
+                        type="checkbox"
                         className="form-checkbox h-4 w-4 text-brand-600 rounded border-border-strong focus:ring-brand-500"
                         checked={isChecked}
                         onChange={(e) => {
@@ -326,7 +346,7 @@ export function RfqPage() {
                             handleSupplierAdd(supUid);
                           } else {
                             const newSups = form.suppliers.filter((fs: any) => fs.supplierUid !== supUid);
-                            setForm({...form, suppliers: newSups});
+                            setForm({ ...form, suppliers: newSups });
                           }
                         }}
                       />
@@ -349,7 +369,6 @@ export function RfqPage() {
       </Modal>
 
       <Modal open={viewOpen} onClose={() => setViewOpen(false)} title={`View RFQ - ${editing?.docNo}`} size="xl">
-        {editing && (
           <div className="flex flex-col gap-6">
             <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50/50 p-4 rounded-lg border border-border">
               <div><span className="text-fg-muted">RFQ Number:</span> <span className="font-medium">{editing.docNo}</span></div>
@@ -365,19 +384,19 @@ export function RfqPage() {
                 <table className="grid-table w-full text-sm">
                   <thead>
                     <tr>
-                      <th className="w-10">S.No</th>
+                      <th className="w-10 col-center">S.No</th>
                       <th>Item</th>
                       <th>UOM</th>
-                      <th className="text-right">Qty</th>
+                      <th className="col-right">Qty</th>
                     </tr>
                   </thead>
                   <tbody>
                     {editing.lines?.map((l: any, i: number) => (
                       <tr key={i}>
-                        <td className="text-center">{i + 1}</td>
+                        <td className="col-center">{i + 1}</td>
                         <td>{l.itemName}</td>
                         <td>{l.uom}</td>
-                        <td className="text-right">{l.qty}</td>
+                        <td className="col-right">{l.qty}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -391,15 +410,15 @@ export function RfqPage() {
                 <table className="grid-table w-full text-sm">
                   <thead>
                     <tr>
-                      <th className="w-10">S.No</th>
+                      <th className="w-10 col-center">S.No</th>
                       <th>Supplier Name</th>
                     </tr>
                   </thead>
                   <tbody>
                     {editing.suppliers?.map((s: any, i: number) => (
                       <tr key={i}>
-                        <td className="text-center">{i + 1}</td>
-                        <td>{s.supplierName}</td>
+                        <td className="col-center">{i + 1}</td>
+                        <td>{s.supplierName || suppliers.find(sup => String(sup.uid || sup.id) === String(s.supplierUid))?.name || s.supplierUid}</td>
                       </tr>
                     ))}
                   </tbody>

@@ -257,8 +257,8 @@ export function QuotationsPage() {
     { key: 'docDate', header: 'Date', render: (r) => formatDate(r.docDate), width: '130px' },
     { key: 'rfqNo', header: 'RFQ Ref', width: '130px' },
     { key: 'supplier', header: 'Supplier', render: (r) => {
-      const sup = suppliers.find(s => (s.uid || s.id) === r.supplierUid)
-      return sup ? sup.name : r.supplierUid
+      const sup = suppliers.find(s => String(s.uid || s.id) === String(r.supplierUid))
+      return sup ? sup.name : (r.supplierName || r.supplierUid)
     } },
     { key: 'validTill', header: 'Valid Till', render: (r) => r.validTill ? formatDate(r.validTill) : '-', width: '130px' },
     { key: 'items', header: 'Items', align: 'center' as const, render: (r) => r.lines?.length || 0, width: '72px' },
@@ -348,26 +348,26 @@ export function QuotationsPage() {
               <table className="grid-table w-full text-sm min-w-[800px]">
                 <thead>
                   <tr>
-                    <th className="w-10 text-center">#</th>
+                    <th className="w-10 col-center">#</th>
                     <th>Item</th>
-                    <th className="w-20 text-right">Qty</th>
-                    <th className="w-28 text-right">Basic Rate</th>
-                    <th className="w-24 text-right">Tax %</th>
-                    <th className="w-32 text-right">Freight/Unit</th>
-                    <th className="w-32 text-right">Landed Rate</th>
+                    <th className="w-20 col-right">Qty</th>
+                    <th className="w-28 col-right">Basic Rate</th>
+                    <th className="w-24 col-right">Tax %</th>
+                    <th className="w-32 col-right">Freight/Unit</th>
+                    <th className="w-32 col-right">Landed Rate</th>
                     <th>Remarks</th>
                   </tr>
                 </thead>
                 <tbody>
                   {form.lines.map((l: any, i: number) => (
                     <tr key={i}>
-                      <td className="text-center">{i + 1}</td>
+                      <td className="col-center">{i + 1}</td>
                       <td>{l.itemName} <span className="text-xs text-fg-muted block">{l.uom}</span></td>
-                      <td className="text-right">{l.qty}</td>
+                      <td className="col-right">{l.qty}</td>
                       <td><Input type="number" value={l.rate} onChange={e => handleLineChange(i, 'rate', e.target.value)} className="h-8 text-right" /></td>
                       <td><Input type="number" value={l.taxPct} onChange={e => handleLineChange(i, 'taxPct', e.target.value)} className="h-8 text-right" /></td>
                       <td><Input type="number" value={l.freight} onChange={e => handleLineChange(i, 'freight', e.target.value)} className="h-8 text-right" /></td>
-                      <td className="font-medium bg-gray-50 text-right">{formatCurrency(l.landedRate)}</td>
+                      <td className="font-medium bg-gray-50 col-right">{formatCurrency(l.landedRate)}</td>
                       <td><Input value={l.remarks} onChange={e => handleLineChange(i, 'remarks', e.target.value)} className="h-8" /></td>
                     </tr>
                   ))}
@@ -412,7 +412,7 @@ export function QuotationsPage() {
               <div><span className="text-fg-muted">Date:</span> <span className="font-medium">{formatDate(editing.docDate)}</span></div>
               <div><span className="text-fg-muted">RFQ Ref:</span> <span className="font-medium">{editing.rfqNo}</span></div>
               <div><span className="text-fg-muted">PR Ref:</span> <span className="font-medium">{getPrNoForRfq(editing.rfqNo)}</span></div>
-              <div><span className="text-fg-muted">Supplier:</span> <span className="font-medium">{suppliers.find(s => (s.uid || s.id) === editing.supplierUid)?.name || editing.supplierUid}</span></div>
+              <div><span className="text-fg-muted">Supplier:</span> <span className="font-medium">{suppliers.find(s => String(s.uid || s.id) === String(editing.supplierUid))?.name || editing.supplierName || editing.supplierUid}</span></div>
               <div><span className="text-fg-muted">Valid Till:</span> <span className="font-medium">{editing.validTill ? formatDate(editing.validTill) : '-'}</span></div>
             </div>
 
@@ -422,27 +422,27 @@ export function QuotationsPage() {
                 <table className="grid-table w-full text-sm min-w-[800px]">
                   <thead>
                     <tr>
-                      <th className="w-10 text-center">#</th>
+                      <th className="w-10 col-center">#</th>
                       <th>Item</th>
-                      <th className="w-20 text-right">Qty</th>
-                      <th className="text-right">Basic Rate</th>
-                      <th className="text-right">Tax %</th>
-                      <th className="text-right">Freight</th>
-                      <th className="text-right">Landed Rate</th>
-                      <th className="text-right">Line Total</th>
+                      <th className="w-20 col-right">Qty</th>
+                      <th className="col-right">Basic Rate</th>
+                      <th className="col-right">Tax %</th>
+                      <th className="col-right">Freight</th>
+                      <th className="col-right">Landed Rate</th>
+                      <th className="col-right">Line Total</th>
                     </tr>
                   </thead>
                   <tbody>
                     {editing.lines?.map((l: any, i: number) => (
                       <tr key={i}>
-                        <td className="text-center">{i + 1}</td>
+                        <td className="col-center">{i + 1}</td>
                         <td>{l.itemName} <span className="text-xs text-fg-muted">({l.uom})</span></td>
-                        <td className="text-right">{l.qty}</td>
-                        <td className="text-right">{formatCurrency(l.rate)}</td>
-                        <td className="text-right">{l.taxPct}%</td>
-                        <td className="text-right">{formatCurrency(l.freight)}</td>
-                        <td className="text-right font-medium">{formatCurrency(l.landedRate)}</td>
-                        <td className="text-right font-medium">{formatCurrency((l.qty || 0) * (l.landedRate || 0))}</td>
+                        <td className="col-right">{l.qty}</td>
+                        <td className="col-right">{formatCurrency(l.rate)}</td>
+                        <td className="col-right">{l.taxPct}%</td>
+                        <td className="col-right">{formatCurrency(l.freight)}</td>
+                        <td className="col-right font-medium">{formatCurrency(l.landedRate)}</td>
+                        <td className="col-right font-medium">{formatCurrency((l.qty || 0) * (l.landedRate || 0))}</td>
                       </tr>
                     ))}
                   </tbody>
