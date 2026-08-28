@@ -12,6 +12,12 @@ import { ProcurementToolbar } from '@/components/procurement/ProcurementToolbar'
 import { approvals } from '@/api/workflow'
 import { getRequisitions, getPurchaseOrders, getRfqs } from '@/api/procurement'
 
+/** Business names for the workflow's entity types — never show the raw code. */
+const DOC_TYPE_LABEL: Record<string, string> = {
+  PURCHASE_REQUISITION: 'Purchase Requisition',
+  PURCHASE_ORDER: 'Purchase Order',
+}
+
 function DocumentPreview({ task }: { task: any }) {
   const [lines, setLines] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
@@ -112,7 +118,12 @@ export function ApprovalsPage() {
 
   const filteredData = useMemo(() => {
     return data.filter(d => {
-      if (search && !d.document_no?.toLowerCase().includes(search.toLowerCase()) && !d.document_type?.toLowerCase().includes(search.toLowerCase())) return false
+      const q = search.toLowerCase()
+      if (search && !(
+        d.document_no?.toLowerCase().includes(q) ||
+        (DOC_TYPE_LABEL[d.document_type] ?? d.document_type ?? '').toLowerCase().includes(q) ||
+        (d.requester || '').toLowerCase().includes(q)
+      )) return false
       if (dateFrom && new Date(d.assigned_at) < new Date(dateFrom)) return false
       if (dateTo && new Date(d.assigned_at) > new Date(dateTo)) return false
       return true
@@ -148,11 +159,12 @@ export function ApprovalsPage() {
   const columns: Column<any>[] = [
     { key: 'sno', header: 'S.No', render: (_, i) => i + 1, width: '60px' },
     { key: 'document_no', header: 'Document No', render: r => r.document_no || r.document_label || '-', width: '160px' },
-    { key: 'document_type', header: 'Type', width: '140px' },
+    { key: 'document_type', header: 'Type', width: '150px', render: r => DOC_TYPE_LABEL[r.document_type] ?? r.document_type },
     { key: 'requester', header: 'Requested By', render: r => r.requester || '-', width: '150px' },
     { key: 'assigned_at', header: 'Date', render: r => formatDate(r.assigned_at), width: '130px' },
-    { key: 'amount', header: 'Amount', render: r => r.amount ? formatCurrency(r.amount) : '-', width: '120px' },
-    { key: 'level_name', header: 'Approval Level', render: r => `${r.level_no} of ${r.total_levels} (${r.level_name || 'Level'})`, width: '180px' },
+    { key: 'amount', header: 'Amount', align: 'right' as const, render: r => r.amount ? formatCurrency(r.amount) : '-', width: '130px' },
+    { key: 'level_name', header: 'Approval Level', width: '190px',
+      render: r => r.level_name ? `${r.level_name} (${r.level_no} of ${r.total_levels})` : `Level ${r.level_no} of ${r.total_levels}` },
     {
       key: 'actions',
       header: 'Action',
@@ -186,6 +198,7 @@ export function ApprovalsPage() {
         dateFrom={dateFrom} onDateFromChange={setDateFrom}
         dateTo={dateTo} onDateToChange={setDateTo}
         onReset={handleResetFilters}
+        searchHint="Document number, type or requester" dateLabel="Submitted"
       />
 
       <div className="flex-1 min-h-0 flex flex-col gap-4 mt-4">

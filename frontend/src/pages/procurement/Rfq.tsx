@@ -12,6 +12,11 @@ import { ProcStatusBadge } from '@/components/procurement/ProcShell'
 import { ProcurementToolbar } from '@/components/procurement/ProcurementToolbar'
 import * as api from '@/api/procurement'
 import { getSuppliers } from '@/api/masters'
+import { useDocDetail } from '@/hooks/useDocDetail'
+import {
+  ProcModal, ModalFooter, Section, FieldGrid, Field,
+  LineItemsTable, RowActions, qty as fmtQty,
+} from '@/components/procurement/ProcKit'
 
 export function RfqPage() {
   const toast = useToast()
@@ -28,6 +33,7 @@ export function RfqPage() {
   const [formOpen, setFormOpen] = useState(false)
   const [viewOpen, setViewOpen] = useState(false)
   const [editing, setEditing] = useState<any | null>(null)
+  const detail = useDocDetail<any>(api.getRfq)
 
   const [form, setForm] = useState<any>({
     title: '',
@@ -52,16 +58,33 @@ export function RfqPage() {
 
   useEffect(() => {
     fetchList()
-    // Fetch APPROVED PRs for referencing
-    api.getRequisitions().then(res => {
-      setPrs(res?.filter((pr: any) => pr.status === 'APPROVED') || [])
-    }).catch(console.error)
-    getSuppliers().then(setSuppliers).catch(console.error)
+    // Keep every PR so a saved reference can always be resolved to its document
+    // number in View; the New-RFQ dropdown filters to APPROVED at point of choice.
+    api.getRequisitions()
+      .then(res => setPrs(res || []))
+      .catch(() => toast.error('Error', 'Could not load purchase requisitions'))
+    getSuppliers()
+      .then(setSuppliers)
+      .catch(() => toast.error('Error', 'Could not load suppliers'))
   }, [])
+
+  /** Show the referenced PR by its document number, not its internal id. */
+  const prLabel = (refs?: string[]) => {
+    if (!refs || refs.length === 0) return null
+    return refs
+      .map((ref) => prs.find((p) => String(p.uid ?? p.id) === String(ref))?.docNo || ref)
+      .join(', ')
+  }
 
   const filteredData = useMemo(() => {
     return data.filter(d => {
-      if (search && !d.docNo?.toLowerCase().includes(search.toLowerCase()) && !d.title?.toLowerCase().includes(search.toLowerCase())) return false
+      const q = search.toLowerCase()
+      if (search && !(
+        d.docNo?.toLowerCase().includes(q) ||
+        d.title?.toLowerCase().includes(q) ||
+        (prLabel(d.prRefs) || '').toLowerCase().includes(q) ||
+        (d.suppliers || []).some((s: any) => (s.supplierName || '').toLowerCase().includes(q))
+      )) return false
       if (dateFrom && new Date(d.docDate) < new Date(dateFrom)) return false
       if (dateTo && new Date(d.docDate) > new Date(dateTo)) return false
       return true
@@ -75,7 +98,8 @@ export function RfqPage() {
     fetchList()
   }
 
-  const handleOpenForm = (rfq?: any) => {
+  const handleOpenForm = async (rfqRow?: any) => {
+    const rfq = rfqRow ? await detail.load(rfqRow) : undefined
     if (rfq) {
       setEditing(rfq)
       setForm({
@@ -102,9 +126,10 @@ export function RfqPage() {
     setFormOpen(true)
   }
 
-  const handleView = (rfq: any) => {
+  const handleView = async (rfq: any) => {
     setEditing(rfq)
     setViewOpen(true)
+    setEditing(await detail.load(rfq))
   }
 
   const handlePrSelect = async (prUid: string) => {
@@ -224,14 +249,11 @@ export function RfqPage() {
       width: '120px',
       className: 'col-flex',
       render: (r) => (
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => handleView(r)} title="View">
-            <Eye className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => handleOpenForm(r)} title="Edit">
-            <Edit className="h-4 w-4" />
-          </Button>
-        </div>
+        <RowActions
+          onView={() => handleView(r)}
+          // Once quotes are in or the RFQ is closed, it is no longer editable.
+          onEdit={r.status === 'OPEN' ? () => handleOpenForm(r) : undefined}
+        />
       ),
     },
   ]
@@ -253,6 +275,7 @@ export function RfqPage() {
         dateFrom={dateFrom} onDateFromChange={setDateFrom}
         dateTo={dateTo} onDateToChange={setDateTo}
         onReset={handleResetFilters}
+        searchHint="RFQ number, PR number or supplier" dateLabel="RFQ date"
       />
 
       <div className="flex-1 flex flex-col min-h-0 bg-surface-2 pt-4 w-full">
@@ -270,6 +293,7 @@ export function RfqPage() {
                 <option value="">-- Select PR --</option>
                 {prs.filter(pr => {
                   if (editing && form.prRefs.includes(pr.uid || pr.id)) return true;
+                  if (pr.status !== 'APPROVED') return false;
                   const prIdStr = String(pr.uid || pr.id);
                   return !data.some(rfq => rfq.prRefs?.some((ref: any) => String(ref) === prIdStr || String(ref) === pr.docNo));
                 }).map((pr, idx) => <option key={pr.uid || pr.id || idx} value={pr.uid || pr.id}>{pr.docNo} - {pr.department || pr.itemType}</option>)}
@@ -288,43 +312,33 @@ export function RfqPage() {
           <Card>
             <CardHeader title="Items" />
             <CardBody className="p-0 overflow-x-auto">
-              <table className="grid-table w-full text-sm min-w-[700px]">
+              <table className="grid-table w-full text-sm">
                 <thead>
                   <tr>
-                    <th className="w-10 col-center">S.No</th>
+                    <th className="w-12 col-center">S.No</th>
                     <th>Item</th>
-                    <th>UOM</th>
-                    <th className="col-right">Qty</th>
-                    <th className="col-right w-28">Unit Price</th>
-                    <th className="col-right w-32">Total</th>
-                    <th>Required Date</th>
+                    <th className="col-right w-28">Quantity</th>
+                    <th className="w-24">UOM</th>
+                    <th className="w-36">Required Date</th>
                   </tr>
                 </thead>
                 <tbody>
                   {form.lines.map((l: any, i: number) => (
                     <tr key={i}>
                       <td className="col-center">{i + 1}</td>
-                      <td>{l.itemName}</td>
+                      <td className="font-medium text-fg">{l.itemName}</td>
+                      <td className="col-right tabular-nums">{fmtQty(l.qty)}</td>
                       <td>{l.uom}</td>
-                      <td className="col-right">{l.qty}</td>
-                      <td><Input type="number" value={l.estimatedRate || 0} onChange={e => handleLineChange(i, 'estimatedRate', e.target.value)} className="h-8 text-right" /></td>
-                      <td className="col-right font-medium">{formatCurrency((l.qty || 0) * (l.estimatedRate || 0))}</td>
                       <td>{l.requiredBy ? formatDate(l.requiredBy) : '-'}</td>
                     </tr>
                   ))}
                   {form.lines.length === 0 && (
-                    <tr><td colSpan={7} className="text-center text-fg-muted py-4">No items loaded. Please select a PR.</td></tr>
+                    <tr><td colSpan={5} className="text-center text-fg-muted py-6">
+                      Select an approved PR to load its items.
+                    </td></tr>
                   )}
                 </tbody>
               </table>
-              {form.lines.length > 0 && (
-                <div className="flex justify-end p-4 border-t border-border bg-gray-50/50">
-                  <div className="flex justify-between w-64 text-sm font-medium">
-                    <span>Grand Total</span>
-                    <span className="text-brand-600">{formatCurrency(form.lines.reduce((acc: number, l: any) => acc + (Number(l.qty) || 0) * (Number(l.estimatedRate) || 0), 0))}</span>
-                  </div>
-                </div>
-              )}
             </CardBody>
           </Card>
 
@@ -334,7 +348,11 @@ export function RfqPage() {
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-2">
                 {suppliers.map((s, idx) => {
                   const supUid = s.uid || s.id;
-                  const isChecked = form.suppliers.some((fs: any) => fs.supplierUid === supUid);
+                  // Saved supplierUid comes back from the database as a string while
+                  // the master list may hold a number â€” compare as strings, or the
+                  // suppliers already on the RFQ never appear ticked when editing.
+                  const isChecked = form.suppliers.some(
+                    (fs: any) => String(fs.supplierUid) === String(supUid));
                   return (
                     <label key={supUid || idx} className="flex items-center space-x-3 cursor-pointer">
                       <input
@@ -345,7 +363,8 @@ export function RfqPage() {
                           if (e.target.checked) {
                             handleSupplierAdd(supUid);
                           } else {
-                            const newSups = form.suppliers.filter((fs: any) => fs.supplierUid !== supUid);
+                            const newSups = form.suppliers.filter(
+                              (fs: any) => String(fs.supplierUid) !== String(supUid));
                             setForm({ ...form, suppliers: newSups });
                           }
                         }}
@@ -368,70 +387,54 @@ export function RfqPage() {
         </div>
       </Modal>
 
-      <Modal open={viewOpen} onClose={() => setViewOpen(false)} title={`View RFQ - ${editing?.docNo}`} size="xl">
-          <div className="flex flex-col gap-6">
-            <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50/50 p-4 rounded-lg border border-border">
-              <div><span className="text-fg-muted">RFQ Number:</span> <span className="font-medium">{editing.docNo}</span></div>
-              <div><span className="text-fg-muted">Date:</span> <span className="font-medium">{formatDate(editing.docDate)}</span></div>
-              <div><span className="text-fg-muted">Title:</span> <span className="font-medium">{editing.title}</span></div>
-              <div><span className="text-fg-muted">Category:</span> <span className="font-medium">{editing.category}</span></div>
-              <div><span className="text-fg-muted">Quote Due By:</span> <span className="font-medium">{editing.quoteDueBy ? formatDate(editing.quoteDueBy) : '-'}</span></div>
-            </div>
+      <ProcModal
+        open={viewOpen}
+        onClose={() => setViewOpen(false)}
+        title={`Request for Quotation ${editing?.docNo ?? ''}`.trim()}
+        width="wide"
+        footer={<ModalFooter onCancel={() => setViewOpen(false)} cancelLabel="Close" />}
+      >
+        {editing && (
+          <>
+            <Section title="RFQ Information">
+              <FieldGrid>
+                <Field label="RFQ Number" mono value={editing.docNo} />
+                <Field label="RFQ Date" value={formatDate(editing.docDate)} />
+                <Field label="Reference PR" mono value={prLabel(editing.prRefs)} />
+                <Field label="Quotation Due Date" value={editing.quoteDueBy ? formatDate(editing.quoteDueBy) : null} />
+                <Field label="Category" value={editing.category} />
+                <Field label="Status" value={<ProcStatusBadge status={editing.status} />} />
+                <Field label="Remarks" span value={editing.remarks} />
+              </FieldGrid>
+            </Section>
 
-            <Card>
-              <CardHeader title="Items" />
-              <CardBody className="p-0">
-                <table className="grid-table w-full text-sm">
-                  <thead>
-                    <tr>
-                      <th className="w-10 col-center">S.No</th>
-                      <th>Item</th>
-                      <th>UOM</th>
-                      <th className="col-right">Qty</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {editing.lines?.map((l: any, i: number) => (
-                      <tr key={i}>
-                        <td className="col-center">{i + 1}</td>
-                        <td>{l.itemName}</td>
-                        <td>{l.uom}</td>
-                        <td className="col-right">{l.qty}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </CardBody>
-            </Card>
+            <Section title="Items">
+              <LineItemsTable
+                rows={editing.lines || []}
+                empty="This RFQ has no items."
+                columns={[
+                  { key: 'itemName', header: 'Item', render: (l) => <span className="font-medium text-fg">{l.itemName}</span> },
+                  { key: 'qty', header: 'Quantity', align: 'right', width: '110px', render: (l) => fmtQty(l.qty) },
+                  { key: 'uom', header: 'UOM', align: 'center', width: '80px' },
+                ]}
+              />
+            </Section>
 
-            <Card>
-              <CardHeader title="Selected Suppliers" />
-              <CardBody className="p-0">
-                <table className="grid-table w-full text-sm">
-                  <thead>
-                    <tr>
-                      <th className="w-10 col-center">S.No</th>
-                      <th>Supplier Name</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {editing.suppliers?.map((s: any, i: number) => (
-                      <tr key={i}>
-                        <td className="col-center">{i + 1}</td>
-                        <td>{s.supplierName || suppliers.find(sup => String(sup.uid || sup.id) === String(s.supplierUid))?.name || s.supplierUid}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </CardBody>
-            </Card>
-
-            <div className="flex justify-end gap-2 border-t border-border pt-4">
-              <Button variant="outline" onClick={() => setViewOpen(false)}>Close</Button>
-            </div>
-          </div>
+            <Section title="Suppliers">
+              <LineItemsTable
+                rows={editing.suppliers || []}
+                empty="No suppliers invited."
+                columns={[
+                  { key: 'supplierName', header: 'Supplier', render: (s) =>
+                      s.supplierName || suppliers.find(x => String(x.uid || x.id) === String(s.supplierUid))?.name || s.supplierUid },
+                  { key: 'responseStatus', header: 'Quotation Status', width: '190px', render: (s) =>
+                      <ProcStatusBadge status={s.responseStatus === 'RESPONDED' ? 'QUOTED' : 'PENDING'} size="sm" /> },
+                ]}
+              />
+            </Section>
+          </>
         )}
-      </Modal>
+      </ProcModal>
     </div>
   )
 }

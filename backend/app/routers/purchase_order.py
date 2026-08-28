@@ -58,6 +58,33 @@ async def get_purchase_order(uid: str = Path(...), session: AsyncSession = Depen
         return data
     raise HTTPException(status_code=404, detail="Purchase order not found")
 
+async def _consume_quotation(session: AsyncSession, ctx: TenantContext, rfq_no: str | None, po_no: str) -> None:
+    """Mark the quotation this order came from as USED.
+
+    Exactly one quotation per RFQ can be SELECTED, so the RFQ reference on the
+    order identifies it unambiguously. Marking it USED is what stops the same
+    quotation being turned into a second purchase order; the record itself is
+    never deleted, so it stays visible in history.
+    """
+    if not rfq_no:
+        return
+    row = (
+        await session.execute(
+            text(
+                "SELECT Id, DocNo FROM ERP_Procurement.SupplierQuotation "
+                " WHERE RfqNo = :rfq AND Status = 'SELECTED' LIMIT 1"
+            ),
+            {"rfq": rfq_no},
+        )
+    ).fetchone()
+    if row is None:
+        return
+    await session.execute(
+        text("CALL ERP_Procurement.SpManageSupplierQuotation('SET_STATUS', :id, :p)"),
+        {"id": row[0], "p": json.dumps({"status": "USED", "modifiedBy": ctx.user_name or "System"})},
+    )
+
+
 async def _submit_po_for_approval(session: AsyncSession, ctx: TenantContext, req: PurchaseOrderSchema, data: dict) -> None:
     """Enter the PO into the approval workflow (V1-WFL). Amount-banded PO rules
     already exist in the workflow config; submit() fails closed if none match."""
@@ -79,6 +106,9 @@ async def create_purchase_order(req: PurchaseOrderSchema, session: SessionDep, c
     row = result.fetchone()
     if row and row[0]:
         data = json.loads(row[0])
+        # The quotation is consumed the moment it becomes an order, so it can
+        # never be selected for a second one.
+        await _consume_quotation(session, ctx, req.rfqNo, data.get("docNo", ""))
         if req.status == 'PENDING_APPROVAL' and ctx:
             await _submit_po_for_approval(session, ctx, req, data)
         return data

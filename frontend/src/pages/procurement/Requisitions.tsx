@@ -13,6 +13,11 @@ import { ProcurementToolbar } from '@/components/procurement/ProcurementToolbar'
 import * as api from '@/api/procurement'
 import { getItems, getEmployees } from '@/api/masters'
 import { useItemCategories } from '@/hooks/useItemCategories'
+import { useDocDetail } from '@/hooks/useDocDetail'
+import {
+  ProcModal, ModalFooter, Section, FieldGrid, Field,
+  LineItemsTable, TotalsPanel, RowActions, money, qty as fmtQty,
+} from '@/components/procurement/ProcKit'
 
 export function RequisitionsPage() {
   const toast = useToast()
@@ -41,6 +46,7 @@ export function RequisitionsPage() {
   const [itemEntry, setItemEntry] = useState({ categoryId: '', itemId: '', qty: '', unitPrice: '' })
 
   const cats = useItemCategories()
+  const detail = useDocDetail<any>(api.getRequisition)
 
   const fetchList = () => {
     setLoading(true)
@@ -62,7 +68,13 @@ export function RequisitionsPage() {
 
   const filteredData = useMemo(() => {
     return data.filter(d => {
-      if (search && !d.docNo?.toLowerCase().includes(search.toLowerCase()) && !d.requestedBy?.toLowerCase().includes(search.toLowerCase())) return false
+      const q = search.toLowerCase()
+      if (search && !(
+        d.docNo?.toLowerCase().includes(q) ||
+        d.requestedBy?.toLowerCase().includes(q) ||
+        (d.department || d.itemType || '').toLowerCase().includes(q) ||
+        (d.lines || []).some((l: any) => (l.itemName || '').toLowerCase().includes(q))
+      )) return false
       if (dateFrom && new Date(d.docDate) < new Date(dateFrom)) return false
       if (dateTo && new Date(d.docDate) > new Date(dateTo)) return false
       return true
@@ -76,40 +88,49 @@ export function RequisitionsPage() {
     fetchList()
   }
 
-  const handleOpenForm = (pr?: any) => {
+  /** Map a saved PR onto the form. Lines are keyed by itemCode (the field the
+   *  backend actually stores) and prices come from the saved estimatedRate, so
+   *  editing never silently resets what was ordered. */
+  const formFromPr = (pr: any) => ({
+    requestedBy: pr.requestedBy || '',
+    requiredBy: pr.requiredBy ? String(pr.requiredBy).slice(0, 10) : '',
+    justification: pr.justification || pr.remarks || '',
+    // Item Type is stored in `department` on the PR document.
+    itemType: pr.department || pr.itemType || '',
+    lines: (pr.lines || []).map((l: any) => {
+      const price = Number(l.estimatedRate ?? l.unitPrice ?? 0)
+      const q = Number(l.qty ?? 0)
+      const master = masters.items.find(i => i.code === l.itemCode || String(i.id) === String(l.itemCode))
+      return {
+        itemUid: master?.uid || master?.id || l.itemCode,
+        itemCode: l.itemCode || '',
+        itemName: l.itemName || master?.name || '',
+        uom: l.uom || '',
+        qty: q,
+        unitPrice: price,
+        total: q * price,
+        category: master?.category || '',
+      }
+    }),
+  })
+
+  const handleOpenForm = async (pr?: any) => {
     if (pr) {
-      setEditing(pr)
-      setForm({
-        requestedBy: pr.requestedBy || '',
-        requiredBy: pr.requiredBy ? new Date(pr.requiredBy).toISOString().split('T')[0] : '',
-        justification: pr.justification || '',
-        itemType: pr.itemType || (pr.lines?.length ? masters.items.find(i => i.uid === pr.lines[0].itemUid)?.itemType : ''),
-        lines: pr.lines ? pr.lines.map((l:any) => ({
-          itemUid: l.itemUid || '',
-          itemName: l.itemName || '',
-          uom: l.uom || '',
-          qty: l.qty || '',
-          unitPrice: l.estimatedRate || l.unitPrice || 0,
-          total: (l.qty || 0) * (l.estimatedRate || l.unitPrice || 0)
-        })) : []
-      })
+      const full = await detail.load(pr)   // always edit the saved record, not the row
+      setEditing(full)
+      setForm(formFromPr(full))
     } else {
       setEditing(null)
-      setForm({
-        requestedBy: '',
-        requiredBy: '',
-        justification: '',
-        itemType: '',
-        lines: []
-      })
+      setForm({ requestedBy: '', requiredBy: '', justification: '', itemType: '', lines: [] })
     }
     setItemEntry({ categoryId: '', itemId: '', qty: '', unitPrice: '' })
     setFormOpen(true)
   }
 
-  const handleView = (pr: any) => {
+  const handleView = async (pr: any) => {
     setEditing(pr)
     setViewOpen(true)
+    setEditing(await detail.load(pr))
   }
 
   const handleSave = (isDraft: boolean) => async () => {
@@ -267,18 +288,12 @@ export function RequisitionsPage() {
       width: '164px',
       className: 'col-flex',
       render: (r) => (
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => handleView(r)} title="View">
-            <Eye className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => handleOpenForm(r)} title="Edit">
-            <Edit className="h-4 w-4" />
-          </Button>
-
-          <Button variant="ghost" size="icon" onClick={() => handleDeletePR(r.uid || r.id)} title="Delete" className="text-danger hover:text-danger hover:bg-danger/10">
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
+        <RowActions
+          onView={() => handleView(r)}
+          // An approved or in-flight PR is no longer the requester's to change.
+          onEdit={['DRAFT', 'REJECTED'].includes(r.status) ? () => handleOpenForm(r) : undefined}
+          onDelete={r.status === 'DRAFT' ? () => handleDeletePR(r.uid || r.id) : undefined}
+        />
       ),
     },
   ]
@@ -304,6 +319,7 @@ export function RequisitionsPage() {
         dateFrom={dateFrom} onDateFromChange={setDateFrom}
         dateTo={dateTo} onDateToChange={setDateTo}
         onReset={handleResetFilters}
+        searchHint="PR number, item or requester" dateLabel="Request date"
       />
 
       <div className="flex-1 flex flex-col min-h-0 bg-surface-2 pt-4 w-full">
@@ -416,75 +432,78 @@ export function RequisitionsPage() {
         </div>
       </Modal>
 
-      <Modal open={viewOpen} onClose={() => setViewOpen(false)} title={`View PR - ${editing?.docNo}`} size="3xl">
-        {editing && (
-          <div className="flex flex-col gap-6">
-            <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50/50 p-4 rounded-lg border border-border">
-              <div><span className="text-fg-muted">PR Number:</span> <span className="font-medium font-mono text-brand-700">{editing.docNo && editing.docNo !== 'null' ? editing.docNo : <span className="italic text-fg-muted font-sans">Auto-generating…</span>}</span></div>
-              <div><span className="text-fg-muted">Request Date:</span> <span className="font-medium">{formatDate(editing.docDate)}</span></div>
-              <div><span className="text-fg-muted">Requested By:</span> <span className="font-medium">{editing.requestedBy || '-'}</span></div>
-              <div><span className="text-fg-muted">Item Type:</span> <span className="font-medium">{editing.department || editing.itemType || 'Product Item'}</span></div>
-            </div>
+      <ProcModal
+        open={viewOpen}
+        onClose={() => setViewOpen(false)}
+        title={`Purchase Requisition ${editing?.docNo && editing.docNo !== 'null' ? editing.docNo : ''}`.trim()}
+        width="wide"
+        footer={
+          <ModalFooter onCancel={() => setViewOpen(false)} cancelLabel="Close">
+            {editing?.status === 'DRAFT' && (
+              <Button variant="primary" onClick={async () => { await handleApproveFromList(editing); setViewOpen(false) }}>
+                Submit for Approval
+              </Button>
+            )}
+          </ModalFooter>
+        }
+      >
+        {editing && (() => {
+          const lines = editing.lines || []
+          const sub = lines.reduce(
+            (a: number, l: any) => a + (Number(l.qty) || 0) * Number(l.estimatedRate ?? l.unitPrice ?? 0), 0)
+          const taxAmt = sub * 0.18
+          const approvals = editing.approvals || []
+          const decided = approvals.find((a: any) => a.status && a.status !== 'PENDING')
+          return (
+            <>
+              <Section title="PR Information">
+                <FieldGrid>
+                  <Field label="PR Number" mono value={editing.docNo !== 'null' ? editing.docNo : null} />
+                  <Field label="Request Date" value={formatDate(editing.docDate)} />
+                  <Field label="Requested By" value={editing.requestedBy} />
+                  <Field label="Item Type" value={editing.department || editing.itemType} />
+                  <Field label="Required Date" value={editing.requiredBy ? formatDate(editing.requiredBy) : null} />
+                  <Field label="Status" value={<ProcStatusBadge status={editing.status} />} />
+                  <Field label="Remarks" span value={editing.justification || editing.remarks} />
+                </FieldGrid>
+              </Section>
 
-            <Card>
-              <CardHeader title="Items" />
-              <CardBody className="p-0">
-                <table className="w-full text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-border">
-                      <th className="py-2 px-3 text-center text-fg-muted font-medium w-12">#</th>
-                      <th className="py-2 px-3 text-left text-fg-muted font-medium">Item</th>
-                      <th className="py-2 px-3 text-center text-fg-muted font-medium w-20">UOM</th>
-                      <th className="py-2 px-3 text-right text-fg-muted font-medium w-24">Qty</th>
-                      <th className="py-2 px-3 text-right text-fg-muted font-medium w-32">Unit Price</th>
-                      <th className="py-2 px-3 text-right text-fg-muted font-medium w-32">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {editing.lines?.map((l: any, i: number) => {
-                      const item = masters.items.find(mi => mi.uid === l.itemCode || mi.id === l.itemCode || mi.code === l.itemCode)
-                      const itemPrice = item ? (item.lastPurchasePrice || item.purchasePrice || item.standardCost || item.sellingPrice || 0) : 0
-                      const price = l.estimatedRate || l.unitPrice || itemPrice || 0
-                      return (
-                        <tr key={i} className="border-b border-border/50 hover:bg-gray-50/50">
-                          <td className="py-2 px-3 text-center text-fg-muted">{i + 1}</td>
-                          <td className="py-2 px-3 font-medium text-fg">{l.itemName}</td>
-                          <td className="py-2 px-3 text-center text-fg-muted">{l.uom}</td>
-                          <td className="py-2 px-3 text-right">{l.qty}</td>
-                          <td className="py-2 px-3 text-right">{formatCurrency(price)}</td>
-                          <td className="py-2 px-3 text-right font-medium text-fg">{formatCurrency((l.qty || 0) * price)}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-                <div className="flex justify-end p-4 border-t border-border bg-gray-50/50">
-                  <div className="w-64 space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-fg-muted">Subtotal</span>
-                      <span className="font-medium text-fg">
-                        {formatCurrency(editing.lines?.reduce((a:number, b:any) => {
-                          const item = masters.items.find(mi => mi.uid === b.itemCode || mi.id === b.itemCode || mi.code === b.itemCode)
-                          const itemPrice = item ? (item.lastPurchasePrice || item.purchasePrice || item.standardCost || item.sellingPrice || 0) : 0
-                          const price = b.estimatedRate || b.unitPrice || itemPrice || 0
-                          return a + (b.qty||0)*price
-                        }, 0) || 0)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </CardBody>
-            </Card>
+              <Section title="Items">
+                <LineItemsTable
+                  rows={lines}
+                  empty="This requisition has no items."
+                  columns={[
+                    { key: 'category', header: 'Category', render: (l) =>
+                        masters.items.find(i => i.code === l.itemCode)?.category ?? '—' },
+                    { key: 'itemName', header: 'Item', render: (l) =>
+                        <span className="font-medium text-fg">{l.itemName}</span> },
+                    { key: 'qty', header: 'Qty', align: 'right', width: '90px', render: (l) => fmtQty(l.qty) },
+                    { key: 'uom', header: 'UOM', align: 'center', width: '70px' },
+                    { key: 'rate', header: 'Unit Price', align: 'right', width: '120px', render: (l) =>
+                        money(l.estimatedRate ?? l.unitPrice) },
+                    { key: 'total', header: 'Line Total', align: 'right', width: '130px', render: (l) =>
+                        <span className="font-medium text-fg">
+                          {money((Number(l.qty) || 0) * Number(l.estimatedRate ?? l.unitPrice ?? 0))}
+                        </span> },
+                  ]}
+                />
+                <TotalsPanel subtotal={sub} tax={taxAmt} grandTotal={sub + taxAmt} />
+              </Section>
 
-            <div className="flex justify-end gap-2 border-t border-border pt-4">
-              <Button variant="outline" onClick={() => setViewOpen(false)}>Close</Button>
-              {editing.status === 'DRAFT' && (
-                <Button variant="primary" onClick={async () => { await handleApproveFromList(editing); setViewOpen(false) }}>Submit for Approval</Button>
+              {decided && (
+                <Section title="Approval">
+                  <FieldGrid>
+                    <Field label="Approval Status" value={<ProcStatusBadge status={decided.status} />} />
+                    <Field label="Approved By" value={decided.approver} />
+                    <Field label="Approved Date" value={decided.actedAt ? formatDate(decided.actedAt) : null} />
+                    <Field label="Approval Remarks" value={decided.remarks} />
+                  </FieldGrid>
+                </Section>
               )}
-            </div>
-          </div>
-        )}
-      </Modal>
+            </>
+          )
+        })()}
+      </ProcModal>
     </div>
   )
 }

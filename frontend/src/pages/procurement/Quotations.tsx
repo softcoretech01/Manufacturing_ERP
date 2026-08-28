@@ -12,6 +12,11 @@ import { ProcStatusBadge } from '@/components/procurement/ProcShell'
 import { ProcurementToolbar } from '@/components/procurement/ProcurementToolbar'
 import * as api from '@/api/procurement'
 import { getSuppliers, getItems } from '@/api/masters'
+import { useDocDetail } from '@/hooks/useDocDetail'
+import {
+  ProcModal, ModalFooter, Section, FieldGrid, Field,
+  LineItemsTable, TotalsPanel, RowActions, money, qty as fmtQty,
+} from '@/components/procurement/ProcKit'
 
 export function QuotationsPage() {
   const toast = useToast()
@@ -30,6 +35,7 @@ export function QuotationsPage() {
   const [formOpen, setFormOpen] = useState(false)
   const [viewOpen, setViewOpen] = useState(false)
   const [editing, setEditing] = useState<any | null>(null)
+  const detail = useDocDetail<any>(api.getQuotation)
   
   const [form, setForm] = useState<any>({
     rfqNo: '',
@@ -79,7 +85,12 @@ export function QuotationsPage() {
 
   const filteredData = useMemo(() => {
     return data.filter(d => {
-      if (search && !d.docNo?.toLowerCase().includes(search.toLowerCase()) && !d.rfqNo?.toLowerCase().includes(search.toLowerCase())) return false
+      const q = search.toLowerCase()
+      if (search && !(
+        d.docNo?.toLowerCase().includes(q) ||
+        d.rfqNo?.toLowerCase().includes(q) ||
+        (d.supplierName || '').toLowerCase().includes(q)
+      )) return false
       if (dateFrom && new Date(d.docDate) < new Date(dateFrom)) return false
       if (dateTo && new Date(d.docDate) > new Date(dateTo)) return false
       return true
@@ -93,7 +104,8 @@ export function QuotationsPage() {
     fetchList()
   }
 
-  const handleOpenForm = (quote?: any) => {
+  const handleOpenForm = async (quoteRow?: any) => {
+    const quote = quoteRow ? await detail.load(quoteRow) : undefined
     if (quote) {
       setEditing(quote)
       setForm({
@@ -120,9 +132,10 @@ export function QuotationsPage() {
     setFormOpen(true)
   }
 
-  const handleView = (quote: any) => {
+  const handleView = async (quote: any) => {
     setEditing(quote)
     setViewOpen(true)
+    setEditing(await detail.load(quote))
   }
 
   const handleRfqSelect = (rfqNo: string) => {
@@ -270,14 +283,11 @@ export function QuotationsPage() {
       width: '120px',
       className: 'col-flex',
       render: (r) => (
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => handleView(r)} title="View">
-            <Eye className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => handleOpenForm(r)} title="Edit">
-            <Edit className="h-4 w-4" />
-          </Button>
-        </div>
+        <RowActions
+          onView={() => handleView(r)}
+          // A quotation that has been selected or turned into a PO is read-only.
+          onEdit={['QUOTED', 'DRAFT'].includes(r.status) ? () => handleOpenForm(r) : undefined}
+        />
       ),
     },
   ]
@@ -299,6 +309,7 @@ export function QuotationsPage() {
         dateFrom={dateFrom} onDateFromChange={setDateFrom}
         dateTo={dateTo} onDateToChange={setDateTo}
         onReset={handleResetFilters}
+        searchHint="Quotation number, supplier or RFQ" dateLabel="Quotation date"
       />
 
       <div className="flex-1 flex flex-col min-h-0 bg-surface-2 pt-4 w-full">
@@ -404,77 +415,55 @@ export function QuotationsPage() {
         </div>
       </Modal>
 
-      <Modal open={viewOpen} onClose={() => setViewOpen(false)} title={`View Quote - ${editing?.docNo}`} size="2xl">
+      <ProcModal
+        open={viewOpen}
+        onClose={() => setViewOpen(false)}
+        title={`Vendor Quotation ${editing?.docNo ?? ''}`.trim()}
+        width="wide"
+        footer={<ModalFooter onCancel={() => setViewOpen(false)} cancelLabel="Close" />}
+      >
         {editing && (
-          <div className="flex flex-col gap-6">
-            <div className="grid grid-cols-5 gap-4 text-sm bg-gray-50/50 p-4 rounded-lg border border-border">
-              <div><span className="text-fg-muted">Quote No:</span> <span className="font-medium">{editing.docNo}</span></div>
-              <div><span className="text-fg-muted">Date:</span> <span className="font-medium">{formatDate(editing.docDate)}</span></div>
-              <div><span className="text-fg-muted">RFQ Ref:</span> <span className="font-medium">{editing.rfqNo}</span></div>
-              <div><span className="text-fg-muted">PR Ref:</span> <span className="font-medium">{getPrNoForRfq(editing.rfqNo)}</span></div>
-              <div><span className="text-fg-muted">Supplier:</span> <span className="font-medium">{suppliers.find(s => String(s.uid || s.id) === String(editing.supplierUid))?.name || editing.supplierName || editing.supplierUid}</span></div>
-              <div><span className="text-fg-muted">Valid Till:</span> <span className="font-medium">{editing.validTill ? formatDate(editing.validTill) : '-'}</span></div>
-            </div>
+          <>
+            <Section title="Quotation Information">
+              <FieldGrid>
+                <Field label="Quotation Number" mono value={editing.docNo} />
+                <Field label="Quotation Date" value={formatDate(editing.docDate)} />
+                <Field label="Supplier" value={
+                  suppliers.find(s => String(s.uid || s.id) === String(editing.supplierUid))?.name
+                  || editing.supplierName || editing.supplierUid} />
+                <Field label="RFQ Number" mono value={editing.rfqNo} />
+                <Field label="Reference PR" mono value={getPrNoForRfq(editing.rfqNo)} />
+                <Field label="Valid Till" value={editing.validTill ? formatDate(editing.validTill) : null} />
+                <Field label="Payment Terms" value={editing.paymentTerms} />
+                <Field label="Status" value={<ProcStatusBadge status={editing.status} />} />
+              </FieldGrid>
+            </Section>
 
-            <Card>
-              <CardHeader title="Quoted Items" />
-              <CardBody className="p-0 overflow-x-auto">
-                <table className="grid-table w-full text-sm min-w-[800px]">
-                  <thead>
-                    <tr>
-                      <th className="w-10 col-center">#</th>
-                      <th>Item</th>
-                      <th className="w-20 col-right">Qty</th>
-                      <th className="col-right">Basic Rate</th>
-                      <th className="col-right">Tax %</th>
-                      <th className="col-right">Freight</th>
-                      <th className="col-right">Landed Rate</th>
-                      <th className="col-right">Line Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {editing.lines?.map((l: any, i: number) => (
-                      <tr key={i}>
-                        <td className="col-center">{i + 1}</td>
-                        <td>{l.itemName} <span className="text-xs text-fg-muted">({l.uom})</span></td>
-                        <td className="col-right">{l.qty}</td>
-                        <td className="col-right">{formatCurrency(l.rate)}</td>
-                        <td className="col-right">{l.taxPct}%</td>
-                        <td className="col-right">{formatCurrency(l.freight)}</td>
-                        <td className="col-right font-medium">{formatCurrency(l.landedRate)}</td>
-                        <td className="col-right font-medium">{formatCurrency((l.qty || 0) * (l.landedRate || 0))}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div className="flex justify-end p-4 border-t border-border bg-gray-50/50">
-                  <div className="w-64 space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-fg-muted">Basic Value</span>
-                      <span className="font-medium">{formatCurrency(editing.basicValue)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-fg-muted">Tax Value</span>
-                      <span className="font-medium">{formatCurrency(editing.taxValue)}</span>
-                    </div>
-                    <div className="flex justify-between border-t border-border pt-2">
-                      <span className="font-medium">Total Landed Value</span>
-                      <span className="font-bold text-brand-600">{formatCurrency(editing.landedValue)}</span>
-                    </div>
-                  </div>
-                </div>
-              </CardBody>
-            </Card>
-
-            <div className="flex justify-end gap-2 border-t border-border pt-4">
-              <Button variant="outline" onClick={() => setViewOpen(false)}>Close</Button>
-              {editing.status === 'DRAFT' && (
-                <Button variant="primary" onClick={() => handleSubmitApproval(editing.uid || editing.id)}>Submit for Approval</Button>
-              )}
-            </div>
-          </div>
+            <Section title="Quoted Items">
+              <LineItemsTable
+                rows={editing.lines || []}
+                empty="This quotation has no items."
+                columns={[
+                  { key: 'itemName', header: 'Item', render: (l) => <span className="font-medium text-fg">{l.itemName}</span> },
+                  { key: 'qty', header: 'Qty', align: 'right', width: '90px', render: (l) => fmtQty(l.qty) },
+                  { key: 'uom', header: 'UOM', align: 'center', width: '70px' },
+                  { key: 'rate', header: 'Unit Price', align: 'right', width: '110px', render: (l) => money(l.rate) },
+                  { key: 'taxPct', header: 'Tax %', align: 'right', width: '80px', render: (l) => `${Number(l.taxPct) || 0}%` },
+                  { key: 'landedRate', header: 'Landed Rate', align: 'right', width: '120px', render: (l) => money(l.landedRate) },
+                  { key: 'lineTotal', header: 'Line Total', align: 'right', width: '130px', render: (l) =>
+                      <span className="font-medium text-fg">{money((Number(l.qty) || 0) * (Number(l.landedRate) || 0))}</span> },
+                ]}
+              />
+              <TotalsPanel
+                subtotal={Number(editing.basicValue) || 0}
+                tax={Number(editing.taxValue) || 0}
+                grandTotal={Number(editing.landedValue) || 0}
+                extra={Number(editing.freightValue) ? [{ label: 'Freight', value: Number(editing.freightValue) }] : undefined}
+              />
+            </Section>
+          </>
         )}
-      </Modal>
+      </ProcModal>
     </div>
   )
 }
