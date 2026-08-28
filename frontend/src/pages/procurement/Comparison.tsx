@@ -1,217 +1,413 @@
-import { useState, useEffect } from 'react'
-import { CheckCircle2, ChevronRight, Scale } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { Award, Check, TrendingDown } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
-import { Card, CardBody, CardHeader } from '@/components/ui/Card'
+import { Card, CardBody } from '@/components/ui/Card'
 import { Select, Textarea } from '@/components/ui/Input'
 import { PageHeader } from '@/components/ui/Misc'
 import { useToast } from '@/components/ui/Toast'
-import { formatCurrency } from '@/lib/format'
+import { formatDate } from '@/lib/format'
+import { ProcStatusBadge } from '@/components/procurement/ProcShell'
+import {
+  ProcModal, ModalFooter, Section, FieldGrid, Field, EmptyState, money, qty as fmtQty,
+} from '@/components/procurement/ProcKit'
 import * as api from '@/api/procurement'
+
+/*
+ * Quotation Comparison is an ANALYSIS screen, not a data-entry form.
+ *
+ * Every number on it comes from quotations the suppliers actually submitted —
+ * nothing is typed here and no price can be edited. The screen lays the
+ * quotations side by side per item, totals each supplier, marks the cheapest as
+ * recommended, and lets an authorised buyer award the RFQ. Lowest price is a
+ * recommendation, never an automatic award: the decision stays with the user.
+ */
+
+interface SupplierColumn {
+  quotationUid: string
+  quotationNo: string
+  supplierName: string
+  quotationDate: string
+  status: string
+  total: number
+  /** itemCode -> that supplier's line */
+  byItem: Record<string, { rate: number; taxPct: number; lineTotal: number; qty: number }>
+}
 
 export function ComparisonPage() {
   const toast = useToast()
-  
+
   const [rfqs, setRfqs] = useState<any[]>([])
-  const [selectedRfqNo, setSelectedRfqNo] = useState<string>('')
-  
-  const [rfqDetails, setRfqDetails] = useState<any>(null)
+  const [selectedRfqNo, setSelectedRfqNo] = useState('')
+  const [rfq, setRfq] = useState<any | null>(null)
   const [quotations, setQuotations] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
 
-  const [preferredSupplier, setPreferredSupplier] = useState<string>('')
-  const [selectionRemarks, setSelectionRemarks] = useState<string>('')
+  const [awardOpen, setAwardOpen] = useState(false)
+  const [awardTarget, setAwardTarget] = useState<SupplierColumn | null>(null)
+  const [awardRemarks, setAwardRemarks] = useState('')
+  const [awarding, setAwarding] = useState(false)
 
-  useEffect(() => {
-    // Fetch OPEN RFQs for comparison
-    api.getRfqs().then(res => {
-      setRfqs(res?.filter((r:any) => r.status === 'OPEN') || [])
-    }).catch(console.error)
-  }, [])
+  // Only RFQs that actually have quotations are worth comparing.
+  const [quotedRfqNos, setQuotedRfqNos] = useState<Set<string>>(new Set())
 
-  const handleRfqSelect = async (rfqNo: string) => {
+  const loadRfqs = () => {
+    Promise.all([api.getRfqs(), api.getQuotations()])
+      .then(([r, q]) => {
+        setRfqs(r || [])
+        setQuotedRfqNos(new Set((q || []).map((x: any) => x.rfqNo).filter(Boolean)))
+      })
+      .catch(() => toast.error('Error', 'Could not load RFQs for comparison'))
+  }
+
+  useEffect(loadRfqs, [])
+
+  const handleSelectRfq = async (rfqNo: string) => {
     setSelectedRfqNo(rfqNo)
-    if (!rfqNo) {
-      setRfqDetails(null)
-      setQuotations([])
-      return
-    }
-    
+    setRfq(null)
+    setQuotations([])
+    if (!rfqNo) return
+
     setLoading(true)
     try {
-      const selectedRfq = rfqs.find(r => r.docNo === rfqNo)
-      setRfqDetails(selectedRfq)
+      const header = rfqs.find(r => r.docNo === rfqNo)
+      const full = header?.uid ? await api.getRfq(String(header.uid)) : header
+      setRfq(full || header)
 
-      // Fetch quotations and filter for this RFQ
-      const quotes = await api.getQuotations()
-      const rfqQuotes = quotes.filter((q:any) => q.rfqNo === rfqNo && q.status === 'QUOTED')
-      setQuotations(rfqQuotes)
-    } catch (err: any) {
-      toast.error('Error', 'Failed to load comparison data')
+      const all = await api.getQuotations()
+      // Every quotation raised against this RFQ, whatever its state — a rejected
+      // or already-selected quote is still part of the comparison record.
+      setQuotations((all || []).filter((q: any) => q.rfqNo === rfqNo))
+    } catch {
+      toast.error('Error', 'Could not load the quotations for this RFQ')
     } finally {
       setLoading(false)
     }
   }
 
-  const handleConfirmSelection = async () => {
-    if (!preferredSupplier) return toast.error('Validation', 'Please select a preferred supplier')
-    if (!selectionRemarks.trim()) return toast.error('Validation', 'Selection remarks are required')
+  /** Build the comparison matrix: RFQ items down, suppliers across. */
+  const { items, columns, bestUid } = useMemo(() => {
+    const rfqItems: any[] = rfq?.lines || []
 
+    const cols: SupplierColumn[] = quotations.map((q: any) => {
+      const byItem: SupplierColumn['byItem'] = {}
+      let total = 0
+      for (const l of q.lines || []) {
+        const qty = Number(l.qty) || 0
+        const rate = Number(l.rate) || 0
+        const taxPct = Number(l.taxPct) || 0
+        const landed = Number(l.landedRate) || rate + rate * (taxPct / 100)
+        const lineTotal = qty * landed
+        byItem[String(l.itemCode)] = { rate, taxPct, lineTotal, qty }
+        total += lineTotal
+      }
+      return {
+        quotationUid: String(q.uid ?? q.id ?? ''),
+        quotationNo: q.docNo,
+        supplierName: q.supplierName || q.supplierUid,
+        quotationDate: q.docDate,
+        status: q.status,
+        total: Number(q.landedValue) || total,
+        byItem,
+      }
+    })
+
+    // Cheapest overall wins the recommendation; quotes already rejected are out.
+    const live = cols.filter(c => c.status !== 'REJECTED' && c.total > 0)
+    const best = live.length
+      ? live.reduce((a, b) => (b.total < a.total ? b : a)).quotationUid
+      : ''
+
+    return { items: rfqItems, columns: cols, bestUid: best }
+  }, [rfq, quotations])
+
+  const selected = columns.find(c => c.status === 'SELECTED' || c.status === 'USED')
+
+  const openAward = (col: SupplierColumn) => {
+    setAwardTarget(col)
+    setAwardRemarks('')
+    setAwardOpen(true)
+  }
+
+  const confirmAward = async () => {
+    if (!awardTarget) return
+    setAwarding(true)
     try {
-      // Update RFQ status to COMPLETED and set awardedTo
-      await api.updateRfq(rfqDetails.uid, { 
-        status: 'COMPLETED',
-        awardedTo: preferredSupplier,
-        remarks: selectionRemarks
-      })
-
-      // The backend should ideally handle updating the quotation statuses, 
-      // but in this frontend-heavy fix, we just mark the RFQ complete.
-      toast.success('Success', 'Supplier selection confirmed. RFQ Closed.')
-      
-      // Refresh
-      setSelectedRfqNo('')
-      setRfqDetails(null)
-      setQuotations([])
-      
-      const res = await api.getRfqs()
-      setRfqs(res?.filter((r:any) => r.status === 'OPEN') || [])
-
+      const res: any = await api.selectQuotation(awardTarget.quotationUid, awardRemarks)
+      toast.success(
+        'Supplier selected',
+        `${res.selectedSupplier} awarded ${res.rfqNo}. ${res.rejectedCount} other quotation(s) closed.`,
+      )
+      setAwardOpen(false)
+      await handleSelectRfq(selectedRfqNo)
+      loadRfqs()
     } catch (err: any) {
-      toast.error('Error', err.message || 'Failed to confirm selection')
+      toast.error('Could not select supplier', err.message || 'Please try again.')
+    } finally {
+      setAwarding(false)
     }
   }
 
-  // Generate Matrix
-  // items: array of items from RFQ
-  // cols: array of suppliers who quoted
-  const items = rfqDetails?.lines || []
-  
+  const comparableRfqs = rfqs.filter(r => quotedRfqNos.has(r.docNo))
+
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full w-full flex-1 flex-col">
       <PageHeader
         title="Quotation Comparison"
-        breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Procurement', to: '/procurement/dashboard' }, { label: 'Comparison' }]}
+        breadcrumbs={[
+          { label: 'Home', to: '/' },
+          { label: 'Procurement', to: '/procurement' },
+          { label: 'Comparison' },
+        ]}
       />
-      <div className="flex-1 overflow-auto p-6 bg-gray-50/50 space-y-6">
+
+      <div className="flex flex-1 flex-col gap-4 bg-surface-2 p-4">
         <Card>
-          <CardBody className="flex gap-4 items-center">
-            <div className="w-96">
-                <Select label="Select RFQ to Compare" value={selectedRfqNo} onChange={e => handleRfqSelect(e.target.value)}>
-                    <option value="">-- Select RFQ --</option>
-                    {rfqs.map(r => <option key={r.docNo} value={r.docNo}>{r.docNo} - {r.title}</option>)}
-                </Select>
+          <CardBody className="flex flex-wrap items-end gap-4">
+            <div className="min-w-[320px]">
+              <Select
+                label="RFQ to compare"
+                value={selectedRfqNo}
+                onChange={e => handleSelectRfq(e.target.value)}
+              >
+                <option value="">Select an RFQ…</option>
+                {comparableRfqs.map(r => (
+                  <option key={r.docNo} value={r.docNo}>
+                    {r.docNo} — {r.title || r.category}
+                  </option>
+                ))}
+              </Select>
             </div>
-            {loading && <span className="text-fg-muted text-sm mt-6">Loading quotations...</span>}
+            {rfq && (
+              <>
+                <Field label="RFQ Date" value={formatDate(rfq.docDate)} />
+                <Field label="Quotations Received" value={String(quotations.length)} />
+                <Field label="Status" value={<ProcStatusBadge status={rfq.status} />} />
+              </>
+            )}
           </CardBody>
         </Card>
 
-        {rfqDetails && quotations.length === 0 && !loading && (
-            <Card>
-                <CardBody className="py-12 text-center text-fg-muted">
-                    <Scale className="h-12 w-12 mx-auto mb-4 text-border-strong" />
-                    <h3 className="text-lg font-medium text-fg">No Quotations Found</h3>
-                    <p>There are no active quotations submitted for this RFQ yet.</p>
-                </CardBody>
-            </Card>
+        {!selectedRfqNo && (
+          <Card>
+            <CardBody>
+              <EmptyState
+                message={
+                  comparableRfqs.length === 0
+                    ? 'No RFQ has any supplier quotations yet. Record vendor quotations first.'
+                    : 'Select an RFQ above to compare the quotations received against it.'
+                }
+              />
+            </CardBody>
+          </Card>
         )}
 
-        {rfqDetails && quotations.length > 0 && (
-            <>
-                <Card>
-                <CardHeader title="Comparison Matrix" description={`Comparing ${quotations.length} supplier(s) for ${rfqDetails.docNo}`} />
-                <CardBody className="p-0 overflow-x-auto">
-                    <table className="grid-table w-full whitespace-nowrap">
-                    <thead>
-                        <tr>
-                            <th className="bg-surface-2 sticky left-0 z-10 w-64 border-r border-border">Item Details</th>
-                            {quotations.map(q => (
-                                <th key={q.uid} className="text-center min-w-[200px] border-r border-border">
-                                    <div className="font-semibold text-brand-600">{q.supplierName}</div>
-                                    <div className="text-xs text-fg-muted font-normal">Quote: {q.docNo}</div>
-                                </th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {items.map((item: any, idx: number) => {
-                            // Find lowest landed rate for this item across all quotes
-                            let lowestRate = Infinity
-                            quotations.forEach(q => {
-                                const qLine = q.lines?.find((l:any) => l.itemCode === item.itemCode)
-                                if (qLine && qLine.landedRate < lowestRate && qLine.landedRate > 0) lowestRate = qLine.landedRate
-                            })
+        {selectedRfqNo && !loading && columns.length === 0 && (
+          <Card>
+            <CardBody>
+              <EmptyState message="No supplier quotations have been recorded against this RFQ yet." />
+            </CardBody>
+          </Card>
+        )}
 
+        {columns.length > 0 && (
+          <Card>
+            <CardBody className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[720px] border-collapse text-[13px]">
+                  <thead>
+                    <tr className="bg-surface-2">
+                      <th className="w-12 px-3 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-fg-muted">
+                        #
+                      </th>
+                      <th className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-fg-muted">
+                        Item
+                      </th>
+                      <th className="px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-fg-muted">
+                        Required Qty
+                      </th>
+                      {columns.map(c => {
+                        const isBest = c.quotationUid === bestUid
+                        const isWon = c.quotationUid === selected?.quotationUid
+                        return (
+                          <th
+                            key={c.quotationUid}
+                            className={`min-w-[150px] px-3 py-3 text-right align-bottom ${
+                              isWon ? 'bg-success/10' : isBest ? 'bg-brand-50' : ''
+                            }`}
+                          >
+                            <span className="block text-[13px] font-semibold text-fg">
+                              {c.supplierName}
+                            </span>
+                            <span className="block font-mono text-[11px] font-normal text-fg-muted">
+                              {c.quotationNo}
+                            </span>
+                            <span className="mt-1 block text-[11px] font-normal text-fg-subtle">
+                              {formatDate(c.quotationDate)}
+                            </span>
+                            {isWon ? (
+                              <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-success">
+                                <Check className="h-3 w-3" /> Selected
+                              </span>
+                            ) : isBest ? (
+                              <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-brand-600">
+                                <TrendingDown className="h-3 w-3" /> Best price
+                              </span>
+                            ) : null}
+                          </th>
+                        )
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((it: any, i: number) => {
+                      // Cheapest unit price for this row, so the eye can scan across.
+                      const rates = columns
+                        .map(c => c.byItem[String(it.itemCode)]?.rate)
+                        .filter((r): r is number => typeof r === 'number' && r > 0)
+                      const lowest = rates.length ? Math.min(...rates) : null
+                      return (
+                        <tr key={i} className="border-t border-border-subtle">
+                          <td className="px-3 py-3 text-center text-fg-muted">{i + 1}</td>
+                          <td className="px-3 py-3">
+                            <span className="font-medium text-fg">{it.itemName}</span>
+                            <span className="block text-[11px] text-fg-muted">{it.uom}</span>
+                          </td>
+                          <td className="px-3 py-3 text-right tabular-nums">{fmtQty(it.qty)}</td>
+                          {columns.map(c => {
+                            const cell = c.byItem[String(it.itemCode)]
+                            if (!cell) {
+                              return (
+                                <td key={c.quotationUid} className="px-3 py-3 text-right text-fg-subtle">
+                                  Not quoted
+                                </td>
+                              )
+                            }
+                            const isLowest = lowest !== null && cell.rate === lowest
                             return (
-                                <tr key={idx}>
-                                    <td className="bg-surface-2 sticky left-0 z-10 border-r border-border">
-                                        <div className="font-medium text-fg">{item.itemName}</div>
-                                        <div className="text-xs text-fg-muted">Req: {item.qty} {item.uom}</div>
-                                    </td>
-                                    {quotations.map(q => {
-                                        const qLine = q.lines?.find((l:any) => l.itemCode === item.itemCode)
-                                        if (!qLine) return <td key={q.uid} className="text-center text-fg-muted border-r border-border">- No Bid -</td>
-                                        
-                                        const isLowest = qLine.landedRate === lowestRate
-                                        
-                                        return (
-                                            <td key={q.uid} className={`border-r border-border ${isLowest ? 'bg-success/5' : ''}`}>
-                                                <div className="flex flex-col items-center">
-                                                    <span className={`text-lg font-semibold tabular ${isLowest ? 'text-success' : 'text-fg'}`}>
-                                                        {formatCurrency(qLine.landedRate)} <span className="text-xs font-normal text-fg-muted">/ {item.uom}</span>
-                                                    </span>
-                                                    <span className="text-xs text-fg-muted mt-1">Basic: {formatCurrency(qLine.rate)} | Tax: {qLine.taxPct}%</span>
-                                                    {isLowest && <span className="text-[10px] uppercase font-bold text-success mt-1 bg-success/20 px-1.5 py-0.5 rounded">Lowest Price</span>}
-                                                </div>
-                                            </td>
-                                        )
-                                    })}
-                                </tr>
+                              <td
+                                key={c.quotationUid}
+                                className={`px-3 py-3 text-right tabular-nums ${
+                                  isLowest ? 'bg-brand-50/60' : ''
+                                }`}
+                              >
+                                <span className={`block ${isLowest ? 'font-semibold text-brand-700' : 'text-fg'}`}>
+                                  {money(cell.rate)}
+                                </span>
+                                <span className="block text-[11px] text-fg-muted">
+                                  +{cell.taxPct}% · {money(cell.lineTotal)}
+                                </span>
+                              </td>
                             )
-                        })}
-                        {/* Grand Totals */}
-                        <tr className="bg-surface-2 border-t-2 border-border">
-                            <td className="sticky left-0 z-10 font-bold text-fg border-r border-border text-right pr-4">Grand Total</td>
-                            {quotations.map(q => {
-                                // Find overall lowest
-                                let lowestTotal = Infinity
-                                quotations.forEach(qt => { if(qt.landedValue < lowestTotal) lowestTotal = qt.landedValue })
-                                const isLowest = q.landedValue === lowestTotal
-
-                                return (
-                                    <td key={q.uid} className={`text-center border-r border-border ${isLowest ? 'bg-success/10' : ''}`}>
-                                        <div className={`text-xl font-bold ${isLowest ? 'text-success' : 'text-fg'}`}>{formatCurrency(q.landedValue)}</div>
-                                        {isLowest && <div className="text-xs font-medium text-success mt-1 flex items-center justify-center gap-1"><CheckCircle2 className="w-3.5 h-3.5"/> Best Overall Value</div>}
-                                    </td>
-                                )
-                            })}
+                          })}
                         </tr>
-                    </tbody>
-                    </table>
-                </CardBody>
-                </Card>
+                      )
+                    })}
 
-                <Card>
-                    <CardHeader title="Supplier Selection" />
-                    <CardBody className="grid gap-6 md:grid-cols-2">
-                        <div>
-                            <Select label="Preferred Supplier" value={preferredSupplier} onChange={e => setPreferredSupplier(e.target.value)}>
-                                <option value="">-- Select Winner --</option>
-                                {quotations.map(q => <option key={q.supplierUid} value={q.supplierUid}>{q.supplierName} ({formatCurrency(q.landedValue)})</option>)}
-                            </Select>
-                            <p className="text-xs text-fg-muted mt-2">Selecting a supplier will mark this RFQ as complete and enable Purchase Order creation.</p>
-                        </div>
-                        <div>
-                            <Textarea label="Selection Remarks / Justification" rows={3} value={selectionRemarks} onChange={e => setSelectionRemarks(e.target.value)} />
-                        </div>
-                        <div className="md:col-span-2 flex justify-end">
-                            <Button variant="primary" onClick={handleConfirmSelection}>Confirm Selection & Close RFQ <ChevronRight className="w-4 h-4 ml-2" /></Button>
-                        </div>
-                    </CardBody>
-                </Card>
-            </>
+                    <tr className="border-t-2 border-border bg-surface-2">
+                      <td colSpan={3} className="px-3 py-3 text-right text-[13px] font-semibold text-fg">
+                        Supplier total
+                      </td>
+                      {columns.map(c => (
+                        <td
+                          key={c.quotationUid}
+                          className={`px-3 py-3 text-right text-[14px] font-semibold tabular-nums ${
+                            c.quotationUid === bestUid ? 'text-brand-700' : 'text-fg'
+                          }`}
+                        >
+                          {money(c.total)}
+                        </td>
+                      ))}
+                    </tr>
+
+                    <tr className="border-t border-border">
+                      <td colSpan={3} className="px-3 py-3 text-right text-[13px] text-fg-muted">
+                        Decision
+                      </td>
+                      {columns.map(c => (
+                        <td key={c.quotationUid} className="px-3 py-3 text-right">
+                          {selected ? (
+                            c.quotationUid === selected.quotationUid ? (
+                              <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-success">
+                                <Award className="h-3.5 w-3.5" /> Awarded
+                              </span>
+                            ) : (
+                              <ProcStatusBadge status={c.status} size="sm" />
+                            )
+                          ) : (
+                            <Button variant="outline" size="sm" onClick={() => openAward(c)}>
+                              Select supplier
+                            </Button>
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </CardBody>
+          </Card>
         )}
 
+        {selected && (
+          <Card>
+            <CardBody>
+              <Section title="Selection">
+                <FieldGrid cols={3}>
+                  <Field label="Selected Supplier" value={selected.supplierName} />
+                  <Field label="Quotation" mono value={selected.quotationNo} />
+                  <Field label="Selection Status" value={<ProcStatusBadge status={selected.status} />} />
+                  <Field label="Awarded Value" value={money(selected.total)} />
+                  <Field label="Awarded On" value={rfq?.modifiedAt ? formatDate(rfq.modifiedAt) : null} />
+                  <Field label="RFQ" mono value={rfq?.docNo} />
+                </FieldGrid>
+              </Section>
+            </CardBody>
+          </Card>
+        )}
       </div>
+
+      <ProcModal
+        open={awardOpen}
+        onClose={() => setAwardOpen(false)}
+        title="Select supplier"
+        subtitle="The other quotations on this RFQ will be closed and the RFQ marked completed."
+        footer={
+          <ModalFooter onCancel={() => setAwardOpen(false)}>
+            <Button variant="primary" onClick={confirmAward} loading={awarding} disabled={awarding}>
+              Confirm selection
+            </Button>
+          </ModalFooter>
+        }
+      >
+        {awardTarget && (
+          <>
+            <FieldGrid>
+              <Field label="Supplier" value={awardTarget.supplierName} />
+              <Field label="Quotation" mono value={awardTarget.quotationNo} />
+              <Field label="Total Value" value={money(awardTarget.total)} />
+              <Field
+                label="Price position"
+                value={
+                  awardTarget.quotationUid === bestUid
+                    ? 'Lowest quotation'
+                    : 'Higher than the lowest quotation'
+                }
+              />
+            </FieldGrid>
+            <Textarea
+              label="Reason for selection"
+              rows={3}
+              value={awardRemarks}
+              onChange={e => setAwardRemarks(e.target.value)}
+              placeholder={
+                awardTarget.quotationUid === bestUid
+                  ? 'Optional — lowest price'
+                  : 'Explain why this supplier is chosen over the lowest quotation'
+              }
+            />
+          </>
+        )}
+      </ProcModal>
     </div>
   )
 }

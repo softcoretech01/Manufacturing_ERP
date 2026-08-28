@@ -258,7 +258,7 @@ class GrnLineSchema(ProcBase):
 
 class GrnSchema(ProcBase):
     uid: Optional[Union[int, str]] = None
-    docNo: str
+    docNo: Optional[str] = None          # None → SP auto-generates GRN/26-27/#####
     docDate: date
     status: str
     poNo: str

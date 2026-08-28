@@ -4,7 +4,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from typing import List, Any
 from app.core.database import get_session
+from app.core.deps import ContextDep, SessionDep
 from app.schemas.procurement import GrnSchema, IncomingInspectionSchema
+from app.services.grn_posting import GrnPostingService
 
 router = APIRouter(prefix="/procurement", tags=["Procurement GRN & IQC"])
 
@@ -31,21 +33,65 @@ async def get_grn(uid: str = Path(...), session: AsyncSession = Depends(get_sess
     raise HTTPException(status_code=404, detail="GRN not found")
 
 @router.post("/grn/", status_code=status.HTTP_201_CREATED)
-async def create_grn(req: GrnSchema, session: AsyncSession = Depends(get_session)) -> Any:
+async def create_grn(req: GrnSchema, session: SessionDep, ctx: ContextDep) -> Any:
+    """Create a GRN and, unless it is saved as a draft, post it to inventory.
+
+    Creation and stock posting share this request's transaction, so a GRN that
+    fails to post leaves no document behind (V4 transaction safety). Approval is
+    enforced upstream on the purchase order — an unapproved PO cannot be received.
+    """
+    posting = GrnPostingService(session, ctx)
+    is_draft = str(req.status or "").upper() == "DRAFT"
+
+    # Validate the PO up front so a bad reference never creates a document.
     if req.poNo:
-        po_query = text("SELECT Status FROM ERP_Procurement.PurchaseOrder WHERE DocNo = :poNo")
-        po_res = await session.execute(po_query, {"poNo": req.poNo})
-        po_row = po_res.fetchone()
-        if not po_row or po_row[0] not in ('APPROVED', 'RELEASED'):
-            raise HTTPException(status_code=400, detail=f"Referenced PO {req.poNo} must be APPROVED or RELEASED before a GRN can be raised")
+        await posting._po_or_error(req.poNo)
+
     payload = req.model_dump_json(by_alias=True)
     query = text("CALL ERP_Procurement.SpManageGrn('CREATE', NULL, :payload)")
     result = await session.execute(query, {"payload": payload})
     row = result.fetchone()
-    if row and row[0]:
-        data = json.loads(row[0])
-        return data
-    raise HTTPException(status_code=500, detail="Failed to create GRN")
+    if not (row and row[0]):
+        raise HTTPException(status_code=500, detail="Failed to create GRN")
+
+    created = json.loads(row[0])
+    if is_draft:
+        return created
+
+    # Re-read the persisted GRN: CREATE returns only the new id, and posting must
+    # work from what was actually stored (including the generated document number
+    # and the saved lines), never from the client's claim.
+    stored = await session.execute(
+        text("CALL ERP_Procurement.SpManageGrn('READ', :uid, NULL)"), {"uid": created["uid"]}
+    )
+    stored_row = stored.fetchone()
+    if not (stored_row and stored_row[0]):
+        raise HTTPException(status_code=500, detail="GRN was created but could not be read back")
+
+    data = json.loads(stored_row[0])
+    data["posting"] = await posting.post(data)
+    data["status"] = "POSTED"
+    return data
+
+
+@router.post("/grn/{uid}/post")
+async def post_grn(uid: str, session: SessionDep, ctx: ContextDep) -> Any:
+    """Post an existing draft GRN to inventory.
+
+    Refuses a GRN that is already POSTED, so a retried request or a double click
+    can never move the same goods into stock twice.
+    """
+    result = await session.execute(
+        text("CALL ERP_Procurement.SpManageGrn('READ', :uid, NULL)"), {"uid": uid}
+    )
+    row = result.fetchone()
+    if not (row and row[0]):
+        raise HTTPException(status_code=404, detail="GRN not found")
+
+    grn = json.loads(row[0])
+    grn["_alreadyPersisted"] = True
+    posting = await GrnPostingService(session, ctx).post(grn)
+    return {"uid": uid, "status": "POSTED", "posting": posting}
 
 @router.put("/grn/{uid}")
 async def update_grn(uid: str, req: GrnSchema, session: AsyncSession = Depends(get_session)) -> Any:
