@@ -130,9 +130,8 @@ export function BomPage() {
 
   const costedLines = form.lines.map((l) => {
     const item = masterItems.find((i) => i.code === l.itemCode)
-    const qtyPer = Number(l.qtyPer) || 0
     const scrap = Number(l.scrapPct) || 0
-    const rate = item ? item.standardCost || item.lastPurchaseRate : 0
+    const rate = item ? item.standardCost || item.lastPurchaseRate || item.sellingPrice || 0 : 0
     const effectiveQty = qtyPer * (1 + scrap / 100)
     return { entry: l, item, qtyPer, scrap, rate, effectiveQty, amount: effectiveQty * rate }
   })
@@ -595,7 +594,7 @@ export function BomPage() {
                   <tbody>
                     {detail.lines.map((l) => {
                       const item = masterItems.find((i) => i.code === l.itemCode)
-                      const rate = item ? item.standardCost || item.lastPurchaseRate : 0
+                      const rate = item ? item.standardCost || item.lastPurchaseRate || item.sellingPrice || 0 : 0
                       const eff = l.qtyPer * (1 + l.scrapPct / 100)
                       return (
                         <tr key={l.uid}>
@@ -628,7 +627,7 @@ export function BomPage() {
                         ₹{formatAmount(
                           detail.lines.reduce((s, l) => {
                             const item = masterItems.find((i) => i.code === l.itemCode)
-                            const rate = item ? item.standardCost || item.lastPurchaseRate : 0
+                            const rate = item ? item.standardCost || item.lastPurchaseRate || item.sellingPrice || 0 : 0
                             return s + l.qtyPer * (1 + l.scrapPct / 100) * rate
                           }, 0),
                         )}

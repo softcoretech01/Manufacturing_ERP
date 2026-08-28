@@ -4,6 +4,36 @@ import type {
   EngTool, Routing, EngChange 
 } from '@/types/engineering'
 
+const mapItemToEngProduct = (item: any) => ({
+  uid: item.uid || item.id || item.code,
+  code: item.code,
+  name: item.name,
+  productType: item.itemType || 'FINISHED',
+  family: item.category || item.family || 'Vacuum Flask',
+  capacityMl: item.capacityMl,
+  colour: item.colour || '',
+  brand: item.series || 'AquaSteel',
+  baseUom: item.baseUom || 'NOS',
+  netWeightG: item.netWeightG,
+  lifecycle: item.status === 'ACTIVE' ? 'PRODUCTION' : item.status === 'DRAFT' ? 'CONCEPT' : 'APPROVED',
+  revision: item.revision || 1,
+  effectiveFrom: item.effectiveFrom || new Date().toISOString().slice(0, 10),
+  spec: (() => {
+    try {
+      return item.specification ? JSON.parse(item.specification) : {}
+    } catch (e) {
+      return {}
+    }
+  })(),
+  standardCost: item.standardCost || 0,
+  costRolledAt: null,
+  createdBy: 'Rahul Iyer',
+  createdAt: item.createdAt || new Date().toISOString(),
+  modifiedAt: item.modifiedAt || new Date().toISOString(),
+  version: 1,
+  remarks: item.description || ''
+});
+
 export const engineeringApi = {
   // BOMs
   getBoms: () => api.get<Bom[]>('/engineering/boms').then((res: any) => Array.isArray(res) ? res : res.data || []),
@@ -12,12 +42,72 @@ export const engineeringApi = {
   deleteBom: (id: string | number) => api.del(`/engineering/boms/${id}`),
   getNextBomCode: () => api.get<{nextCode: string}>('/engineering/boms/next-code'),
 
-  // Products
-  getEngProducts: () => api.get<EngProduct[]>('/engineering/products').then((res: any) => Array.isArray(res) ? res : res.data || []),
-  createEngProduct: (data: Partial<EngProduct>) => api.post<EngProduct>('/engineering/products', data),
-  updateEngProduct: (id: string | number, data: Partial<EngProduct>) => api.put<EngProduct>(`/engineering/products/${id}`, data),
-  deleteEngProduct: (id: string | number) => api.del(`/engineering/products/${id}`),
-  getEngProductNextCode: () => api.get<{nextCode: string}>('/engineering/products/next-code'),
+  // Products (Migrated to Item Master)
+
+  getEngProducts: () => api.get<any[]>('/items').then((res: any) => {
+    const data = Array.isArray(res) ? res : res.data || [];
+    return data.map(mapItemToEngProduct);
+  }),
+  createEngProduct: (data: any) => {
+    const itemData = {
+      itemType: data.productType || 'FINISHED',
+      category: data.family || '',
+      family: data.family || '',
+      series: data.brand || '',
+      baseUom: data.baseUom || 'NOS',
+      capacityMl: data.capacityMl || null,
+      colour: data.colour || null,
+      netWeightG: data.netWeightG || null,
+      steelGrade: data.spec?.materialGrade || null,
+      lidType: null,
+      status: data.lifecycle === 'PRODUCTION' ? 'ACTIVE' : data.lifecycle === 'CONCEPT' ? 'DRAFT' : 'APPROVED',
+      effectiveFrom: data.effectiveFrom || new Date().toISOString().slice(0, 10),
+      specification: JSON.stringify(data.spec || {}),
+      standardCost: data.standardCost || 0,
+      description: data.remarks || '',
+      isManufactured: true,
+      isPurchased: false,
+      isSold: true,
+      name: data.name,
+      code: data.code,
+      shortName: (data.name || '').substring(0, 10),
+      purchaseUom: data.baseUom || 'NOS',
+      salesUom: data.baseUom || 'NOS',
+      valuationMethod: 'FIFO',
+    };
+    return api.post<any>('/items', itemData).then(mapItemToEngProduct);
+  },
+  updateEngProduct: (id: string | number, data: any) => {
+    const itemData = {
+      itemType: data.productType || 'FINISHED',
+      category: data.family || '',
+      family: data.family || '',
+      series: data.brand || '',
+      baseUom: data.baseUom || 'NOS',
+      capacityMl: data.capacityMl || null,
+      colour: data.colour || null,
+      netWeightG: data.netWeightG || null,
+      steelGrade: data.spec?.materialGrade || null,
+      lidType: null,
+      status: data.lifecycle === 'PRODUCTION' ? 'ACTIVE' : data.lifecycle === 'CONCEPT' ? 'DRAFT' : 'APPROVED',
+      effectiveFrom: data.effectiveFrom || new Date().toISOString().slice(0, 10),
+      specification: JSON.stringify(data.spec || {}),
+      standardCost: data.standardCost || 0,
+      description: data.remarks || '',
+      isManufactured: true,
+      isPurchased: false,
+      isSold: true,
+      name: data.name,
+      code: data.code,
+      shortName: (data.name || '').substring(0, 10),
+      purchaseUom: data.baseUom || 'NOS',
+      salesUom: data.baseUom || 'NOS',
+      valuationMethod: 'FIFO',
+    };
+    return api.put<any>(`/items/${id}`, itemData).then(mapItemToEngProduct);
+  },
+  deleteEngProduct: (id: string | number) => api.del(`/items/${id}`),
+  getEngProductNextCode: () => api.get<{nextCode: string}>('/items/next-code'),
 
   // Documents
   getEngDocuments: () => api.get<EngDocument[]>('/engineering/documents').then((res: any) => Array.isArray(res) ? res : res.data || []),

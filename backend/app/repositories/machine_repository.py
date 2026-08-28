@@ -1,7 +1,34 @@
 import json
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
+
+# SpMachine takes 28 positional params. Building the CALL from this list keeps the
+# parameter *order* in one place, so a signature change is a one-line edit here
+# instead of four hand-counted NULL runs.
+_SP_PARAMS = (
+    "p_Action", "p_Id", "p_Code", "p_Name", "p_MachineGroupId", "p_PlantId",
+    "p_LineId", "p_WorkCentreId", "p_Manufacturer", "p_ModelNumber",
+    "p_SerialNumber", "p_YearOfManufacture", "p_AssetCode", "p_CapacityPerHour",
+    "p_CapacityUom", "p_PowerKw", "p_OperatorsRequired", "p_InstalledOn",
+    "p_WarrantyUntil", "p_PmFrequencyDays", "p_LastPmOn", "p_NextPmOn",
+    "p_Criticality", "p_CurrentState", "p_OeePct", "p_Operations", "p_Status",
+    "p_ModifiedBy",
+)
+
+_CALL = "CALL SpMachine(" + ", ".join(f":{p}" for p in _SP_PARAMS) + ")"
+
+
+def _call_params(action: str, **overrides: Any) -> Dict[str, Any]:
+    """Every SpMachine param defaulted to NULL, with the given ones filled in."""
+    params: Dict[str, Any] = {p: None for p in _SP_PARAMS}
+    params["p_Action"] = action
+    for key, value in overrides.items():
+        name = key if key.startswith("p_") else f"p_{key}"
+        if name not in params:
+            raise KeyError(f"Unknown SpMachine parameter: {name}")
+        params[name] = value
+    return params
 
 
 class MachineRepository:
@@ -15,15 +42,26 @@ class MachineRepository:
                 operations = json.loads(row.Operations)
             except json.JSONDecodeError:
                 operations = [op.strip() for op in row.Operations.split(',') if op.strip()]
-        
+        if not isinstance(operations, list):
+            operations = []
+
         return {
             "id": row.Id,
             "code": row.Code,
             "name": row.Name,
+            # Foreign keys, plus the joined code/name the UI displays.
+            "machineGroupId": row.MachineGroupId,
+            "machineGroupCode": row.MachineGroupCode,
             "machineGroup": row.MachineGroup,
-            "plantUid": row.PlantUid,
+            "plantId": row.PlantId,
+            "plantCode": row.PlantCode,
+            "plantName": row.PlantName,
+            "lineId": row.LineId,
             "lineCode": row.LineCode,
+            "lineName": row.LineName,
+            "workCentreId": row.WorkCentreId,
             "workCentreCode": row.WorkCentreCode,
+            "workCentreName": row.WorkCentreName,
             "manufacturer": row.Manufacturer,
             "modelNumber": row.ModelNumber,
             "serialNumber": row.SerialNumber,
@@ -49,135 +87,76 @@ class MachineRepository:
             "modifiedDate": row.ModifiedDate,
         }
 
-    async def get_all(self) -> list[Dict[str, Any]]:
-        query = text("""
-            CALL SpMachine(
-                'LIST', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 
-                NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 
-                NULL, NULL, NULL, NULL, NULL, NULL
-            )
-        """)
-        result = await self.db.execute(query)
-        rows = result.fetchall()
-        return [self._row_to_dict(row) for row in rows]
+    @staticmethod
+    def _write_params(data: Dict[str, Any]) -> Dict[str, Any]:
+        """Map the API payload onto SpMachine's write parameters."""
+        operations = data.get("operations")
+        return {
+            "Name": data.get("name"),
+            "MachineGroupId": data.get("machineGroupId"),
+            "PlantId": data.get("plantId"),
+            "LineId": data.get("lineId"),
+            "WorkCentreId": data.get("workCentreId"),
+            "Manufacturer": data.get("manufacturer"),
+            "ModelNumber": data.get("modelNumber"),
+            "SerialNumber": data.get("serialNumber"),
+            "YearOfManufacture": data.get("yearOfManufacture"),
+            "AssetCode": data.get("assetCode"),
+            "CapacityPerHour": data.get("capacityPerHour"),
+            "CapacityUom": data.get("capacityUom"),
+            "PowerKw": data.get("powerKw"),
+            "OperatorsRequired": data.get("operatorsRequired"),
+            "InstalledOn": data.get("installedOn"),
+            "WarrantyUntil": data.get("warrantyUntil"),
+            "PmFrequencyDays": data.get("pmFrequencyDays"),
+            "LastPmOn": data.get("lastPmOn"),
+            "NextPmOn": data.get("nextPmOn"),
+            "Criticality": data.get("criticality"),
+            "CurrentState": data.get("currentState"),
+            "OeePct": data.get("oeePct"),
+            "Operations": json.dumps(operations) if operations is not None else None,
+            "Status": data.get("status"),
+        }
 
-    async def get_by_id(self, record_id: int) -> Dict[str, Any]:
-        query = text("""
-            CALL SpMachine(
-                'READ', :p_Id, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 
-                NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 
-                NULL, NULL, NULL, NULL, NULL, NULL
-            )
-        """)
-        result = await self.db.execute(query, {"p_Id": record_id})
+    async def get_all(self) -> list[Dict[str, Any]]:
+        result = await self.db.execute(text(_CALL), _call_params("LIST"))
+        return [self._row_to_dict(row) for row in result.fetchall()]
+
+    async def get_by_id(self, record_id: int) -> Optional[Dict[str, Any]]:
+        result = await self.db.execute(text(_CALL), _call_params("READ", Id=record_id))
         row = result.fetchone()
-        if not row:
-            return None
-        return self._row_to_dict(row)
+        return self._row_to_dict(row) if row else None
 
     async def get_next_code(self) -> Dict[str, str]:
-        query = text("CALL SpGetNextMachineCode()")
-        result = await self.db.execute(query)
-        row = result.fetchone()
-        return {"nextCode": row.nextCode}
+        result = await self.db.execute(text("CALL SpGetNextMachineCode()"))
+        return {"nextCode": result.fetchone().nextCode}
 
     async def create(self, data: Dict[str, Any], user_id: str) -> Dict[str, Any]:
-        operations_str = json.dumps(data.get("operations", [])) if data.get("operations") else None
-        
-        query = text("""
-            CALL SpMachine(
-                'CREATE', NULL, :p_Code, :p_Name, :p_MachineGroup, :p_PlantUid, :p_LineCode, :p_WorkCentreCode,
-                :p_Manufacturer, :p_ModelNumber, :p_SerialNumber, :p_YearOfManufacture, :p_AssetCode,
-                :p_CapacityPerHour, :p_CapacityUom, :p_PowerKw, :p_OperatorsRequired, :p_InstalledOn,
-                :p_WarrantyUntil, :p_PmFrequencyDays, :p_LastPmOn, :p_NextPmOn, :p_Criticality,
-                :p_CurrentState, :p_OeePct, :p_Operations, :p_Status, :p_ModifiedBy
-            )
-        """)
-        params = {
-            "p_Code": data.get("code"),
-            "p_Name": data.get("name"),
-            "p_MachineGroup": data.get("machineGroup"),
-            "p_PlantUid": data.get("plantUid"),
-            "p_LineCode": data.get("lineCode"),
-            "p_WorkCentreCode": data.get("workCentreCode"),
-            "p_Manufacturer": data.get("manufacturer"),
-            "p_ModelNumber": data.get("modelNumber"),
-            "p_SerialNumber": data.get("serialNumber"),
-            "p_YearOfManufacture": data.get("yearOfManufacture"),
-            "p_AssetCode": data.get("assetCode"),
-            "p_CapacityPerHour": data.get("capacityPerHour"),
-            "p_CapacityUom": data.get("capacityUom"),
-            "p_PowerKw": data.get("powerKw"),
-            "p_OperatorsRequired": data.get("operatorsRequired"),
-            "p_InstalledOn": data.get("installedOn"),
-            "p_WarrantyUntil": data.get("warrantyUntil"),
-            "p_PmFrequencyDays": data.get("pmFrequencyDays"),
-            "p_LastPmOn": data.get("lastPmOn"),
-            "p_NextPmOn": data.get("nextPmOn"),
-            "p_Criticality": data.get("criticality"),
-            "p_CurrentState": data.get("currentState"),
-            "p_OeePct": data.get("oeePct"),
-            "p_Operations": operations_str,
-            "p_Status": data.get("status"),
-            "p_ModifiedBy": user_id,
-        }
-        result = await self.db.execute(query, params)
+        params = _call_params(
+            "CREATE",
+            Code=data.get("code"),
+            ModifiedBy=user_id,
+            **self._write_params(data),
+        )
+        result = await self.db.execute(text(_CALL), params)
         row = result.fetchone()
         await self.db.commit()
         return self._row_to_dict(row)
 
     async def update(self, record_id: int, data: Dict[str, Any], user_id: str) -> Dict[str, Any]:
-        operations_str = json.dumps(data.get("operations", [])) if data.get("operations") is not None else None
-        
-        query = text("""
-            CALL SpMachine(
-                'UPDATE', :p_Id, NULL, :p_Name, :p_MachineGroup, :p_PlantUid, :p_LineCode, :p_WorkCentreCode,
-                :p_Manufacturer, :p_ModelNumber, :p_SerialNumber, :p_YearOfManufacture, :p_AssetCode,
-                :p_CapacityPerHour, :p_CapacityUom, :p_PowerKw, :p_OperatorsRequired, :p_InstalledOn,
-                :p_WarrantyUntil, :p_PmFrequencyDays, :p_LastPmOn, :p_NextPmOn, :p_Criticality,
-                :p_CurrentState, :p_OeePct, :p_Operations, :p_Status, :p_ModifiedBy
-            )
-        """)
-        params = {
-            "p_Id": record_id,
-            "p_Name": data.get("name"),
-            "p_MachineGroup": data.get("machineGroup"),
-            "p_PlantUid": data.get("plantUid"),
-            "p_LineCode": data.get("lineCode"),
-            "p_WorkCentreCode": data.get("workCentreCode"),
-            "p_Manufacturer": data.get("manufacturer"),
-            "p_ModelNumber": data.get("modelNumber"),
-            "p_SerialNumber": data.get("serialNumber"),
-            "p_YearOfManufacture": data.get("yearOfManufacture"),
-            "p_AssetCode": data.get("assetCode"),
-            "p_CapacityPerHour": data.get("capacityPerHour"),
-            "p_CapacityUom": data.get("capacityUom"),
-            "p_PowerKw": data.get("powerKw"),
-            "p_OperatorsRequired": data.get("operatorsRequired"),
-            "p_InstalledOn": data.get("installedOn"),
-            "p_WarrantyUntil": data.get("warrantyUntil"),
-            "p_PmFrequencyDays": data.get("pmFrequencyDays"),
-            "p_LastPmOn": data.get("lastPmOn"),
-            "p_NextPmOn": data.get("nextPmOn"),
-            "p_Criticality": data.get("criticality"),
-            "p_CurrentState": data.get("currentState"),
-            "p_OeePct": data.get("oeePct"),
-            "p_Operations": operations_str,
-            "p_Status": data.get("status"),
-            "p_ModifiedBy": user_id,
-        }
-        result = await self.db.execute(query, params)
+        params = _call_params(
+            "UPDATE",
+            Id=record_id,
+            ModifiedBy=user_id,
+            **self._write_params(data),
+        )
+        result = await self.db.execute(text(_CALL), params)
         row = result.fetchone()
         await self.db.commit()
         return self._row_to_dict(row)
 
     async def delete(self, record_id: int, user_id: str) -> None:
-        query = text("""
-            CALL SpMachine(
-                'DELETE', :p_Id, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 
-                NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 
-                NULL, NULL, NULL, NULL, NULL, :p_ModifiedBy
-            )
-        """)
-        await self.db.execute(query, {"p_Id": record_id, "p_ModifiedBy": user_id})
+        await self.db.execute(
+            text(_CALL), _call_params("DELETE", Id=record_id, ModifiedBy=user_id)
+        )
         await self.db.commit()

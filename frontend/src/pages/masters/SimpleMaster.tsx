@@ -22,6 +22,82 @@ import * as api from '@/api/masters'
 /* ── Codes that use a live API instead of mock data ─────────── */
 const API_BACKED_MASTERS = new Set(['BOTTLE_MODEL', 'BOTTLE_CAPACITY', 'BOTTLE_COLOUR', 'LID_TYPE', 'PACKAGING', 'STEEL_GRADE', 'STEEL_THICKNESS', 'SHIFT', 'HOLIDAY_CALENDAR', 'QUALITY_PARAM', 'DEFECT', 'HSN', 'TAX', 'PAYMENT_TERMS', 'UOM', 'REASON_CODE', 'COUNTRY', 'STATE', 'CITY'])
 
+/* ── Shared column widths: every one of these masters stores `Code` as
+      VARCHAR(50) and `Name` as VARCHAR(150). ──────────────────── */
+const CODE_MAX_LENGTH = 50
+const NAME_MAX_LENGTH = 150
+const CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9/_-]*$/
+
+const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/
+const MINUTES_PER_DAY = 24 * 60
+const DAYS_IN_YEAR = 366
+
+function minutesOf(hhmm: string): number {
+  const [h, m] = hhmm.split(':')
+  return Number(h) * 60 + Number(m)
+}
+
+/**
+ * Rules that involve more than one field, mirroring the server's own checks.
+ * Skipped for any field that already has a single-field error.
+ */
+function crossFieldErrors(
+  code: string,
+  f: FormState,
+  existing: Record<string, string>,
+): Record<string, string> {
+  const e: Record<string, string> = {}
+  const v = f.values
+
+  if (code === 'SHIFT') {
+    const start = String(v.startTime ?? '')
+    const end = String(v.endTime ?? '')
+    if (!HHMM.test(start) || !HHMM.test(end)) return e
+
+    const s = minutesOf(start)
+    const t = minutesOf(end)
+    if (s === t) {
+      e.endTime = 'Start and end cannot be the same time.'
+      return e
+    }
+    const wraps = t < s
+    if (v.crossesMidnight !== undefined && v.crossesMidnight !== null && !!v.crossesMidnight !== wraps) {
+      e.crossesMidnight = wraps
+        ? 'This shift ends the next day — tick "crosses midnight".'
+        : 'This shift ends the same day — untick "crosses midnight".'
+    }
+    const span = wraps ? MINUTES_PER_DAY - s + t : t - s
+    const brk = v.breakMinutes === '' || v.breakMinutes === null || v.breakMinutes === undefined
+      ? null
+      : Number(v.breakMinutes)
+    if (brk !== null && !existing.breakMinutes && brk >= span) {
+      e.breakMinutes = `Breaks must be shorter than the ${(span / 60).toFixed(2)}h shift.`
+    }
+    const worked = (span - (brk ?? 0)) / 60
+    const net = v.netHours === '' || v.netHours === null || v.netHours === undefined
+      ? null
+      : Number(v.netHours)
+    if (net !== null && !existing.netHours && Math.abs(net - worked) > 0.02) {
+      e.netHours = `Net hours should be ${worked.toFixed(2)} (shift span less breaks).`
+    }
+  }
+
+  if (code === 'HOLIDAY_CALENDAR') {
+    const num = (x: unknown) => (x === '' || x === null || x === undefined ? 0 : Number(x))
+    const holidays = num(v.holidayCount)
+    const national = num(v.nationalCount)
+    const working = num(v.workingDays)
+    if (!existing.nationalCount && national > holidays) {
+      e.nationalCount = 'National holidays cannot exceed total holidays.'
+    }
+    if (!existing.workingDays && holidays + working > DAYS_IN_YEAR) {
+      e.workingDays = `Holidays plus working days cannot exceed ${DAYS_IN_YEAR}.`
+    }
+  }
+
+  return e
+}
+
 /* ── Map flat API row → SimpleMasterRow ─────────────────────── */
 function apiRowToSimpleRow(r: any, def: SimpleMasterDef): SimpleMasterRow {
   const values: Record<string, string | number | boolean | null> = {}
@@ -71,7 +147,8 @@ const API_METHODS: Record<string, {
   getAll: () => Promise<any[]>
   create: (data: any) => Promise<any>
   update: (id: any, data: any) => Promise<any>
-  delete: (id: any) => Promise<void>
+  // The generated clients resolve to the parsed body (undefined on 204), not void.
+  delete: (id: any) => Promise<unknown>
   getNextCode?: () => Promise<{ nextCode?: string; code?: string }>
 }> = {
   BOTTLE_MODEL: {
@@ -216,7 +293,10 @@ const API_METHODS: Record<string, {
  * values that are already human phrases (e.g. "Production Item Category") are
  * shown as-is so their intended capitalisation is preserved.
  */
+// Enum constants (ON_HOLD) read better prettified; identifiers pulled from another
+// master (a plant code such as PL0001) must keep their exact casing.
 const prettyOption = (o: string) => (/^[A-Z0-9_]+$/.test(o) ? o.replace(/_/g, ' ').toLowerCase() : o)
+const optionLabel = (o: string, isLiveSource: boolean) => (isLiveSource ? o : prettyOption(o))
 
 function renderValue(field: MasterField, value: string | number | boolean | null) {
   if (value === null || value === '' || value === undefined) {
@@ -240,7 +320,7 @@ function renderValue(field: MasterField, value: string | number | boolean | null
         </span>
       )
     case 'select':
-      return <span className="text-xs">{prettyOption(String(value))}</span>
+      return <span className="text-xs">{optionLabel(String(value), !!field.optionsFrom)}</span>
     default:
       return (
         <span className="text-xs">
@@ -292,8 +372,19 @@ function RecordForm({
   errors: Record<string, string>
   dynamicOptions?: Record<string, string[]>
 }) {
-  const setVal = (key: string, v: string | number | boolean | null) =>
-    setForm({ ...form, values: { ...form.values, [key]: v } })
+  const setVal = (key: string, v: string | number | boolean | null) => {
+    const values = { ...form.values, [key]: v }
+    // A shift crosses midnight exactly when it ends before it starts — it is
+    // derived, not a judgement call, so keep the toggle in step with the times.
+    if (def.code === 'SHIFT' && (key === 'startTime' || key === 'endTime')) {
+      const start = String(values.startTime ?? '')
+      const end = String(values.endTime ?? '')
+      if (HHMM.test(start) && HHMM.test(end)) {
+        values.crossesMidnight = minutesOf(end) < minutesOf(start)
+      }
+    }
+    setForm({ ...form, values })
+  }
 
   const is3Col = def.code === 'BOTTLE_MODEL'
   const is2ColGrid = def.code === 'BOTTLE_CAPACITY' || def.code === 'LID_TYPE' || def.code === 'STEEL_GRADE' || def.code === 'COUNTRY' || def.code === 'STATE' || def.code === 'CITY'
@@ -326,7 +417,18 @@ function RecordForm({
       {def.fields.map((f) => {
         const v = form.values[f.key]
         if (f.type === 'boolean') {
-          return <Switch key={f.key} checked={!!v} onChange={(b) => setVal(f.key, b)} label={f.label} />
+          // Switch has no error slot of its own, so render one beneath it —
+          // otherwise a failing toggle blocks save with nothing on screen.
+          return (
+            <div key={f.key}>
+              <Switch checked={!!v} onChange={(b) => setVal(f.key, b)} label={f.label} />
+              {errors[f.key] ? (
+                <p className="mt-1 text-2xs text-danger">{errors[f.key]}</p>
+              ) : f.hint ? (
+                <p className="mt-1 text-2xs text-fg-subtle">{f.hint}</p>
+              ) : null}
+            </div>
+          )
         }
         if (f.type === 'select') {
           return (
@@ -340,7 +442,7 @@ function RecordForm({
               hint={f.hint}
               options={[
                 { value: '', label: '— select —' },
-                ...(f.optionsFrom ? (dynamicOptions[f.optionsFrom] ?? f.options ?? []) : (f.options ?? [])).map((o) => ({ value: o, label: prettyOption(o) })),
+                ...(f.optionsFrom ? (dynamicOptions[f.optionsFrom] ?? f.options ?? []) : (f.options ?? [])).map((o) => ({ value: o, label: optionLabel(o, !!f.optionsFrom) })),
               ]}
             />
           )
@@ -384,6 +486,12 @@ function RecordForm({
             label={f.label}
             type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'}
             required={f.required}
+            // The browser stops most bad input at the keyboard; validate() is
+            // still the gate, and the API is the authority.
+            maxLength={f.type === 'number' ? undefined : f.maxLength}
+            min={f.type === 'number' ? f.min : undefined}
+            max={f.type === 'number' ? f.max : undefined}
+            step={f.type === 'number' ? (f.step ?? (f.integer ? 1 : undefined)) : undefined}
             value={v == null ? '' : String(v)}
             onChange={(e) => setVal(f.key, f.type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)}
             error={errors[f.key]}
@@ -455,6 +563,13 @@ export function SimpleMasterPage() {
     queryFn: async () => {
       const map: Record<string, string[]> = {}
       for (const code of optionSourceCodes) {
+        // Not a master in the registry — the live plant list, plus the ALL sentinel
+        // meaning "every plant". Stored as the plant code, so that is what we offer.
+        if (code === 'PLANT_CODES') {
+          const plants = await api.getProductionPlants()
+          map[code] = ['ALL', ...plants.map((p: any) => p.code).filter(Boolean)]
+          continue
+        }
         const methods = API_METHODS[code]
         if (methods) {
           const rows = await methods.getAll()
@@ -471,20 +586,45 @@ export function SimpleMasterPage() {
     },
   })
 
+  /**
+   * Surface what the server actually objected to. Rules the client cannot check
+   * (uniqueness, one-calendar-per-plant-per-year) are only known server-side, so
+   * a bare "Failed to create" leaves the user with no way forward. Field errors
+   * are pinned to their inputs and the form is reopened.
+   */
+  const reportApiError = (err: any, fallback: string) => {
+    const problem = err?.problem
+    const list = problem?.errors
+    if (Array.isArray(list) && list.length) {
+      const mapped: Record<string, string> = {}
+      for (const item of list) {
+        const field = String(item.field ?? '').split('.').pop() ?? ''
+        if (field) mapped[field] = item.message ?? 'Invalid value.'
+      }
+      if (Object.keys(mapped).length) {
+        setErrors(mapped)
+        setFormOpen(true)
+        toast.error(fallback, list[0]?.message ?? problem?.detail)
+        return
+      }
+    }
+    toast.error(fallback, problem?.detail ?? err?.message)
+  }
+
   const apiCreateMutation = useMutation({
     mutationFn: (data: any) => apiMethods!.create(data),
     onSuccess: () => { queryClient?.invalidateQueries({ queryKey: ['simple-master', def?.code] }); toast.success('Created') },
-    onError: () => toast.error('Failed to create'),
+    onError: (err) => reportApiError(err, 'Failed to create'),
   })
   const apiUpdateMutation = useMutation({
     mutationFn: ({ id, data }: { id: any; data: any }) => apiMethods!.update(id, data),
     onSuccess: () => { queryClient?.invalidateQueries({ queryKey: ['simple-master', def?.code] }); toast.success('Updated') },
-    onError: () => toast.error('Failed to update'),
+    onError: (err) => reportApiError(err, 'Failed to update'),
   })
   const apiDeleteMutation = useMutation({
     mutationFn: (id: any) => apiMethods!.delete(id),
     onSuccess: () => { queryClient?.invalidateQueries({ queryKey: ['simple-master', def?.code] }); toast.success('Deleted') },
-    onError: () => toast.error('Failed to delete'),
+    onError: (err) => reportApiError(err, 'Failed to delete'),
   })
 
   // ── Unified rows ─────────────────────────────────────────────
@@ -555,17 +695,72 @@ export function SimpleMasterPage() {
 
   function validate(f: FormState, isEdit: boolean): Record<string, string> {
     const e: Record<string, string> = {}
-    if (!isEdit && !def!.autoCode && !f.code.trim()) e.code = 'Code is required.'
-    if (!isEdit && f.code.trim() && liveRows.some((r) => r.code.toLowerCase() === f.code.trim().toLowerCase())) {
+    const code = f.code.trim()
+
+    /* ── Code and name: widths match the `Code`/`Name` columns these masters share. */
+    if (!isEdit && !def!.autoCode && !code) e.code = 'Code is required.'
+    if (code.length > CODE_MAX_LENGTH) e.code = `Code cannot exceed ${CODE_MAX_LENGTH} characters.`
+    else if (code && !CODE_PATTERN.test(code)) {
+      e.code = 'Code may use letters, digits, hyphen, underscore and slash only.'
+    }
+    if (!isEdit && code && liveRows.some((r) => r.code.toLowerCase() === code.toLowerCase())) {
       e.code = 'This code already exists.'
     }
-    if (!f.name.trim()) e.name = 'Name is required.'
+
+    const name = f.name.trim()
+    if (!name) e.name = 'Name is required.'
+    else if (name.length < 2) e.name = 'Name must be at least 2 characters.'
+    else if (name.length > NAME_MAX_LENGTH) e.name = `Name cannot exceed ${NAME_MAX_LENGTH} characters.`
+
+    /* ── Effective dating. */
+    if (f.effectiveFrom && f.effectiveTo && f.effectiveTo < f.effectiveFrom) {
+      e.effectiveTo = 'Effective-to cannot be before effective-from.'
+    }
+
+    /* ── Per-field rules declared on the registry entry. */
     for (const fd of def!.fields) {
-      if (fd.required) {
-        const v = f.values[fd.key]
-        if (v === '' || v === null || v === undefined) e[fd.key] = `${fd.label} is required.`
+      const raw = f.values[fd.key]
+      const isBlank = raw === '' || raw === null || raw === undefined
+
+      if (fd.required && isBlank) {
+        e[fd.key] = `${fd.label} is required.`
+        continue
+      }
+      if (isBlank) continue
+
+      if (fd.type === 'number') {
+        const n = Number(raw)
+        if (Number.isNaN(n)) {
+          e[fd.key] = `${fd.label} must be a number.`
+        } else if (fd.integer && !Number.isInteger(n)) {
+          e[fd.key] = `${fd.label} must be a whole number.`
+        } else if (fd.min !== undefined && n < fd.min) {
+          e[fd.key] = `${fd.label} cannot be below ${fd.min}.`
+        } else if (fd.max !== undefined && n > fd.max) {
+          e[fd.key] = `${fd.label} cannot exceed ${fd.max}.`
+        }
+        continue
+      }
+
+      if (fd.type === 'select' && fd.options?.length && !fd.optionsFrom) {
+        if (!fd.options.includes(String(raw))) e[fd.key] = `Choose a valid ${fd.label.toLowerCase()}.`
+        continue
+      }
+
+      if (fd.type === 'text' || fd.type === 'textarea') {
+        const s = String(raw).trim()
+        if (fd.minLength !== undefined && s.length < fd.minLength) {
+          e[fd.key] = `${fd.label} must be at least ${fd.minLength} characters.`
+        } else if (fd.maxLength !== undefined && s.length > fd.maxLength) {
+          e[fd.key] = `${fd.label} cannot exceed ${fd.maxLength} characters.`
+        } else if (fd.pattern && !new RegExp(fd.pattern).test(s)) {
+          e[fd.key] = fd.patternHint ?? `${fd.label} is not in the expected format.`
+        }
       }
     }
+
+    /* ── Rules spanning more than one field. */
+    Object.assign(e, crossFieldErrors(def!.code, f, e))
     return e
   }
 

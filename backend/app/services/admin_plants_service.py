@@ -42,11 +42,5 @@ class AdminPlantsService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plant not found")
         await self.repository.delete_plant(uid, user_id)
 
-    async def get_production_lines(self) -> List[Dict[str, Any]]:
-        return await self.repository.get_production_lines()
-
-    async def get_work_centres(self) -> List[Dict[str, Any]]:
-        return await self.repository.get_work_centres()
-
     async def get_warehouses(self) -> List[Dict[str, Any]]:
         return await self.repository.get_warehouses()

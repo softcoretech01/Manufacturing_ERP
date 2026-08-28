@@ -271,10 +271,21 @@ export interface Employee extends MasterBase {
 /* ─────────────────────────── Machine ──────────────────────────────────── */
 
 export interface Machine extends MasterBase {
+  /** Numeric id the API writes back (Machine.Id). */
+  id?: number
+  /* Foreign keys the form posts, plus the code/name the API joins in for display. */
+  machineGroupId?: number
+  machineGroupCode?: string
   machineGroup: string
-  plantUid: ID
+  plantId?: number
+  plantCode?: string
+  plantName?: string
+  lineId?: number
   lineCode: string
+  lineName?: string
+  workCentreId?: number
   workCentreCode: string
+  workCentreName?: string
   manufacturer: string
   modelNumber: string
   serialNumber: string
@@ -295,6 +306,9 @@ export interface Machine extends MasterBase {
   oeePct: number
   /** Operations this machine can perform — drives routing validation. */
   operations: string[]
+  /** Audit stamps as the machine API names them. */
+  createdDate?: string
+  modifiedDate?: string
   revisions: RevisionEntry[]
   whereUsed: WhereUsedEntry[]
 }
@@ -317,6 +331,26 @@ export interface MasterField {
   inList?: boolean
   align?: 'left' | 'right' | 'center'
   width?: string
+
+  /* ── Validation. Mirrors the API's own limits so the user sees the problem
+     beside the field rather than as a toast after a round trip. The server
+     stays the authority; these must be kept in step with it. ────────────── */
+  /** Text: maximum characters. Should match the DB column width. */
+  maxLength?: number
+  /** Text: minimum characters once trimmed. */
+  minLength?: number
+  /** Number: inclusive lower bound. */
+  min?: number
+  /** Number: inclusive upper bound. */
+  max?: number
+  /** Number: input step. */
+  step?: number
+  /** Number: reject anything that is not a whole number. */
+  integer?: boolean
+  /** Text: regular-expression source the value must match. */
+  pattern?: string
+  /** Plain-language message shown when `pattern` fails. */
+  patternHint?: string
 }
 
 /**
@@ -476,10 +510,21 @@ export interface Employee extends MasterBase {
 /* ─────────────────────────── Machine ──────────────────────────────────── */
 
 export interface Machine extends MasterBase {
+  /** Numeric id the API writes back (Machine.Id). */
+  id?: number
+  /* Foreign keys the form posts, plus the code/name the API joins in for display. */
+  machineGroupId?: number
+  machineGroupCode?: string
   machineGroup: string
-  plantUid: ID
+  plantId?: number
+  plantCode?: string
+  plantName?: string
+  lineId?: number
   lineCode: string
+  lineName?: string
+  workCentreId?: number
   workCentreCode: string
+  workCentreName?: string
   manufacturer: string
   modelNumber: string
   serialNumber: string
@@ -500,6 +545,9 @@ export interface Machine extends MasterBase {
   oeePct: number
   /** Operations this machine can perform — drives routing validation. */
   operations: string[]
+  /** Audit stamps as the machine API names them. */
+  createdDate?: string
+  modifiedDate?: string
   revisions: RevisionEntry[]
   whereUsed: WhereUsedEntry[]
 }
@@ -522,6 +570,26 @@ export interface MasterField {
   inList?: boolean
   align?: 'left' | 'right' | 'center'
   width?: string
+
+  /* ── Validation. Mirrors the API's own limits so the user sees the problem
+     beside the field rather than as a toast after a round trip. The server
+     stays the authority; these must be kept in step with it. ────────────── */
+  /** Text: maximum characters. Should match the DB column width. */
+  maxLength?: number
+  /** Text: minimum characters once trimmed. */
+  minLength?: number
+  /** Number: inclusive lower bound. */
+  min?: number
+  /** Number: inclusive upper bound. */
+  max?: number
+  /** Number: input step. */
+  step?: number
+  /** Number: reject anything that is not a whole number. */
+  integer?: boolean
+  /** Text: regular-expression source the value must match. */
+  pattern?: string
+  /** Plain-language message shown when `pattern` fails. */
+  patternHint?: string
 }
 
 /**

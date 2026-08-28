@@ -21,6 +21,9 @@ class PermissionDef:
 
 
 _CRUD = ("VIEW", "CREATE", "EDIT", "DEACTIVATE", "RESTORE")
+# Masters whose delete is a soft delete (IsDeleted=1) distinct from deactivation
+# (IsActive=0) — both actions exist, so both are gated separately.
+_MASTER_CRUD = ("VIEW", "CREATE", "EDIT", "DELETE")
 
 # module → entity → actions. Each `<MODULE>.<ENTITY>.<ACTION>` becomes a code.
 _MODULES: dict[str, dict[str, tuple[str, ...]]] = {
@@ -59,6 +62,14 @@ _MODULES: dict[str, dict[str, tuple[str, ...]]] = {
     # Master data (Vol 1 Ch 7 / Vol 4 prerequisite).
     "MASTERS": {
         "ITEM": _CRUD,
+        # Production masters (Master Portal -> Production menu).
+        "MACHINE": _MASTER_CRUD,
+        "SHIFT": _MASTER_CRUD,
+        "HOLIDAY_CALENDAR": _MASTER_CRUD,
+        # Read-only lookups that feed the machine form's foreign keys.
+        "MACHINE_GROUP": ("VIEW",),
+        "PRODUCTION_LINE": ("VIEW",),
+        "WORK_CENTRE": ("VIEW",),
     },
 }
 
@@ -66,6 +77,7 @@ _LABELS = {
     "VIEW": "View",
     "CREATE": "Create",
     "EDIT": "Edit",
+    "DELETE": "Delete",
     "DEACTIVATE": "Deactivate",
     "RESTORE": "Restore",
     "CLOSE": "Close",

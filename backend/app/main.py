@@ -36,6 +36,7 @@ from app.routers.steel_grade import router as steel_grade_router
 from app.routers.steel_thickness import router as steel_thickness_router
 from app.routers.machine import router as machine_router
 from app.routers.admin_plants import router as admin_plants_router
+from app.routers.production_lookups import router as production_lookups_router
 from app.routers.shift import router as shift_router
 from app.routers.holiday_calendar import router as holiday_calendar_router
 from app.routers.quality_parameter import router as quality_parameter_router
@@ -77,7 +78,7 @@ from app.routers.grn import router as grn_router
 from app.routers.analytics import router as analytics_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.settings import router as settings_router
-from app.routers import engineering_boms, engineering_routings, engineering_products, engineering_documents, engineering_operations, engineering_workcentres, engineering_tools, engineering_changes
+from app.routers import engineering_boms, engineering_routings, engineering_documents, engineering_operations, engineering_workcentres, engineering_tools, engineering_changes, engineering_cost
 from app.routers import admin_audit
 from app.routers import quality_plans, inspections, defects, quality_lookups, ncr, capa, calibration, complaint, audit, supplier_quality
 import traceback
@@ -170,6 +171,7 @@ def create_app() -> FastAPI:
     app.include_router(steel_thickness_router, prefix=api)
     app.include_router(machine_router, prefix=api)
     app.include_router(admin_plants_router, prefix=api)
+    app.include_router(production_lookups_router, prefix=api)
     app.include_router(shift_router, prefix=api)
     app.include_router(holiday_calendar_router, prefix=api)
     app.include_router(quality_parameter_router, prefix=api)
@@ -211,13 +213,13 @@ def create_app() -> FastAPI:
     app.include_router(dashboard_router, prefix="/api/v1/procurement/dashboard", tags=["procurement-dashboard"])
     app.include_router(settings_router, prefix="/api/v1/procurement/settings", tags=["procurement-settings"])
     app.include_router(engineering_documents.router, prefix="/api/v1/engineering/documents", tags=["Engineering Documents"])
-    app.include_router(engineering_products.router, prefix="/api/v1/engineering/products", tags=["Engineering Products"])
     app.include_router(engineering_boms.router, prefix="/api/v1/engineering/boms", tags=["Engineering BOMs"])
     app.include_router(engineering_routings.router, prefix="/api/v1/engineering/routings", tags=["Engineering Routings"])
     app.include_router(engineering_operations.router, prefix="/api/v1/engineering/operations")
     app.include_router(engineering_workcentres.router, prefix="/api/v1/engineering/workcentres", tags=["Engineering Operations"])
     app.include_router(engineering_tools.router, prefix="/api/v1/engineering/tools")
     app.include_router(engineering_changes.router, prefix="/api/v1/engineering/changes")
+    app.include_router(engineering_cost.router, prefix="/api/v1")
     app.include_router(admin_audit.router, prefix="/api/v1/admin/audit")
     app.include_router(quality_plans.router)
     app.include_router(inspections.router)

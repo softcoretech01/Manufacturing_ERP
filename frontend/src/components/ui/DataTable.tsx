@@ -459,8 +459,8 @@ export function DataTable<T>({
                   key={c.key}
                   style={c.width ? { width: c.width } : undefined}
                   className={cn(
-                    c.align === 'right' && 'text-right',
-                    c.align === 'center' && 'text-center',
+                    c.align === 'right' && 'col-right',
+                    c.align === 'center' && 'col-center',
                     c.sticky && 'sticky left-0 z-20 bg-surface-2',
                     c.sortable && 'cursor-pointer select-none hover:text-fg',
                   )}
@@ -481,6 +481,7 @@ export function DataTable<T>({
                   </span>
                 </th>
               ))}
+              <th className="w-full"></th>
               {rowActions && <th className="col-sticky-right" style={{ width: '148px', textAlign: 'right' }}>Action</th>}
             </tr>
           </thead>
@@ -492,12 +493,13 @@ export function DataTable<T>({
                   {visibleColumns.map((c) => (
                     <td key={c.key}><Skeleton className="h-3.5" /></td>
                   ))}
+                  <td />
                   {rowActions && <td />}
                 </tr>
               ))
             ) : pageRows.length === 0 ? (
               <tr>
-                <td colSpan={visibleColumns.length + (selectable ? 1 : 0) + (rowActions ? 1 : 0)}>
+                <td colSpan={visibleColumns.length + 1 + (selectable ? 1 : 0) + (rowActions ? 1 : 0)}>
                   <EmptyState title={emptyTitle} description={emptyDescription} action={emptyAction} />
                 </td>
               </tr>
@@ -543,6 +545,7 @@ export function DataTable<T>({
                         {c.render ? c.render(row, i) : (valueOf(row, c) ?? '—')}
                       </td>
                     ))}
+                    <td />
                     {rowActions && (
                       <td onClick={(e) => e.stopPropagation()} className="col-sticky-right" style={{ textAlign: 'right' }}>
                         <RowActionCell actions={rowActions(row)} />

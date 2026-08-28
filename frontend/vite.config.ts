@@ -13,7 +13,8 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    // Honour PORT so a second dev server can run alongside one already on 5173.
+    port: Number(process.env.PORT) || 5173,
     host: true,
     // Same-origin API calls in dev: the frontend hits /api/* and Vite forwards
     // it to the FastAPI backend, so there is no CORS and no port coupling.
