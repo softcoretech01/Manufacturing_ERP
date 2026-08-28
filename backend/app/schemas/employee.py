@@ -1,12 +1,14 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
+from pydantic import AliasChoices
 from datetime import datetime
 import re
 
 class EmployeeSchema(BaseModel):
-    id: Optional[int] = None
+    id: Optional[Union[int, str]] = None
     uid: Optional[str] = None
     code: str = Field(..., max_length=50)
+    employeeCode: Optional[str] = None
     name: str = Field(..., max_length=150)
     designation: Optional[str] = Field(None, max_length=100)
     department: Optional[str] = Field(None, max_length=100)
@@ -16,7 +18,7 @@ class EmployeeSchema(BaseModel):
     dateOfBirth: Optional[datetime] = None
     gender: Optional[str] = Field(None, max_length=10)
     bloodGroup: Optional[str] = Field(None, max_length=10)
-    mobile: Optional[str] = Field(None, pattern=r'^\d{10}$')
+    mobile: Optional[str] = Field(None, pattern=r'^\+?\d{10,15}$')
     email: Optional[str] = Field(None, max_length=150)
     reportsTo: Optional[str] = Field(None, max_length=100)
     plantUid: Optional[str] = Field(None, max_length=50)
@@ -37,7 +39,10 @@ class EmployeeSchema(BaseModel):
     effectiveTo: Optional[datetime] = None
     isActive: Optional[bool] = True
     isDeleted: Optional[bool] = False
+    revision: Optional[int] = 0
     createdBy: Optional[str] = None
-    createdDate: Optional[datetime] = None
+    createdAt: Optional[datetime] = Field(None, validation_alias=AliasChoices('createdAt', 'createdDate'))
     modifiedBy: Optional[str] = None
-    modifiedDate: Optional[datetime] = None
+    modifiedAt: Optional[datetime] = Field(None, validation_alias=AliasChoices('modifiedAt', 'modifiedDate'))
+    approvedBy: Optional[str] = None
+    approvedAt: Optional[datetime] = None

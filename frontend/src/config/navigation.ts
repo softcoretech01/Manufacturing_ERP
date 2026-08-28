@@ -228,7 +228,10 @@ const MASTERS_NAV: NavGroup[] = [
     icon: Factory,
     children: [
       { label: 'Machines', to: '/masters/machine', icon: Wrench },
-      { label: 'Production lines', to: '/admin/plants', icon: Factory },
+      // This route is the Plants screen. Production lines (LN-A/LN-B/…) are a
+      // separate entity with no master screen yet — only the read-only lookup
+      // that feeds the machine form.
+      { label: 'Plants', to: '/admin/plants', icon: Factory },
       { label: 'Shifts', to: '/masters/shift', icon: CalendarRange },
       { label: 'Holiday calendar', to: '/masters/holiday-calendar', icon: CalendarRange },
     ],
@@ -270,20 +273,6 @@ const MASTERS_NAV: NavGroup[] = [
       { label: 'Countries', to: '/masters/country', icon: Globe2 },
       { label: 'States', to: '/masters/state', icon: MapPin },
       { label: 'Cities', to: '/masters/city', icon: MapPin },
-    ],
-  },
-  {
-    portal: 'MASTERS',
-    label: 'Governance',
-    icon: Shield,
-    children: [
-      { label: 'Master framework', to: '/admin/masters', icon: Database },
-      { label: 'Import & export', to: '/masters/import', icon: FileSpreadsheet },
-      { label: 'Duplicate review', to: '/masters/duplicates', icon: Search },
-      { label: 'Audit trail', to: '/admin/audit', icon: ScrollText, permission: 'SYSTEM.AUDIT.VIEW' },
-      { label: 'Security policy', to: '/admin/security', icon: Shield, permission: 'SYSTEM.PARAMETER.VIEW' },
-      { label: 'Logging & monitoring', to: '/admin/monitoring', icon: GaugeCircle, permission: 'SYSTEM.JOB.VIEW' },
-      { label: 'Administration reports', to: '/admin/admin-reports', icon: BarChart3, permission: 'SYSTEM.AUDIT.VIEW' },
     ],
   },
 ]

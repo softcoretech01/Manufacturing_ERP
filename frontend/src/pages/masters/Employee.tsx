@@ -28,16 +28,27 @@ import * as api from '@/api/masters'
 
 const SKILL_TONE = { TRAINEE: 'neutral', OPERATOR: 'progress', SKILLED: 'success', EXPERT: 'brand' } as const
 
-function EmployeeDetail({ e, onClose }: { e: Employee; onClose: () => void }) {
+function EmployeeDetail({ e, onClose, onEdit, onAddSkill }: { e: Employee; onClose: () => void; onEdit: () => void; onAddSkill: (skill: any) => void }) {
   const toast = useToast()
   const [tab, setTab] = useState('general')
+  const [skillFormOpen, setSkillFormOpen] = useState(false)
+  const [skillName, setSkillName] = useState('')
+  const [skillLevel, setSkillLevel] = useState<'TRAINEE' | 'OPERATOR' | 'SKILLED' | 'EXPERT'>('TRAINEE')
+  
+  const handleAddSkill = () => {
+    if (!skillName) return toast.error('Skill name is required')
+    onAddSkill({ skill: skillName, level: skillLevel, certifiedOn: new Date().toISOString() })
+    setSkillFormOpen(false)
+    setSkillName('')
+    setSkillLevel('TRAINEE')
+  }
 
   return (
     <Drawer
       open
       onClose={onClose}
       width="max-w-3xl"
-      title={`${e.employeeCode} — ${e.name}`}
+      title={`${e.employeeCode || (e as any).code || 'NEW'} — ${e.name}`}
       description={`${e.designation} · ${e.department}`}
       footer={
         <div className="flex w-full items-center justify-between gap-2">
@@ -48,7 +59,7 @@ function EmployeeDetail({ e, onClose }: { e: Employee; onClose: () => void }) {
           <MasterActions
             status={e.status}
             usageCount={e.whereUsed.filter((w) => w.isOpen).length}
-            onEdit={() => toast.info('Edit', 'Personal data changes route through HR approval.')}
+            onEdit={onEdit}
             onSubmit={() => toast.success('Submitted for approval')}
           />
         </div>
@@ -157,7 +168,7 @@ function EmployeeDetail({ e, onClose }: { e: Employee; onClose: () => void }) {
               title="Skill matrix"
               icon={<Award className="h-4 w-4" />}
               description="Certification decides who may be scheduled on which operation"
-              actions={<Button variant="outline" size="sm" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => toast.info('Add skill', 'Opens the skill certification form.')}>Add skill</Button>}
+              actions={<Button variant="outline" size="sm" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setSkillFormOpen(true)}>Add skill</Button>}
             />
             <CardBody className="space-y-2">
               {e.skills.length === 0 && (
@@ -212,6 +223,27 @@ function EmployeeDetail({ e, onClose }: { e: Employee; onClose: () => void }) {
         {tab === 'whereused' && <WhereUsedPanel entries={e.whereUsed} />}
         {tab === 'revisions' && <RevisionPanel revisions={e.revisions} />}
       </div>
+
+      <Modal open={skillFormOpen} onClose={() => setSkillFormOpen(false)} title="Add certification" width="max-w-md">
+        <div className="space-y-4 pt-4">
+          <Input label="Skill / Machine" placeholder="e.g. Deep-draw press" value={skillName} onChange={(e) => setSkillName(e.target.value)} required />
+          <Select 
+            label="Certification level" 
+            value={skillLevel} 
+            onChange={(e) => setSkillLevel(e.target.value as any)}
+            options={[
+              { value: 'TRAINEE', label: 'Trainee' },
+              { value: 'OPERATOR', label: 'Operator' },
+              { value: 'SKILLED', label: 'Skilled' },
+              { value: 'EXPERT', label: 'Expert' }
+            ]}
+          />
+          <div className="flex justify-end gap-2 pt-4">
+            <Button variant="ghost" onClick={() => setSkillFormOpen(false)}>Cancel</Button>
+            <Button variant="primary" onClick={handleAddSkill}>Save certification</Button>
+          </div>
+        </div>
+      </Modal>
     </Drawer>
   )
 }
@@ -251,6 +283,7 @@ export function EmployeeMasterPage() {
   const [tab, setTab] = useState('list')
   const [detail, setDetail] = useState<Employee | null>(null)
   const [formOpen, setFormOpen] = useState(false)
+  const [editUid, setEditUid] = useState<string | null>(null)
   
   const [formName, setFormName] = useState('')
   const [formCode, setFormCode] = useState('')
@@ -264,10 +297,20 @@ export function EmployeeMasterPage() {
   const [formDoj, setFormDoj] = useState('')
   const [formShift, setFormShift] = useState('SH-A')
   const [formShopFloor, setFormShopFloor] = useState(true)
+  const [formPf, setFormPf] = useState('')
+  const [formEsi, setFormEsi] = useState('')
+  const [formUan, setFormUan] = useState('')
+  const [formAadhaar, setFormAadhaar] = useState('')
+  const [formPan, setFormPan] = useState('')
+  const [formBank, setFormBank] = useState('')
 
   const [deptFilter, setDeptFilter] = useState('')
 
-  const departments = useMemo(() => [...new Set(list.map((e: any) => e.department))].sort(), [list])
+  const STANDARD_DEPARTMENTS = ['Production', 'Engineering', 'Quality', 'Maintenance', 'Stores', 'HR', 'Finance', 'Sales']
+  const departments = useMemo(() => {
+    const all = new Set([...STANDARD_DEPARTMENTS, ...list.map((e: any) => e.department).filter(Boolean)])
+    return [...all].sort()
+  }, [list])
   const rows = deptFilter ? list.filter((e: any) => e.department === deptFilter) : list
 
   const shopFloor = list.filter((e: any) => e.isShopFloor)
@@ -290,7 +333,6 @@ export function EmployeeMasterPage() {
       header: 'Employee',
       sortable: true,
       sticky: true,
-      width: '240px',
       accessor: (e) => e.name,
       render: (e) => (
         <div className="flex min-w-0 items-center gap-2">
@@ -302,13 +344,13 @@ export function EmployeeMasterPage() {
         </div>
       ),
     },
-    { key: 'designation', header: 'Designation', sortable: true, width: '190px' },
-    { key: 'department', header: 'Department', sortable: true, width: '150px', render: (e) => <Badge tone="neutral" size="sm" dot={false}>{e.department}</Badge> },
-    { key: 'grade', header: 'Grade', width: '80px', render: (e) => <span className="font-mono text-2xs">{e.grade}</span> },
+    { key: 'designation', header: 'Designation', sortable: true, width: '140px' },
+    { key: 'department', header: 'Department', sortable: true, width: '120px', render: (e) => <Badge tone="neutral" size="sm" dot={false}>{e.department}</Badge> },
+    { key: 'grade', header: 'Grade', width: '60px', render: (e) => <span className="font-mono text-2xs">{e.grade}</span> },
     {
       key: 'employmentType',
       header: 'Type',
-      width: '130px',
+      width: '100px',
       sortable: true,
       render: (e) => (
         <Badge tone={e.employmentType === 'PERMANENT' ? 'success' : e.employmentType === 'CONTRACT' ? 'warning' : 'neutral'} size="sm" dot={false}>
@@ -316,11 +358,11 @@ export function EmployeeMasterPage() {
         </Badge>
       ),
     },
-    { key: 'shiftCode', header: 'Shift', width: '90px', render: (e) => <span className="font-mono text-2xs">{e.shiftCode}</span> },
+    { key: 'shiftCode', header: 'Shift', width: '70px', render: (e) => <span className="font-mono text-2xs">{e.shiftCode}</span> },
     {
       key: 'skills',
       header: 'Skills',
-      width: '110px',
+      width: '70px',
       align: 'right',
       accessor: (e) => e.skills.length,
       render: (e) =>
@@ -333,7 +375,7 @@ export function EmployeeMasterPage() {
     {
       key: 'isShopFloor',
       header: 'Shop floor',
-      width: '110px',
+      width: '80px',
       align: 'center',
       accessor: (e) => (e.isShopFloor ? 1 : 0),
       render: (e) => (e.isShopFloor ? <HardHat className="mx-auto h-3.5 w-3.5 text-progress" /> : null),
@@ -352,6 +394,25 @@ export function EmployeeMasterPage() {
               Import
             </Button>
             <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={async () => {
+              setEditUid(null)
+              setFormName('')
+              setFormCode('')
+              setFormDob('')
+              setFormGender('M')
+              setFormMobile('')
+              setFormEmail('')
+              setFormDesignation('')
+              setFormDepartment('Production')
+              setFormType('PERMANENT')
+              setFormDoj('')
+              setFormShift('SH-A')
+              setFormShopFloor(true)
+              setFormPf('')
+              setFormEsi('')
+              setFormUan('')
+              setFormAadhaar('')
+              setFormPan('')
+              setFormBank('')
               try {
                 const { nextCode } = await api.getNextEmployeeCode()
                 setFormCode(nextCode)
@@ -469,9 +530,41 @@ export function EmployeeMasterPage() {
         </Card>
       )}
 
-      
-
-      {detail && <EmployeeDetail e={detail} onClose={() => setDetail(null)} />}
+      {detail && (
+        <EmployeeDetail
+          e={detail}
+          onClose={() => setDetail(null)}
+          onEdit={() => {
+            setEditUid(detail.uid)
+            setFormCode(detail.employeeCode ?? detail.code ?? '')
+            setFormName(detail.name)
+            setFormDepartment(detail.department ?? '')
+            setFormDesignation(detail.designation ?? '')
+            setFormType(detail.employmentType ?? 'PERMANENT')
+            setFormDoj(detail.dateOfJoining ? new Date(detail.dateOfJoining).toISOString().split('T')[0] : '')
+            setFormDob(detail.dateOfBirth ? new Date(detail.dateOfBirth).toISOString().split('T')[0] : '')
+            setFormGender(detail.gender ?? 'M')
+            setFormMobile(detail.mobile ?? '')
+            setFormEmail(detail.email ?? '')
+            setFormShift(detail.shiftCode ?? '')
+            setFormShopFloor(detail.isShopFloor ?? false)
+            setFormPf(detail.pfNumber ?? '')
+            setFormEsi(detail.esiNumber ?? '')
+            setFormUan(detail.uanNumber ?? '')
+            setFormAadhaar(detail.aadhaarMasked ?? '')
+            setFormPan(detail.panMasked ?? '')
+            setFormBank(detail.bankAccountMasked ?? '')
+            setDetail(null)
+            setFormOpen(true)
+          }}
+          onAddSkill={(skill) => {
+            const updatedSkills = [...detail.skills, skill]
+            update(detail.uid, { skills: updatedSkills })
+            setDetail({ ...detail, skills: updatedSkills })
+            toast.success('Skill added', `${skill.skill} certification saved.`)
+          }}
+        />
+      )}
 
       <Modal
         open={formOpen}
@@ -483,9 +576,9 @@ export function EmployeeMasterPage() {
           <>
             <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
             <Button variant="primary" onClick={() => {
-              createMutation.mutate({
+              const payload = {
                 name: formName,
-                code: formCode || undefined, // If blank, API can use next-code logic or we'll let it fail validation if required. Actually we'll fetch next code.
+                code: formCode || undefined,
                 dateOfBirth: formDob ? new Date(formDob).toISOString() : undefined,
                 gender: formGender,
                 mobile: formMobile,
@@ -496,9 +589,26 @@ export function EmployeeMasterPage() {
                 dateOfJoining: formDoj ? new Date(formDoj).toISOString() : undefined,
                 shiftCode: formShift,
                 isShopFloor: formShopFloor,
-              })
+                pfNumber: formPf || undefined,
+                esiNumber: formEsi || undefined,
+                uanNumber: formUan || undefined,
+                aadhaarMasked: formAadhaar || undefined,
+                panMasked: formPan || undefined,
+                bankAccountMasked: formBank || undefined,
+              }
+              if (editUid) {
+                updateMutation.mutate({ uid: editUid, data: payload }, {
+                  onSuccess: () => {
+                    setFormOpen(false)
+                    toast.success('Employee updated')
+                    setDetail(null)
+                  }
+                })
+              } else {
+                createMutation.mutate(payload)
+              }
             }}>
-              Submit for approval
+              {editUid ? 'Save changes' : 'Create employee'}
             </Button>
           </>
         }
@@ -528,11 +638,22 @@ export function EmployeeMasterPage() {
                 <Switch checked={formShopFloor} onChange={setFormShopFloor} label="Shop floor — issue badge and PIN" />
               </div>
             </div>
+          </section>
+
+          <section>
+            <h3 className="mb-3 text-sm font-semibold text-fg">Statutory Identifiers</h3>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Input label="Aadhaar" placeholder="1234-5678-XXXX" value={formAadhaar} onChange={(e) => setFormAadhaar(e.target.value)} />
+              <Input label="PAN" placeholder="ABCDE1234F" value={formPan} onChange={(e) => setFormPan(e.target.value)} />
+              <Input label="PF Number" placeholder="XX/XXX/12345" value={formPf} onChange={(e) => setFormPf(e.target.value)} />
+              <Input label="ESI Number" placeholder="1234567890" value={formEsi} onChange={(e) => setFormEsi(e.target.value)} />
+              <Input label="UAN" placeholder="100000000000" value={formUan} onChange={(e) => setFormUan(e.target.value)} />
+              <Input label="Bank Account" placeholder="XXXXXXXXX1234" value={formBank} onChange={(e) => setFormBank(e.target.value)} />
+            </div>
             <div className="mt-4">
               <Alert tone="info">
-                Statutory identifiers (Aadhaar, PAN, PF, ESI, bank) are captured on a separate
-                payroll-only screen. They are not entered here because this form is visible to more
-                people than payroll.
+                Full statutory identifiers are masked in this view as it is accessible outside of payroll.
+                Leave blank if synced automatically from your HR system.
               </Alert>
             </div>
           </section>

@@ -63,7 +63,15 @@ export const deleteDefect = (id: number | string) => api.del(`/defects/${id}`)
 export const getNextDefectCode = () => api.get<{code: string}>(`/defects/next-code`)
 
 // Employee
-export const getEmployees = () => api.get<any>('/employees').then(res => Array.isArray(res) ? res : res.data || [])
+export const getEmployees = () => api.get<any>('/employees').then(res => {
+  const data = Array.isArray(res) ? res : res.data || []
+  return data.map((e: any) => ({
+    ...e,
+    createdAt: e.createdAt || e.createdDate,
+    modifiedAt: e.modifiedAt || e.modifiedDate,
+    employeeCode: e.employeeCode || e.code
+  }))
+})
 export const createEmployee = (data: any) => api.post<any>('/employees', data)
 export const updateEmployee = (id: number | string, data: any) => api.put<any>(`/employees/${id}`, data)
 export const deleteEmployee = (id: number | string) => api.del(`/employees/${id}`)
@@ -97,12 +105,25 @@ export const updateLidType = (id: number | string, data: any) => api.put<any>(`/
 export const deleteLidType = (id: number | string) => api.del(`/lid-types/${id}`)
 export const getNextLidTypeCode = () => api.get<{code: string}>(`/lid-types/next-code`)
 
-// Machine
+// Machine — the form's foreign keys come from these lookups, not hard-coded lists.
+export const getMachineGroups = () => api.get<any>('/machine-groups').then(res => Array.isArray(res) ? res : res.data || [])
+export const getProductionLines = (plantId?: number) =>
+  api.get<any>(`/production-lines${plantId ? `?plantId=${plantId}` : ''}`).then(res => Array.isArray(res) ? res : res.data || [])
+export const getWorkCentres = (params?: { plantId?: number; lineId?: number }) => {
+  const q = new URLSearchParams()
+  if (params?.plantId) q.set('plantId', String(params.plantId))
+  if (params?.lineId) q.set('lineId', String(params.lineId))
+  const qs = q.toString()
+  return api.get<any>(`/work-centres${qs ? `?${qs}` : ''}`).then(res => Array.isArray(res) ? res : res.data || [])
+}
+// Integer-id plants (Machine.PlantId FK). /plants returns ULIDs for the org module.
+export const getProductionPlants = () => api.get<any>('/production-plants').then(res => Array.isArray(res) ? res : res.data || [])
+
 export const getMachines = () => api.get<any>('/machines').then(res => Array.isArray(res) ? res : res.data || [])
 export const createMachine = (data: any) => api.post<any>('/machines', data)
 export const updateMachine = (id: number | string, data: any) => api.put<any>(`/machines/${id}`, data)
 export const deleteMachine = (id: number | string) => api.del(`/machines/${id}`)
-export const getNextMachineCode = () => api.get<{code: string}>(`/machines/next-code`)
+export const getNextMachineCode = () => api.get<{nextCode: string}>(`/machines/next-code`)
 
 // NextBottleCapacityCode
 

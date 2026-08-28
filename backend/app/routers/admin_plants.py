@@ -6,8 +6,6 @@ from app.schemas.admin_plants import (
     PlantSchema,
     PlantCreateSchema,
     PlantPatchSchema,
-    ProductionLineSchema,
-    WorkCentreSchema,
     WarehouseSchema
 )
 from app.repositories.admin_plants_repository import AdminPlantsRepository
@@ -67,17 +65,8 @@ async def delete_plant(
 ):
     await service.delete_plant(uid, user_id="System")
 
-@router.get("/production-lines", response_model=list[ProductionLineSchema])
-async def get_all_production_lines(
-    service: AdminPlantsService = Depends(get_service)
-):
-    return await service.get_production_lines()
-
-@router.get("/work-centres", response_model=list[WorkCentreSchema])
-async def get_all_work_centres(
-    service: AdminPlantsService = Depends(get_service)
-):
-    return await service.get_work_centres()
+# /production-lines and /work-centres moved to app.routers.production_lookups —
+# they called SpProductionLine / SpWorkCentre, which do not exist in this schema.
 
 @router.get("/warehouses", response_model=list[WarehouseSchema])
 async def get_all_warehouses(

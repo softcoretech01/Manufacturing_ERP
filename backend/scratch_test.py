@@ -1,44 +1,23 @@
-import urllib.request
-import urllib.parse
-import json
+import asyncio
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy import text
+from app.repositories.employee_repository import EmployeeRepository
+from app.schemas.employee import EmployeeSchema
 
-def main():
-    # Login
-    req = urllib.request.Request(
-        'http://localhost:8000/api/v1/auth/login',
-        data=json.dumps({'login_id':'admin', 'password': 'password'}).encode('utf-8'),
-        headers={'Content-Type': 'application/json'}
-    )
-    with urllib.request.urlopen(req) as response:
-        token = json.loads(response.read())['access_token']
+async def main():
+    engine = create_async_engine('mysql+aiomysql://root:Ener9y_Demo%402026@187.127.131.38:3308/admin_erp')
+    async with engine.begin() as conn:
+        repo = EmployeeRepository(conn)
+        res = await repo.get_all()
+        if res:
+            emp = res[-1]  # Get the latest employee
+            schema = EmployeeSchema.model_validate(emp)
+            dumped = schema.model_dump()
+            print(f"Name: {dumped.get('name')}")
+            print(f"createdAt: {dumped.get('createdAt')}")
+            print(f"createdDate: {dumped.get('createdDate')}")
+        else:
+            print("No employees")
 
-    # Get branches
-    req = urllib.request.Request(
-        'http://localhost:8000/api/v1/branches',
-        headers={'Authorization': 'Bearer ' + token}
-    )
-    with urllib.request.urlopen(req) as response:
-        branches = json.loads(response.read())
-        print(branches)
-        
-    if not branches.get('data'):
-         print('No branches')
-         return
-         
-    branch_uid = branches['data'][0]['uid']
-    print('using branch', branch_uid)
-    
-    # Create plant
-    req = urllib.request.Request(
-        'http://localhost:8000/api/v1/plants',
-        data=json.dumps({'name': 'test plant', 'branch_uid': branch_uid}).encode('utf-8'),
-        headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'}
-    )
-    try:
-        with urllib.request.urlopen(req) as response:
-            print(response.read().decode())
-    except urllib.error.HTTPError as e:
-        print("HTTP Error:", e.code)
-        print(e.read().decode())
-
-main()
+if __name__ == "__main__":
+    asyncio.run(main())

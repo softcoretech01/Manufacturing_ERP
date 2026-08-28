@@ -53,9 +53,9 @@ services:
     env_file:
       - ./backend/.env
 
-  web:
-    build: ./web
-    container_name: ssb-industry-web
+  frontend:
+    build: ./frontend
+    container_name: ssb-industry-frontend
     restart: unless-stopped
     ports:
       - "5177:5173"

@@ -652,10 +652,18 @@ export const SIMPLE_MASTERS: SimpleMasterDef[] = [
     codePrefix: 'SH',
 
     fields: [
-      { key: 'startTime', label: 'Start', type: 'text', required: true, inList: true, width: '90px' },
-      { key: 'endTime', label: 'End', type: 'text', required: true, inList: true, width: '90px' },
-      { key: 'breakMinutes', label: 'Break', type: 'number', inList: true, align: 'right', width: '90px', suffix: 'min' },
-      { key: 'netHours', label: 'Net hours', type: 'number', inList: true, align: 'right', width: '110px' },
+      // StartTime/EndTime are VARCHAR(5) in the DB — 24-hour HH:MM, nothing else.
+      { key: 'startTime', label: 'Start', type: 'text', required: true, inList: true, width: '90px',
+        maxLength: 5, pattern: '^([01][0-9]|2[0-3]):([0-5][0-9])$',
+        patternHint: 'Use 24-hour HH:MM, e.g. 06:00.', hint: '24-hour HH:MM' },
+      { key: 'endTime', label: 'End', type: 'text', required: true, inList: true, width: '90px',
+        maxLength: 5, pattern: '^([01][0-9]|2[0-3]):([0-5][0-9])$',
+        patternHint: 'Use 24-hour HH:MM, e.g. 14:30.', hint: '24-hour HH:MM' },
+      { key: 'breakMinutes', label: 'Break', type: 'number', inList: true, align: 'right', width: '90px',
+        suffix: 'min', min: 0, max: 1440, integer: true },
+      // NetHours is DECIMAL(5,2); a shift cannot outlast a day.
+      { key: 'netHours', label: 'Net hours', type: 'number', inList: true, align: 'right', width: '110px',
+        min: 0, max: 24, step: 0.25, hint: 'Shift span less breaks.' },
       { key: 'crossesMidnight', label: 'Crosses midnight', type: 'boolean', inList: true, width: '140px' },
       { key: 'nightAllowance', label: 'Night allowance', type: 'boolean', inList: true, width: '140px' },
     ],
@@ -679,18 +687,20 @@ export const SIMPLE_MASTERS: SimpleMasterDef[] = [
     autoCode: true,
     codePrefix: 'HC',
     fields: [
-      { key: 'financialYear', label: 'Financial year', type: 'text', required: true, inList: true, width: '130px' },
-      { key: 'plant', label: 'Plant', type: 'select', options: ['P1', 'P2', 'ALL'], inList: true, width: '100px' },
-      { key: 'holidayCount', label: 'Holidays', type: 'number', inList: true, align: 'right', width: '100px' },
-      { key: 'nationalCount', label: 'National', type: 'number', inList: true, align: 'right', width: '100px' },
-      { key: 'workingDays', label: 'Working days', type: 'number', inList: true, align: 'right', width: '120px' },
+      { key: 'financialYear', label: 'Financial year', type: 'text', required: true, inList: true, width: '130px',
+        minLength: 4, maxLength: 10, pattern: '^(FY)?[0-9]{2,4}(-[0-9]{2})?$',
+        patternHint: 'Use 2027, 2026-27 or FY26-27.', hint: 'e.g. FY26-27' },
+      // Plant codes come from the plant master; ALL means every plant.
+      { key: 'plant', label: 'Plant', type: 'select', required: true, optionsFrom: 'PLANT_CODES',
+        inList: true, width: '120px' },
+      { key: 'holidayCount', label: 'Holidays', type: 'number', inList: true, align: 'right', width: '100px',
+        min: 0, max: 366, integer: true },
+      { key: 'nationalCount', label: 'National', type: 'number', inList: true, align: 'right', width: '100px',
+        min: 0, max: 366, integer: true, hint: 'Subset of total holidays.' },
+      { key: 'workingDays', label: 'Working days', type: 'number', inList: true, align: 'right', width: '120px',
+        min: 0, max: 366, integer: true },
     ],
-    rows: [
-      row('HC-P1-2627', 'Plant 1 — FY 2026-27', { financialYear: 'FY26-27', plant: 'P1', holidayCount: 14, nationalCount: 3, workingDays: 299 }, { usageCount: 1 }),
-      row('HC-P2-2627', 'Plant 2 — FY 2026-27', { financialYear: 'FY26-27', plant: 'P2', holidayCount: 13, nationalCount: 3, workingDays: 300 }, { usageCount: 1 }),
-      row('HC-P1-2526', 'Plant 1 — FY 2025-26', { financialYear: 'FY25-26', plant: 'P1', holidayCount: 15, nationalCount: 3, workingDays: 297 }, { usageCount: 1, status: 'ARCHIVED' }),
-      row('HC-HO-2627', 'Head Office — FY 2026-27', { financialYear: 'FY26-27', plant: 'ALL', holidayCount: 18, nationalCount: 3, workingDays: 251 }, { usageCount: 1 }),
-    ],
+    rows: [],
   },
 
   /* ───────────────────── Quality ───────────────────── */

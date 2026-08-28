@@ -1,81 +1,109 @@
-"""Idempotent permission sync: insert any new catalogue codes into sys_permission
-and grant every ALL_CODES permission to the roles the `admin` user holds.
+"""Sync the permission catalogue into `sys_permission` and re-grant every code to
+the admin roles.
 
-Safe to re-run — only inserts what is missing. Used after adding a module's
-permissions (here: workflow's APPROVAL_MATRIX + WORKFLOW)."""
+`seed_dev.py` does this too, but only as part of bootstrapping a company — on an
+existing database whose company code differs from its hard-coded "SSBIND" it
+would create a spurious second company. This script touches permissions only, so
+it is safe to run after adding new codes to `app.modules.iam.permissions`.
+
+Run from the backend directory:  python scripts/sync_permissions.py
+Idempotent.
+"""
 
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
 
-from sqlalchemy import select
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.core.database import session_scope
-from app.core.ids import new_uid
-from app.core.time import utcnow
-from app.modules.iam import permissions as perm_cat
-from app.modules.iam.infrastructure.models import (
-    SysPermission,
-    SysRolePermission,
-    SysUser,
-    SysUserRole,
-)
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+from sqlalchemy import text  # noqa: E402
+
+from app.core.database import engine  # noqa: E402
+from app.core.ids import new_uid  # noqa: E402
+from app.modules.iam import permissions as perm_cat  # noqa: E402
 
 
 async def main() -> None:
-    async with session_scope() as s:
-        # 1. sync catalogue → sys_permission
-        existing = set(
-            (await s.execute(select(SysPermission.code))).scalars().all()
-        )
-        added = 0
-        for p in perm_cat.catalogue():
-            if p.code not in existing:
-                s.add(
-                    SysPermission(
-                        uid=new_uid(),
-                        code=p.code,
-                        module=p.module,
-                        entity=p.entity,
-                        action=p.action,
-                        label=p.label,
-                        is_sensitive=p.is_sensitive,
-                    )
-                )
-                added += 1
+    try:
+        await _sync()
+    finally:
+        # Close the pool while the loop is still running. Without this the
+        # connections are finalised after asyncio has shut down and aiomysql
+        # prints an "Event loop is closed" traceback over a successful run.
+        await engine.dispose()
 
-        # 2. grant ALL_CODES to admin's role(s)
-        admin = (
-            await s.execute(select(SysUser).where(SysUser.login_id == "admin"))
-        ).scalar_one_or_none()
-        granted = 0
-        if admin:
-            role_ids = list(
-                (
-                    await s.execute(
-                        select(SysUserRole.role_id).where(SysUserRole.user_id == admin.id)
-                    )
-                ).scalars().all()
+
+async def _sync() -> None:
+    catalogue = perm_cat.catalogue()
+
+    async with engine.begin() as conn:
+        existing = {
+            row[0]
+            for row in (await conn.execute(text("SELECT code FROM sys_permission"))).fetchall()
+        }
+
+        added = 0
+        for perm in catalogue:
+            if perm.code in existing:
+                continue
+            await conn.execute(
+                text(
+                    """
+                    INSERT INTO sys_permission (uid, code, module, entity, action, label, is_sensitive)
+                    VALUES (:uid, :code, :module, :entity, :action, :label, :is_sensitive)
+                    """
+                ),
+                {
+                    "uid": new_uid(),
+                    "code": perm.code,
+                    "module": perm.module,
+                    "entity": perm.entity,
+                    "action": perm.action,
+                    "label": perm.label,
+                    "is_sensitive": int(perm.is_sensitive),
+                },
             )
-            for role_id in role_ids:
-                have = set(
-                    (
-                        await s.execute(
-                            select(SysRolePermission.permission_code).where(
-                                SysRolePermission.role_id == role_id
-                            )
-                        )
-                    ).scalars().all()
+            added += 1
+            print(f"  + {perm.code}")
+
+        # Re-grant the full catalogue to every admin role so new codes land.
+        roles = (
+            await conn.execute(
+                text("SELECT id, code FROM sys_role WHERE code LIKE 'ADMIN%' AND deleted_at IS NULL")
+            )
+        ).fetchall()
+
+        for role_id, role_code in roles:
+            granted = {
+                row[0]
+                for row in (
+                    await conn.execute(
+                        text(
+                            "SELECT permission_code FROM sys_role_permission WHERE role_id = :rid"
+                        ),
+                        {"rid": role_id},
+                    )
+                ).fetchall()
+            }
+            missing = [p.code for p in catalogue if p.code not in granted]
+            for code in missing:
+                await conn.execute(
+                    text(
+                        """
+                        INSERT INTO sys_role_permission (role_id, permission_code, effect)
+                        VALUES (:rid, :code, 'ALLOW')
+                        """
+                    ),
+                    {"rid": role_id, "code": code},
                 )
-                for code in perm_cat.ALL_CODES:
-                    if code not in have:
-                        s.add(
-                            SysRolePermission(
-                                role_id=role_id, permission_code=code, effect="ALLOW"
-                            )
-                        )
-                        granted += 1
-        print(f"permissions added={added}  grants added={granted}  ({utcnow():%H:%M:%S})")
+            print(f"Role {role_code}: granted {len(missing)} new code(s).")
+
+    print(f"Catalogue has {len(catalogue)} codes; {added} inserted into sys_permission.")
 
 
 if __name__ == "__main__":

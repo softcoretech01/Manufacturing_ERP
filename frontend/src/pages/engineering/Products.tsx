@@ -26,17 +26,9 @@ import {
   routingsForProduct,
 } from '@/lib/engFlow'
 import { newUid, useCollection } from '@/store/data'
-import { useEngineeringCollection } from '@/store/engData'
-import {
-  boms as seedBoms,
-  engDocuments as seedDocs,
-  products as seedProducts,
-  routings as seedRoutings,
-  tools as seedTools,
-  workCentres as seedWorkCentres,
-} from '@/mock/engineering'
 import { items as masterItems } from '@/mock/masters'
 import { engineeringApi as api } from '@/api/engineering'
+import * as masterApi from '@/api/masters'
 import type {
   Bom,
   EngDocument,
@@ -123,9 +115,26 @@ const emptyForm: FormState = {
 export function ProductsPage() {
   const toast = useToast()
   const [rows, setRows] = useState<EngProduct[]>([])
+  
+  // Master data
+  const [uoms, setUoms] = useState<any[]>([])
+  const [steelGrades, setSteelGrades] = useState<any[]>([])
+  const [lidTypes, setLidTypes] = useState<any[]>([])
+  const [colours, setColours] = useState<any[]>([])
 
   useEffect(() => {
     api.getEngProducts().then(setRows).catch(console.error)
+    masterApi.getUOMs().then(setUoms).catch(console.error)
+    masterApi.getSteelGrades().then(setSteelGrades).catch(console.error)
+    masterApi.getLidTypes().then(setLidTypes).catch(console.error)
+    masterApi.getBottleColours().then(setColours).catch(console.error)
+    
+    // Engineering collections
+    api.getBoms().then(setBoms).catch(console.error)
+    api.getRoutings().then(setRoutings).catch(console.error)
+    api.getEngWorkCentres().then(setWorkCentres).catch(console.error)
+    api.getEngTools().then(setTools).catch(console.error)
+    api.getEngDocuments().then(setDocuments).catch(console.error)
   }, [])
 
   const create = async (data: EngProduct) => {
@@ -158,11 +167,11 @@ export function ProductsPage() {
       toast.error('Error', 'Failed to delete product.')
     }
   }
-  const { rows: boms } = useEngineeringCollection<Bom>('eng:boms', useMemo(() => seedBoms, []))
-  const { rows: routings } = useEngineeringCollection<Routing>('eng:routings', useMemo(() => seedRoutings, []))
-  const { rows: workCentres } = useEngineeringCollection<EngWorkCentre>('eng:workcentres', useMemo(() => seedWorkCentres, []))
-  const { rows: tools } = useEngineeringCollection<Tool>('eng:tools', useMemo(() => seedTools, []))
-  const { rows: documents } = useEngineeringCollection<EngDocument>('eng:documents', useMemo(() => seedDocs, []))
+  const [boms, setBoms] = useState<any[]>([])
+  const [routings, setRoutings] = useState<any[]>([])
+  const [workCentres, setWorkCentres] = useState<any[]>([])
+  const [tools, setTools] = useState<any[]>([])
+  const [documents, setDocuments] = useState<any[]>([])
 
   const [tab, setTab] = useState('all')
   const [detail, setDetail] = useState<EngProduct | null>(null)
@@ -392,7 +401,7 @@ export function ProductsPage() {
                 Revision {detail.revision} · created by {detail.createdBy} · modified {formatDate(detail.modifiedAt)}
               </span>
               <div className="flex gap-2">
-                {detail.lifecycle === 'APPROVED' && (
+                {detail.lifecycle !== 'PRODUCTION' && (
                   <Button variant="success" size="sm" icon={<Rocket className="h-3.5 w-3.5" />} disabled={detailBlockers.length > 0} onClick={() => moveLifecycle(detail, 'PRODUCTION')}>
                     Release to production
                   </Button>
@@ -719,13 +728,22 @@ export function ProductsPage() {
           </>
         }
       >
-        <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-4 md:grid-cols-2">
           <Input label="Product Code" value={form.code ?? ''} disabled />
           <Input label="Product Name" required value={form.name ?? ''} error={errors.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           
+          <Select label="Product Type" value={form.productType ?? 'FINISHED'} error={errors.productType} onChange={(e) => setForm({ ...form, productType: e.target.value as ProductType })} options={PRODUCT_TYPES.map((f) => ({ value: f, label: TYPE_LABEL[f] }))} />
           <Select label="Category" value={form.family ?? ''} error={errors.family} onChange={(e) => setForm({ ...form, family: e.target.value })} options={FAMILIES.map((f) => ({ value: f, label: f }))} />
-          <Input label="Selling Price" type="number" disabled placeholder="Managed in pricing" hint="Products use standard price lists." />
           
+          <Select label="Base UoM" value={form.baseUom ?? 'NOS'} onChange={(e) => setForm({ ...form, baseUom: e.target.value })} options={uoms.map(u => ({ value: u.code, label: `${u.code} - ${u.name}` }))} />
+          <Select label="Steel Grade" value={form.spec?.materialGrade ?? ''} onChange={(e) => setForm({ ...form, spec: { ...form.spec, materialGrade: e.target.value } })} options={steelGrades.map(s => ({ value: s.code, label: s.name }))} />
+          
+          <Select label="Lid Type" value={form.spec?.packagingStandard ?? ''} onChange={(e) => setForm({ ...form, spec: { ...form.spec, packagingStandard: e.target.value } })} options={lidTypes.map(l => ({ value: l.code, label: l.name }))} />
+          <Select label="Bottle Colour" value={form.colour ?? ''} onChange={(e) => setForm({ ...form, colour: e.target.value })} options={colours.map(c => ({ value: c.code, label: c.name }))} />
+
+          <Input label="Capacity (ml)" type="number" value={form.capacityMl ?? ''} onChange={(e) => setForm({ ...form, capacityMl: e.target.value })} />
+          <Input label="Net Weight (g)" type="number" value={form.netWeightG ?? ''} onChange={(e) => setForm({ ...form, netWeightG: e.target.value })} />
+
           <div className="md:col-span-2">
             <Textarea label="Description" rows={3} value={form.remarks ?? ''} onChange={(e) => setForm({ ...form, remarks: e.target.value })} placeholder="Optional detailed description..." />
           </div>

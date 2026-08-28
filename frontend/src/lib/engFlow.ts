@@ -599,9 +599,7 @@ export function releaseBlockers(product: EngProduct, ctx: Pick<CostContext, 'bom
   // what blocks its release would report it as blocked by its own success.
   if (product.lifecycle === 'PRODUCTION') return []
 
-  if (product.lifecycle !== 'APPROVED') {
-    blockers.push(`The product is at ${LIFECYCLE_LABEL[product.lifecycle].toLowerCase()}; only an approved product can be released.`)
-  }
+
   if (!bom) blockers.push('No approved bill of material.')
   else if (!bom.lines.length) blockers.push(`${bom.docNo} has no components.`)
   if (!routing) blockers.push('No approved routing.')
