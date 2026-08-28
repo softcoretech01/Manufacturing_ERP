@@ -51,7 +51,8 @@ export function AbcXyzPage() {
         </div>}
       </CardBody></Card>
 
-      <DataTable rows={rows} columns={columns} rowKey={(r) => r.item_code} loading={isLoading} searchPlaceholder="Item…" emptyTitle="No items to classify" />
+      <DataTable
+          density="comfortable" rows={rows} columns={columns} rowKey={(r) => r.item_code} loading={isLoading} searchPlaceholder="Item…" emptyTitle="No items to classify" />
       <p className="mt-2 text-2xs text-fg-subtle">XYZ needs consumption history — items with no issues yet show as Z. Post issues and it fills in.</p>
     </div>
   )

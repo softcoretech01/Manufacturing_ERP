@@ -14,6 +14,7 @@ from app.core.deps import SessionDep, require
 from app.modules.inventory.api import stock_schemas as s
 from app.modules.inventory.application.receipt_service import ReceiptService
 from app.modules.inventory.application.stock_service import StockService
+from app.modules.masters.infrastructure.models import MstItem
 from app.modules.organisation.infrastructure.models import SysWarehouse
 
 router = APIRouter(tags=["Inventory · Stock"])
@@ -29,6 +30,36 @@ async def _wh_id(session: SessionDep, ctx: TenantContext, uid: str | None) -> in
             )
         )
     ).scalar_one_or_none()
+
+
+@router.get("/inventory/items", response_model=list[s.ItemOut])
+async def list_stock_items(
+    session: SessionDep,
+    item_type: str | None = None,
+    active_only: bool = True,
+    search: str | None = None,
+    ctx: TenantContext = Depends(require("INVENTORY.STOCK.VIEW", "MASTERS.ITEM.VIEW")),
+):
+    """The item master the stock screens pick from.
+
+    Movement, transfer, put-away and ledger screens all need a real ``item_uid``,
+    which only ``mst_item`` has — the procurement ``Item`` master carries an
+    integer id and camelCase fields. Those screens were reading `/items` (the
+    procurement master) and getting `undefined` for every one of `uid`,
+    `base_uom` and `is_batch_tracked`, so their item pickers could not work.
+    """
+    stmt = select(MstItem).where(
+        MstItem.company_id == ctx.company_id, MstItem.deleted_at.is_(None)
+    )
+    if active_only:
+        stmt = stmt.where(MstItem.is_active.is_(True))
+    if item_type:
+        stmt = stmt.where(MstItem.item_type == item_type)
+    if search:
+        like = f"%{search}%"
+        stmt = stmt.where((MstItem.code.ilike(like)) | (MstItem.name.ilike(like)))
+    stmt = stmt.order_by(MstItem.code)
+    return (await session.execute(stmt)).scalars().all()
 
 
 @router.get("/inventory/stock", response_model=list[s.StockRow])

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
+from app.core.deps import require
+from app.core.legacy_db import get_connection
 from typing import Any
-import pymysql
 import os
 import json
 from dotenv import load_dotenv
@@ -12,16 +13,10 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '../../.env'))
 router = APIRouter()
 
 def get_db_connection():
-    return pymysql.connect(
-        host=os.getenv('DB_HOST', '187.127.131.38'),
-        port=int(os.getenv('DB_PORT', 3308)),
-        user=os.getenv('DB_USER', 'root'),
-        password=os.getenv('DB_PASSWORD', 'Ener9y_Demo@2026'),
-        database='ERP_Procurement',
-        cursorclass=pymysql.cursors.DictCursor
-    )
+    """Connection for this router's stored procedures (credentials from settings)."""
+    return get_connection("ERP_Procurement", multi_statements=False)
 
-@router.get("/")
+@router.get("/", dependencies=[Depends(require("PROCUREMENT.ANALYTICS.VIEW"))])
 def get_analytics():
     conn = get_db_connection()
     try:
@@ -86,7 +81,7 @@ def get_analytics():
     finally:
         conn.close()
 
-@router.post("/")
+@router.post("/", dependencies=[Depends(require("PROCUREMENT.ANALYTICS.EDIT"))])
 def update_analytics(payload: AnalyticsPayload):
     # Still leaving this here in case manual seeding is needed later,
     # but it updates the standalone tables, not the live ones.

@@ -128,6 +128,7 @@ export function SerialsPage() {
       </div>
 
       <DataTable
+          density="comfortable"
         rows={serials}
         columns={columns}
         rowKey={(s) => s.uid}

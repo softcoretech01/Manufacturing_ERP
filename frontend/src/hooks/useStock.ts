@@ -83,15 +83,19 @@ export function useMovements(movement_type?: string, item?: string, warehouse?: 
   })
 }
 
-function useTxn<T>(fn: (body: Record<string, unknown>) => Promise<T>) {
+function useTxn<T>(fn: (body: any) => Promise<T>) {
   const invalidate = useInvalidateStock()
-  return useMutation({ mutationFn: (body: Record<string, unknown>) => fn(body), onSuccess: invalidate })
+  return useMutation({ mutationFn: (body: any) => fn(body), onSuccess: invalidate })
 }
 
 export const useIssue = () => useTxn(st.transactions.issue)
+export const useIssueBulk = () => useTxn(st.transactions.issueBulk)
 export const useReturnMaterial = () => useTxn(st.transactions.returnMaterial)
+export const useReturnBulk = () => useTxn(st.transactions.returnBulk)
 export const useAdjust = () => useTxn(st.transactions.adjust)
+export const useAdjustBulk = () => useTxn(st.transactions.adjustBulk)
 export const useTransfer = () => useTxn(st.transactions.transfer)
+export const useTransferBulk = () => useTxn(st.transactions.transferBulk)
 export const useScrap = () => useTxn(st.transactions.scrap)
 
 /* ─────────────────────────── Bin occupancy / put-away ─────────────────────────── */

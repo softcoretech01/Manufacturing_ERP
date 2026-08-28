@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+from app.core.legacy_db import legacy_db_config
 from typing import List, Optional
 from pydantic import Field
 from datetime import datetime
@@ -8,14 +9,10 @@ from app.schemas.camel import CamelModel
 
 router = APIRouter(prefix="/dispatch/pallets", tags=["pallets"])
 
-DB_CONFIG = {
-    'host': '187.127.131.38',
-    'port': 3308,
-    'user': 'root',
-    'password': 'Ener9y_Demo@2026',
-    'database': 'ERP_Packing',
-    'cursorclass': pymysql.cursors.DictCursor
-}
+# Credentials come from settings (env / .env) — never written in source.
+DB_CONFIG = legacy_db_config(
+    "ERP_Packing", multi_statements=False
+)
 
 class PalletBase(CamelModel):
     pallet_no: Optional[str] = Field(None, max_length=50)

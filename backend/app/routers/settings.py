@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from app.core.deps import require
+from app.core.legacy_db import get_connection
 from typing import List
-import pymysql
 import os
 import json
 from dotenv import load_dotenv
@@ -11,19 +12,13 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '../../.env'))
 router = APIRouter()
 
 def get_db_connection():
-    return pymysql.connect(
-        host=os.getenv('DB_HOST', '187.127.131.38'),
-        port=int(os.getenv('DB_PORT', 3308)),
-        user=os.getenv('DB_USER', 'root'),
-        password=os.getenv('DB_PASSWORD', 'Ener9y_Demo@2026'),
-        database='ERP_Procurement',
-        cursorclass=pymysql.cursors.DictCursor
-    )
+    """Connection for this router's stored procedures (credentials from settings)."""
+    return get_connection("ERP_Procurement", multi_statements=False)
 
 # =======================================
 # PARAMETERS
 # =======================================
-@router.get("/parameters", response_model=List[ProcParameter])
+@router.get("/parameters", response_model=List[ProcParameter], dependencies=[Depends(require("PROCUREMENT.SETTINGS.VIEW"))])
 def get_parameters():
     conn = get_db_connection()
     try:
@@ -38,7 +33,7 @@ def get_parameters():
     finally:
         conn.close()
 
-@router.put("/parameters/{uid}")
+@router.put("/parameters/{uid}", dependencies=[Depends(require("PROCUREMENT.SETTINGS.EDIT"))])
 def update_parameter(uid: str, payload: ProcParameterUpdate):
     conn = get_db_connection()
     try:
@@ -54,7 +49,7 @@ def update_parameter(uid: str, payload: ProcParameterUpdate):
     finally:
         conn.close()
 
-@router.post("/parameters")
+@router.post("/parameters", dependencies=[Depends(require("PROCUREMENT.SETTINGS.EDIT"))])
 def insert_parameter(payload: ProcParameter):
     conn = get_db_connection()
     try:
@@ -72,7 +67,7 @@ def insert_parameter(payload: ProcParameter):
 # =======================================
 # EVALUATION WEIGHTS
 # =======================================
-@router.get("/weights", response_model=List[EvalWeight])
+@router.get("/weights", response_model=List[EvalWeight], dependencies=[Depends(require("PROCUREMENT.SETTINGS.VIEW"))])
 def get_weights():
     conn = get_db_connection()
     try:
@@ -88,7 +83,7 @@ def get_weights():
     finally:
         conn.close()
 
-@router.post("/weights")
+@router.post("/weights", dependencies=[Depends(require("PROCUREMENT.SETTINGS.EDIT"))])
 def save_weights_version(payload: List[EvalWeight]):
     conn = get_db_connection()
     try:
@@ -106,7 +101,7 @@ def save_weights_version(payload: List[EvalWeight]):
 # =======================================
 # REASON CODES
 # =======================================
-@router.get("/reasons", response_model=List[ProcReasonCode])
+@router.get("/reasons", response_model=List[ProcReasonCode], dependencies=[Depends(require("PROCUREMENT.SETTINGS.VIEW"))])
 def get_reasons():
     conn = get_db_connection()
     try:
@@ -122,7 +117,7 @@ def get_reasons():
     finally:
         conn.close()
 
-@router.post("/reasons")
+@router.post("/reasons", dependencies=[Depends(require("PROCUREMENT.SETTINGS.EDIT"))])
 def insert_reason(payload: ProcReasonCode):
     conn = get_db_connection()
     try:
@@ -137,7 +132,7 @@ def insert_reason(payload: ProcReasonCode):
     finally:
         conn.close()
 
-@router.put("/reasons/{uid}")
+@router.put("/reasons/{uid}", dependencies=[Depends(require("PROCUREMENT.SETTINGS.EDIT"))])
 def update_reason_status(uid: str, payload: ProcReasonCodeUpdate):
     conn = get_db_connection()
     try:

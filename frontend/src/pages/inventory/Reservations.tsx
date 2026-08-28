@@ -195,6 +195,7 @@ export function ReservationsPage() {
       </Card>
 
       <DataTable
+          density="comfortable"
         rows={filtered}
         columns={columns}
         rowKey={(r) => r.uid}

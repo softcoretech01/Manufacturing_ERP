@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Eye, Check, X as XIcon, CornerUpLeft } from 'lucide-react'
+import { Eye, Check, X as XIcon } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
-import { Card } from '@/components/ui/Card'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { Modal } from '@/components/ui/Modal'
 import { PageHeader } from '@/components/ui/Misc'
@@ -11,76 +10,160 @@ import { formatDate, formatCurrency } from '@/lib/format'
 import { ProcurementToolbar } from '@/components/procurement/ProcurementToolbar'
 import { approvals } from '@/api/workflow'
 import { getRequisitions, getPurchaseOrders, getRfqs } from '@/api/procurement'
+import { getSuppliers, getPaymentTerms } from '@/api/masters'
+import { useItemLookup } from '@/hooks/useItemLookup'
+import {
+  Section, FieldGrid, Field, LineItemsTable, TotalsPanel, EmptyState,
+  money, qty as fmtQty,
+} from '@/components/procurement/ProcKit'
 
 /** Business names for the workflow's entity types — never show the raw code. */
 const DOC_TYPE_LABEL: Record<string, string> = {
   PURCHASE_REQUISITION: 'Purchase Requisition',
   PURCHASE_ORDER: 'Purchase Order',
+  REQUEST_FOR_QUOTATION: 'Request for Quotation',
 }
 
+/*
+ * The document, as the approver actually needs to see it.
+ *
+ * A workflow task carries only a document number and a total, which is not
+ * enough to approve anything - it says nothing about who the order is for, what
+ * it came from upstream, or how the total was arrived at. So the referenced
+ * document is fetched from its own module and rendered with the same kit the
+ * buyer's own screens use: same columns, same money formatting, same totals. An
+ * approver should never be shown a thinner document than the person who raised
+ * it.
+ */
 function DocumentPreview({ task }: { task: any }) {
-  const [lines, setLines] = useState<any[]>([])
+  const [doc, setDoc] = useState<any | null>(null)
+  const [prs, setPrs] = useState<any[]>([])
+  const [suppliers, setSuppliers] = useState<any[]>([])
+  const [terms, setTerms] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
+  const lookup = useItemLookup()
 
   useEffect(() => {
-    if (!task || !task.document_no) return
+    if (!task?.document_no) return
+    let alive = true
     setLoading(true)
-    
-    const fetchDoc = async () => {
+    const load = async () => {
       try {
-        let docs = []
-        if (task.document_type === 'PURCHASE_REQUISITION') {
-          docs = await getRequisitions()
-        } else if (task.document_type === 'PURCHASE_ORDER') {
-          docs = await getPurchaseOrders()
-        } else if (task.document_type === 'REQUEST_FOR_QUOTATION') {
-          docs = await getRfqs()
-        }
-        
-        const doc = docs.find((d: any) => d.docNo === task.document_no)
-        if (doc && doc.lines) {
-          setLines(doc.lines)
-        } else {
-          setLines([])
-        }
+        // Requisitions and suppliers are needed whatever the document type: one
+        // resolves a PR reference to its number, the other a supplier id to a
+        // name. Neither may be shown to an approver as a raw id.
+        const [prRows, supplierRows, termRows] = await Promise.all([
+          getRequisitions(), getSuppliers(), getPaymentTerms(),
+        ])
+        let docs: any[] = prRows || []
+        if (task.document_type === 'PURCHASE_ORDER') docs = (await getPurchaseOrders()) || []
+        else if (task.document_type === 'REQUEST_FOR_QUOTATION') docs = (await getRfqs()) || []
+        if (!alive) return
+        setPrs(prRows || [])
+        setSuppliers(supplierRows || [])
+        setTerms(termRows || [])
+        setDoc(docs.find((d: any) => d.docNo === task.document_no) ?? null)
       } catch (err) {
         console.error(err)
       } finally {
-        setLoading(false)
+        if (alive) setLoading(false)
       }
     }
-    
-    fetchDoc()
+    load()
+    return () => { alive = false }
   }, [task])
 
-  if (loading) return <div className="text-sm text-fg-muted py-4 text-center">Loading document details...</div>
-  
-  if (lines.length === 0) return null
+  if (loading) return <div className="py-4 text-center text-sm text-fg-muted">Loading document details...</div>
+  if (!doc) return <EmptyState message="The referenced document could not be loaded." />
+
+  const isPo = task.document_type === 'PURCHASE_ORDER'
+  const isRfq = task.document_type === 'REQUEST_FOR_QUOTATION'
+  // An RFQ asks suppliers for prices - it carries none of its own, so pricing
+  // columns and a totals panel would be empty furniture on one.
+  const priced = !isRfq
+  const lines: any[] = doc.lines || []
+
+  /** Referenced PRs by document number - never the internal id. */
+  const prLabel = (refs?: any[]) =>
+    refs?.length
+      ? refs.map((r) => prs.find((p) => String(p.uid ?? p.id) === String(r))?.docNo || r).join(', ')
+      : ''
+
+  const supplierName =
+    doc.supplierName
+    || suppliers.find((s) => String(s.uid ?? s.id) === String(doc.supplierUid))?.name
+    || doc.supplierUid
+
+  // A PO line carries its own priced amounts; a PR line only an estimated rate.
+  const rateOf = (l: any) => Number(l.rate ?? l.estimatedRate ?? l.unitPrice) || 0
+  const totalOf = (l: any) => Number(l.lineTotal) || rateOf(l) * (Number(l.qty) || 0)
+
+  // A PO's money is authoritative and already stored; a PR is only an estimate,
+  // totalled the same way the requisition screen totals it.
+  const subtotal = isPo ? Number(doc.basicValue) || 0 : lines.reduce((a, l) => a + totalOf(l), 0)
+  const tax = isPo ? Number(doc.taxValue) || 0 : subtotal * 0.18
+  const grandTotal = isPo ? Number(doc.totalValue) || 0 : subtotal + tax
+
+  const dueDate = isPo ? doc.promisedDate : isRfq ? doc.quoteDueBy : doc.requiredBy
 
   return (
-    <div className="mt-2 border border-border rounded-lg overflow-hidden">
-      <div className="bg-surface-2 px-4 py-2 border-b border-border text-sm font-semibold text-fg">Document Items</div>
-      <table className="w-full text-sm text-left">
-        <thead className="bg-surface-2 text-fg-muted">
-          <tr>
-            <th className="px-4 py-2 font-medium">Item</th>
-            <th className="px-4 py-2 font-medium">UOM</th>
-            <th className="px-4 py-2 font-medium text-right">Qty</th>
-            {task.document_type === 'PURCHASE_ORDER' && <th className="px-4 py-2 font-medium text-right">Rate</th>}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border bg-surface">
-          {lines.map((l, i) => (
-            <tr key={i}>
-              <td className="px-4 py-2">{l.itemName || l.itemCode}</td>
-              <td className="px-4 py-2">{l.uom}</td>
-              <td className="px-4 py-2 text-right">{l.qty || l.orderQty}</td>
-              {task.document_type === 'PURCHASE_ORDER' && <td className="px-4 py-2 text-right">{formatCurrency(l.rate || 0)}</td>}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <>
+      <Section title="Document Details">
+        <FieldGrid>
+          {isPo && <Field label="Supplier" value={supplierName} />}
+          {isPo && <Field label="Reference Quotation" mono value={doc.rfqNo} />}
+          <Field
+            label={isPo || isRfq ? 'Reference PR' : 'PR Number'}
+            mono
+            value={isPo || isRfq ? prLabel(doc.prRefs) : doc.docNo}
+          />
+          {!isPo && <Field label="Requested By" value={doc.requestedBy || doc.buyer} />}
+          <Field label="Document Date" value={doc.docDate ? formatDate(doc.docDate) : null} />
+          <Field
+            label={isPo ? 'Expected Delivery' : isRfq ? 'Quote Due By' : 'Required Date'}
+            value={dueDate ? formatDate(dueDate) : null}
+          />
+          {/* Stored as the master's id — resolve it, never show the raw id. */}
+          {isPo && <Field label="Payment Terms" value={
+            terms.find((t) => String(t.uid ?? t.id) === String(doc.paymentTerms))?.name
+            || doc.paymentTerms} />}
+          <Field label="Category" value={doc.category || doc.department || doc.itemType} />
+          <Field label="Remarks" span value={doc.remarks || doc.justification} />
+        </FieldGrid>
+      </Section>
+
+      <Section title="Document Items">
+        <LineItemsTable
+          rows={lines}
+          empty="This document has no items."
+          columns={[
+            { key: 'itemType', header: 'Type', width: '130px', render: (l: any) =>
+                lookup.itemTypeOf(l.itemCode) || <span className="text-fg-subtle">&mdash;</span> },
+            { key: 'category', header: 'Category', width: '150px', render: (l: any) =>
+                lookup.categoryOf(l.itemCode) || <span className="text-fg-subtle">&mdash;</span> },
+            { key: 'itemName', header: 'Item', render: (l: any) =>
+                <span className="font-medium text-fg">{l.itemName || l.itemCode}</span> },
+            { key: 'qty', header: 'Qty', align: 'right' as const, width: '90px', render: (l: any) => fmtQty(l.qty) },
+            { key: 'uom', header: 'UOM', align: 'center' as const, width: '70px' },
+            ...(priced
+              ? [
+                  { key: 'rate', header: 'Unit Price', align: 'right' as const, width: '110px',
+                    render: (l: any) => money(rateOf(l)) },
+                  // Only a PO holds per-line tax; showing 0% on a PR line would
+                  // contradict the estimated tax in its totals.
+                  ...(isPo
+                    ? [{ key: 'taxPct', header: 'Tax %', align: 'right' as const, width: '75px',
+                         render: (l: any) => `${Number(l.taxPct) || 0}%` }]
+                    : []),
+                  { key: 'lineTotal', header: 'Line Total', align: 'right' as const, width: '130px',
+                    render: (l: any) => <span className="font-medium text-fg">{money(totalOf(l))}</span> },
+                ]
+              : []),
+          ]}
+        />
+        {priced && <TotalsPanel subtotal={subtotal} tax={tax} grandTotal={grandTotal} />}
+      </Section>
+    </>
   )
 }
 
@@ -205,17 +288,19 @@ export function ApprovalsPage() {
         <DataTable searchable={false} rows={filteredData} rowKey={(r) => r.task_uid || String(Math.random())} columns={columns} loading={loading} />
       </div>
 
-      <Modal open={viewOpen} onClose={() => setViewOpen(false)} title="Approval Task Details" size="2xl">
+      <Modal open={viewOpen} onClose={() => setViewOpen(false)} title="Approval Task Details" size="4xl">
         {selectedTask && (
           <div className="flex flex-col gap-6">
-            <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50/50 p-4 rounded-lg border border-border">
-              <div><span className="text-fg-muted">Document:</span> <span className="font-medium">{selectedTask.document_no || selectedTask.document_label}</span></div>
-              <div><span className="text-fg-muted">Type:</span> <span className="font-medium">{selectedTask.document_type}</span></div>
-              <div><span className="text-fg-muted">Requested By:</span> <span className="font-medium">{selectedTask.requester}</span></div>
-              <div><span className="text-fg-muted">Date:</span> <span className="font-medium">{formatDate(selectedTask.assigned_at)}</span></div>
-              <div><span className="text-fg-muted">Amount:</span> <span className="font-medium">{formatCurrency(selectedTask.amount || 0)}</span></div>
-              <div><span className="text-fg-muted">Level:</span> <span className="font-medium">{selectedTask.level_no} of {selectedTask.total_levels}</span></div>
-            </div>
+            <Section title="Approval Task">
+              <FieldGrid cols={3}>
+                <Field label="Document" mono value={selectedTask.document_no || selectedTask.document_label} />
+                <Field label="Type" value={DOC_TYPE_LABEL[selectedTask.document_type] ?? selectedTask.document_type} />
+                <Field label="Requested By" value={selectedTask.requester} />
+                <Field label="Submitted On" value={formatDate(selectedTask.assigned_at)} />
+                <Field label="Amount" value={formatCurrency(selectedTask.amount || 0)} />
+                <Field label="Approval Level" value={`${selectedTask.level_no} of ${selectedTask.total_levels}`} />
+              </FieldGrid>
+            </Section>
 
             <DocumentPreview task={selectedTask} />
 

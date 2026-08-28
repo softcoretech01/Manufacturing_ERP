@@ -42,7 +42,8 @@ export function StockAgeingPage() {
         {data?.total_value != null && <span className="ml-auto self-end pb-1 rounded bg-brand-500/10 px-2.5 py-1 text-xs font-semibold text-brand-600">Total {formatCurrency(data.total_value)}</span>}
       </CardBody></Card>
 
-      <DataTable rows={rows} columns={columns} rowKey={(r) => r.item_code} loading={isLoading}
+      <DataTable
+          density="comfortable" rows={rows} columns={columns} rowKey={(r) => r.item_code} loading={isLoading}
         searchPlaceholder="Item…" emptyTitle="No stock to age" />
       <p className="mt-2 text-2xs text-fg-subtle">Buckets are days since receipt of the on-hand layer (FIFO). Layers over 90 days are highlighted.</p>
     </div>

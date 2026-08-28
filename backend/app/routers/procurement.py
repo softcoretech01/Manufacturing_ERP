@@ -4,10 +4,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from typing import List, Any
 from app.core.database import get_session
-from app.core.deps import ContextDep, SessionDep
+from app.core.deps import ContextDep, SessionDep, require
 from app.core.context import TenantContext
 from app.core.doc_status import register_status_writer
 from app.schemas.procurement import PurchaseRequisitionSchema
+from app.services.totals import recalc_requisition
 from app.modules.workflow.application.engine import WorkflowService
 
 router = APIRouter(prefix="/procurement/requisitions", tags=["Procurement"])
@@ -42,7 +43,7 @@ async def _pr_status_writer(
 
 register_status_writer("PURCHASE_REQUISITION", _pr_status_writer)
 
-@router.get("", response_model=List[PurchaseRequisitionSchema])
+@router.get("", response_model=List[PurchaseRequisitionSchema], dependencies=[Depends(require("PROCUREMENT.PR.VIEW"))])
 async def get_all_requisitions(session: AsyncSession = Depends(get_session)) -> Any:
     query = text("CALL ERP_Procurement.SpManagePurchaseRequisition('READ_ALL', NULL, NULL)")
     result = await session.execute(query)
@@ -52,7 +53,7 @@ async def get_all_requisitions(session: AsyncSession = Depends(get_session)) -> 
         return data
     return []
 
-@router.get("/{uid}", response_model=PurchaseRequisitionSchema)
+@router.get("/{uid}", response_model=PurchaseRequisitionSchema, dependencies=[Depends(require("PROCUREMENT.PR.VIEW"))])
 async def get_requisition(uid: str, session: AsyncSession = Depends(get_session)) -> Any:
     query = text("CALL ERP_Procurement.SpManagePurchaseRequisition('READ', :uid, NULL)")
     result = await session.execute(query, {"uid": uid})
@@ -62,8 +63,10 @@ async def get_requisition(uid: str, session: AsyncSession = Depends(get_session)
         return data
     raise HTTPException(status_code=404, detail="Requisition not found")
 
-@router.post("", response_model=Any, status_code=status.HTTP_201_CREATED)
-async def create_requisition(req: PurchaseRequisitionSchema, session: SessionDep, ctx: ContextDep) -> Any:
+@router.post("", response_model=Any, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require("PROCUREMENT.PR.CREATE"))])
+async def create_requisition(req: PurchaseRequisitionSchema, session: SessionDep, ctx: TenantContext = Depends(require("PROCUREMENT.PR.CREATE"))) -> Any:
+    # Never trust client-supplied money — recompute from the lines.
+    await recalc_requisition(session, req)
     payload = req.model_dump_json(exclude_none=True)
     query = text("CALL ERP_Procurement.SpManagePurchaseRequisition('CREATE', NULL, :payload)")
     result = await session.execute(query, {"payload": payload})
@@ -83,12 +86,14 @@ async def create_requisition(req: PurchaseRequisitionSchema, session: SessionDep
         return data
     raise HTTPException(status_code=500, detail="Failed to create requisition")
 
-@router.put("/{uid}", response_model=Any)
-async def update_requisition(uid: str, req: PurchaseRequisitionSchema, session: SessionDep, ctx: ContextDep) -> Any:
+@router.put("/{uid}", response_model=Any, dependencies=[Depends(require("PROCUREMENT.PR.EDIT"))])
+async def update_requisition(uid: str, req: PurchaseRequisitionSchema, session: SessionDep, ctx: TenantContext = Depends(require("PROCUREMENT.PR.EDIT"))) -> Any:
     if req.uid and str(req.uid) != str(uid):
         raise HTTPException(status_code=400, detail="UID in path does not match UID in payload")
     
     req.uid = int(uid) if uid.isdigit() else uid
+    # Never trust client-supplied money — recompute from the lines.
+    await recalc_requisition(session, req)
     payload = req.model_dump_json()
     query = text("CALL ERP_Procurement.SpManagePurchaseRequisition('UPDATE', :uid, :payload)")
     result = await session.execute(query, {"uid": req.uid, "payload": payload})
@@ -108,7 +113,7 @@ async def update_requisition(uid: str, req: PurchaseRequisitionSchema, session: 
         return data
     raise HTTPException(status_code=404, detail="Requisition not found or update failed")
 
-@router.delete("/{uid}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{uid}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require("PROCUREMENT.PR.DELETE"))])
 async def delete_requisition(uid: str, session: AsyncSession = Depends(get_session)) -> None:
     # We pass a simple JSON payload with modifiedBy just to be safe if the SP looks for it
     payload = json.dumps({"modifiedBy": "System"})

@@ -1,28 +1,21 @@
-from fastapi import APIRouter, HTTPException
-import pymysql
-import os
+from fastapi import APIRouter, HTTPException, Depends
+from app.core.deps import require
+from app.core.legacy_db import get_connection
 import json
 from decimal import Decimal
 
 router = APIRouter()
 
 def get_db_connection():
-    return pymysql.connect(
-        host=os.getenv('DB_HOST', '187.127.131.38'),
-        port=int(os.getenv('DB_PORT', 3308)),
-        user=os.getenv('DB_USER', 'root'),
-        password=os.getenv('DB_PASSWORD', 'Ener9y_Demo@2026'),
-        database='ERP_Procurement',
-        cursorclass=pymysql.cursors.DictCursor,
-        client_flag=pymysql.constants.CLIENT.MULTI_STATEMENTS
-    )
+    """Connection for this router's stored procedures (credentials from settings)."""
+    return get_connection("ERP_Procurement")
 
 def decimal_default(obj):
     if isinstance(obj, Decimal):
         return float(obj)
     raise TypeError
 
-@router.get("/")
+@router.get("/", dependencies=[Depends(require("PROCUREMENT.DASHBOARD.VIEW"))])
 def get_dashboard_data():
     conn = get_db_connection()
     try:

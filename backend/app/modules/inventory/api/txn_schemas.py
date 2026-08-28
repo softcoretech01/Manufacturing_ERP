@@ -18,7 +18,7 @@ class _Loc(InModel):
 
 
 class IssueRequest(_Loc):
-    pass
+    department_uid: str | None = None
 
 
 class ReturnRequest(_Loc):

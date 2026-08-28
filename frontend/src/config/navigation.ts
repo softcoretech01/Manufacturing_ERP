@@ -314,11 +314,9 @@ const INVENTORY_NAV: NavGroup[] = [
   { portal: 'INVENTORY', label: 'Stock Out', to: '/inventory/issues', icon: Send },
   { portal: 'INVENTORY', label: 'Stock Return', to: '/inventory/returns', icon: RotateCcw },
   { portal: 'INVENTORY', label: 'Stock Transfer', to: '/inventory/transfers', icon: Truck },
-  { portal: 'INVENTORY', label: 'Batch & Expiry', to: '/inventory/batches', icon: CalendarClock },
-  { portal: 'INVENTORY', label: 'Low Stock Monitor', to: '/inventory/replenishment', icon: Siren },
+  { portal: 'INVENTORY', label: 'Low Stock Monitor', to: '/inventory/reorder', icon: Siren },
   { portal: 'INVENTORY', label: 'Stock Ledger', to: '/inventory/ledger', icon: BookOpen },
   { portal: 'INVENTORY', label: 'Category Ledger', to: '/inventory/category-ledger', icon: BookOpen },
-  { portal: 'INVENTORY', label: 'Warehouse Setup', to: '/inventory/warehouses', icon: Warehouse }
 ]
 
 /* ═══════════════ Product Engineering — BOM & Routing (Vol 6) ═════════════ */

@@ -318,3 +318,38 @@ class TransactionService:
             }
             for led, item_code, item_name, wh_code in rows
         ]
+
+    async def reverse_document(self, document_no: str, reason: str = "Reversal") -> dict[str, Any]:
+        from app.core.time import utcnow
+        
+        stmt = select(InvStockLedger).where(
+            InvStockLedger.document_no == document_no, 
+            InvStockLedger.company_id == self.ctx.company_id
+        )
+        rows = (await self.session.execute(stmt)).scalars().all()
+        if not rows:
+            raise NotFoundError(f"Document {document_no} not found")
+        
+        # Don't reverse a reversal!
+        if any(r.movement_type.endswith("_REV") for r in rows):
+            raise ValidationFailedError("Cannot reverse a reversal document")
+
+        rev_doc = f"{document_no}-REV"
+        biz_date = utcnow().date()
+        results = []
+
+        for led in rows:
+            rev_dir = MovementDirection.IN.value if led.direction == MovementDirection.OUT.value else MovementDirection.OUT.value
+            item = await self.session.get(MstItem, led.item_id)
+            if not item: continue
+            
+            # Post equal opposite movement
+            new_led = await self.stock.post_movement(
+                item=item, warehouse_id=led.warehouse_id, bin_id=led.bin_id, batch_no=led.batch_no,
+                direction=rev_dir, quantity=Decimal(str(led.quantity)), rate=Decimal(str(led.rate)),
+                movement_type=f"{led.movement_type}_REV", document_type=f"{led.document_type}_REV", document_no=rev_doc,
+                remarks=f"Reverses {document_no}: {reason}", business_date=biz_date,
+            )
+            results.append(new_led)
+        
+        return {"document_no": rev_doc, "reversed_lines": len(results)}

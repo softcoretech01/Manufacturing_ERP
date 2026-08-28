@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { Modal } from '@/components/ui/Modal'
-import { Input, Select, Textarea } from '@/components/ui/Input'
+import { Input, Select } from '@/components/ui/Input'
 import { PageHeader } from '@/components/ui/Misc'
 import { useToast } from '@/components/ui/Toast'
 import { formatDate, formatCurrency } from '@/lib/format'
@@ -14,6 +14,7 @@ import * as api from '@/api/procurement'
 import { getItems, getEmployees } from '@/api/masters'
 import { useItemCategories } from '@/hooks/useItemCategories'
 import { useDocDetail } from '@/hooks/useDocDetail'
+import { useItemLookup } from '@/hooks/useItemLookup'
 import {
   ProcModal, ModalFooter, Section, FieldGrid, Field,
   LineItemsTable, TotalsPanel, RowActions, money, qty as fmtQty,
@@ -47,6 +48,7 @@ export function RequisitionsPage() {
 
   const cats = useItemCategories()
   const detail = useDocDetail<any>(api.getRequisition)
+  const lookup = useItemLookup()
 
   const fetchList = () => {
     setLoading(true)
@@ -299,7 +301,7 @@ export function RequisitionsPage() {
   ]
 
   const subtotal = form.lines.reduce((acc: number, l: any) => acc + (l.total || 0), 0)
-  const tax = subtotal * 0.18
+  const tax = 0 // Default to 0% tax
   const grandTotal = subtotal + tax
 
   return (
@@ -421,7 +423,7 @@ export function RequisitionsPage() {
 
           <div className="flex justify-between items-center border-t border-border pt-4 mt-6">
             <div className="text-sm font-semibold text-fg">
-              Grand Total: {formatCurrency(grandTotal)} <span className="text-xs text-fg-muted font-normal">(inc. 18% tax)</span>
+              Grand Total: {formatCurrency(grandTotal)}
             </div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
@@ -451,7 +453,7 @@ export function RequisitionsPage() {
           const lines = editing.lines || []
           const sub = lines.reduce(
             (a: number, l: any) => a + (Number(l.qty) || 0) * Number(l.estimatedRate ?? l.unitPrice ?? 0), 0)
-          const taxAmt = sub * 0.18
+          const taxAmt = 0 // Default to 0% tax
           const approvals = editing.approvals || []
           const decided = approvals.find((a: any) => a.status && a.status !== 'PENDING')
           return (
@@ -463,6 +465,7 @@ export function RequisitionsPage() {
                   <Field label="Requested By" value={editing.requestedBy} />
                   <Field label="Item Type" value={editing.department || editing.itemType} />
                   <Field label="Required Date" value={editing.requiredBy ? formatDate(editing.requiredBy) : null} />
+                  <Field label="Priority" value={editing.priority} />
                   <Field label="Status" value={<ProcStatusBadge status={editing.status} />} />
                   <Field label="Remarks" span value={editing.justification || editing.remarks} />
                 </FieldGrid>
@@ -473,8 +476,10 @@ export function RequisitionsPage() {
                   rows={lines}
                   empty="This requisition has no items."
                   columns={[
-                    { key: 'category', header: 'Category', render: (l) =>
-                        masters.items.find(i => i.code === l.itemCode)?.category ?? '—' },
+                    { key: 'itemType', header: 'Type', width: '130px', render: (l) =>
+                        lookup.itemTypeOf(l.itemCode) || <span className="text-fg-subtle">—</span> },
+                    { key: 'category', header: 'Category', width: '150px', render: (l) =>
+                        lookup.categoryOf(l.itemCode) || <span className="text-fg-subtle">—</span> },
                     { key: 'itemName', header: 'Item', render: (l) =>
                         <span className="font-medium text-fg">{l.itemName}</span> },
                     { key: 'qty', header: 'Qty', align: 'right', width: '90px', render: (l) => fmtQty(l.qty) },

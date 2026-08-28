@@ -1,21 +1,14 @@
 from fastapi import APIRouter
+from app.core.legacy_db import get_connection
 from typing import List
-import pymysql
 from pydantic import BaseModel
 from app.schemas.camel import CamelModel
 
 import pymysql
 
 def get_db_connection():
-    return pymysql.connect(
-        host='187.127.131.38',
-        port=3308,
-        user='root',
-        password='Ener9y_Demo@2026',
-        database='ERP_Quality',
-        autocommit=True
-    )
-
+    """Connection for this router's stored procedures (credentials from settings)."""
+    return get_connection("ERP_Quality")
 router = APIRouter(prefix="/api/v1/quality/lookups", tags=["Quality Lookups"])
 
 class LookupItem(CamelModel):

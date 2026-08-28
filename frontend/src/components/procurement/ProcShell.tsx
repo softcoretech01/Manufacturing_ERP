@@ -9,11 +9,24 @@ import type { ApprovalStep } from '@/types/procurement'
 
 const PROC_STATUS: Record<string, { tone: StatusTone; label: string }> = {
   DRAFT: { tone: 'draft', label: 'Draft' },
+  SUBMITTED: { tone: 'progress', label: 'Submitted' },
   PENDING_APPROVAL: { tone: 'pending', label: 'Pending approval' },
   APPROVED: { tone: 'success', label: 'Approved' },
+  RELEASED: { tone: 'success', label: 'Released' },
   REJECTED: { tone: 'danger', label: 'Rejected' },
   IN_PROGRESS: { tone: 'progress', label: 'In progress' },
   PARTIALLY_EXECUTED: { tone: 'progress', label: 'Partial' },
+  // Document states the procurement chain actually emits but that had no entry,
+  // so they fell through to the grey "unknown status" default — a PO coming back
+  // FULLY_RECEIVED read as neutral rather than complete.
+  SENT_TO_VENDORS: { tone: 'progress', label: 'Sent to vendors' },
+  RESPONDED: { tone: 'success', label: 'Quoted' },
+  PO_CREATED: { tone: 'brand', label: 'PO created' },
+  PARTIALLY_RECEIVED: { tone: 'warning', label: 'Partially received' },
+  FULLY_RECEIVED: { tone: 'success', label: 'Fully received' },
+  QC_PENDING: { tone: 'warning', label: 'QC pending' },
+  QC_ACCEPTED: { tone: 'success', label: 'QC accepted' },
+  QC_REJECTED: { tone: 'danger', label: 'QC rejected' },
   COMPLETED: { tone: 'success', label: 'Completed' },
   SHORT_CLOSED: { tone: 'neutral', label: 'Short closed' },
   CLOSED: { tone: 'neutral', label: 'Closed' },
@@ -49,6 +62,8 @@ const PROC_STATUS: Record<string, { tone: StatusTone; label: string }> = {
   VIEWED: { tone: 'progress', label: 'Viewed' },
   QUOTED: { tone: 'success', label: 'Quoted' },
   NO_RESPONSE: { tone: 'danger', label: 'No response' },
+  USED: { tone: 'brand', label: 'PO Placed' },
+  SELECTED: { tone: 'success', label: 'Selected' },
   RUNNING: { tone: 'progress', label: 'Running' },
   FAILED: { tone: 'danger', label: 'Failed' },
   PASS: { tone: 'success', label: 'Pass' },
@@ -62,7 +77,9 @@ const PROC_STATUS: Record<string, { tone: StatusTone; label: string }> = {
   PARTIAL: { tone: 'warning', label: 'Partial' },
   POSTED: { tone: 'success', label: 'Posted' },
   PAID: { tone: 'neutral', label: 'Paid' },
-  OPEN: { tone: 'danger', label: 'Open' },
+  // In procurement OPEN is the healthy in-flight state of an RFQ or a PO, not a
+  // fault — it was rendering as a red danger badge on the RFQ list.
+  OPEN: { tone: 'progress', label: 'Open' },
   RESOLVED: { tone: 'success', label: 'Resolved' },
   // Supplier qualification
   PROSPECT: { tone: 'draft', label: 'Prospect' },

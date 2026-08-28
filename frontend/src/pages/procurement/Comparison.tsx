@@ -11,6 +11,7 @@ import {
   ProcModal, ModalFooter, Section, FieldGrid, Field, EmptyState, money, qty as fmtQty,
 } from '@/components/procurement/ProcKit'
 import * as api from '@/api/procurement'
+import { useItemLookup } from '@/hooks/useItemLookup'
 
 /*
  * Quotation Comparison is an ANALYSIS screen, not a data-entry form.
@@ -35,6 +36,7 @@ interface SupplierColumn {
 
 export function ComparisonPage() {
   const toast = useToast()
+  const lookup = useItemLookup()
 
   const [rfqs, setRfqs] = useState<any[]>([])
   const [selectedRfqNo, setSelectedRfqNo] = useState('')
@@ -130,6 +132,10 @@ export function ComparisonPage() {
 
   const confirmAward = async () => {
     if (!awardTarget) return
+    if (awarding) {
+      toast.success('Success', 'Already created successfully')
+      return
+    }
     setAwarding(true)
     try {
       const res: any = await api.selectQuotation(awardTarget.quotationUid, awardRemarks)
@@ -147,7 +153,9 @@ export function ComparisonPage() {
     }
   }
 
-  const comparableRfqs = rfqs.filter(r => quotedRfqNos.has(r.docNo))
+  const comparableRfqs = rfqs.filter(
+    r => quotedRfqNos.has(r.docNo) && r.status !== 'COMPLETED' && r.status !== 'CLOSED'
+  )
 
   return (
     <div className="flex h-full w-full flex-1 flex-col">
@@ -270,7 +278,9 @@ export function ComparisonPage() {
                           <td className="px-3 py-3 text-center text-fg-muted">{i + 1}</td>
                           <td className="px-3 py-3">
                             <span className="font-medium text-fg">{it.itemName}</span>
-                            <span className="block text-[11px] text-fg-muted">{it.uom}</span>
+                            <span className="block text-[11px] text-fg-muted">
+                              {[lookup.categoryOf(it.itemCode), it.uom].filter(Boolean).join(' · ')}
+                            </span>
                           </td>
                           <td className="px-3 py-3 text-right tabular-nums">{fmtQty(it.qty)}</td>
                           {columns.map(c => {

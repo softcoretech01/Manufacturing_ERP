@@ -26,6 +26,10 @@ class StockBalanceRow(ApiModel):
     item_uid: str
     item_code: str
     item_name: str
+    # The raw enum (RAW_MATERIAL, CONSUMABLE, …) for filtering and badges, and
+    # the same value as a human label. The row carried only the label, so a grid
+    # binding to `item_type` rendered an empty badge.
+    item_type: str
     category: str
     uom: str
     warehouse_uid: str | None
@@ -106,3 +110,32 @@ class ReceiptResult(ApiModel):
     stock_status: str
     balance_qty_after: float
     balance_rate_after: float
+
+
+class ItemOut(ApiModel):
+    """An item as the stock screens need it.
+
+    Deliberately the ``mst_item`` row and not the procurement ``Item`` master:
+    stock is keyed on this table's ULID, so anything that will be posted as an
+    ``item_uid`` must come from here. See ``GrnPostingService`` on why the two
+    masters are bridged rather than merged.
+    """
+
+    uid: str
+    code: str
+    name: str
+    item_type: str
+    base_uom: str
+    hsn_code: str | None = None
+    is_batch_tracked: bool
+    is_serial_tracked: bool
+    valuation_method: str
+    qty_precision: int
+    reorder_level: float | None = None
+    min_level: float | None = None
+    max_level: float | None = None
+    standard_rate: float | None = None
+    is_active: bool
+    is_blocked_for_movement: bool
+    default_receipt_status: str
+    version: int

@@ -172,6 +172,7 @@ export function RequisitionsPage() {
       </p>
 
       <DataTable
+          density="comfortable"
         rows={requisitions}
         columns={columns}
         rowKey={(r) => r.uid}
