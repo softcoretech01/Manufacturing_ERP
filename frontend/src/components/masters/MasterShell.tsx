@@ -113,15 +113,8 @@ export interface MasterActionsProps {
   onSubmit?: () => void
   onApprove?: () => void
   onReject?: () => void
-  onCopy?: () => void
   onArchive?: () => void
   onDelete?: () => void
-  onPrint?: () => void
-  onExport?: () => void
-  onImport?: () => void
-  onAttach?: () => void
-  onComment?: () => void
-  onHistory?: () => void
   compact?: boolean
 }
 
@@ -138,15 +131,8 @@ export function MasterActions({
   onSubmit,
   onApprove,
   onReject,
-  onCopy,
   onArchive,
   onDelete,
-  onPrint,
-  onExport,
-  onImport,
-  onAttach,
-  onComment,
-  onHistory,
   compact,
 }: MasterActionsProps) {
   const toast = useToast()
@@ -203,15 +189,6 @@ export function MasterActions({
               </Button>
             }
           >
-            <MenuItem label="Copy / duplicate" icon={<Copy className="h-3.5 w-3.5" />} onClick={onCopy ?? (() => toast.success('Copied to a new draft'))} />
-            <MenuItem label="Print" icon={<Printer className="h-3.5 w-3.5" />} onClick={onPrint ?? (() => toast.success('Sent to printer'))} />
-            <MenuItem label="Export" icon={<Download className="h-3.5 w-3.5" />} onClick={onExport ?? (() => toast.success('Export queued'))} />
-            <MenuItem label="Import from Excel" icon={<FileSpreadsheet className="h-3.5 w-3.5" />} onClick={onImport ?? (() => toast.info('Import', 'Download the template, fill it, then dry-run before committing.'))} />
-            <MenuSeparator />
-            <MenuItem label="Attach document" icon={<Paperclip className="h-3.5 w-3.5" />} onClick={onAttach ?? (() => toast.info('Attach'))} />
-            <MenuItem label="Add comment" icon={<MessageSquare className="h-3.5 w-3.5" />} onClick={onComment ?? (() => toast.info('Comment'))} />
-            <MenuItem label="Revision history" icon={<History className="h-3.5 w-3.5" />} onClick={onHistory ?? (() => {})} />
-            <MenuSeparator />
             <MenuItem
               label="Archive"
               icon={<Archive className="h-3.5 w-3.5" />}

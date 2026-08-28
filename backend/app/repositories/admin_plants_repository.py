@@ -120,18 +120,6 @@ class AdminPlantsRepository:
         await self.db.execute(query, {"p_Uid": uid, "p_ModifiedBy": user_id})
         await self.db.commit()
 
-    # PRODUCTION LINE
-    async def get_production_lines(self) -> List[Dict[str, Any]]:
-        query = text("CALL SpProductionLine('LIST', NULL)")
-        result = await self.db.execute(query)
-        return [self._row_to_dict(r) for r in result.fetchall()]
-
-    # WORK CENTRE
-    async def get_work_centres(self) -> List[Dict[str, Any]]:
-        query = text("CALL SpWorkCentre('LIST', NULL)")
-        result = await self.db.execute(query)
-        return [self._row_to_dict(r) for r in result.fetchall()]
-
     # WAREHOUSE
     async def get_warehouses(self) -> List[Dict[str, Any]]:
         query = text("CALL SpWarehouse('LIST', NULL)")

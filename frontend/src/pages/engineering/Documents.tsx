@@ -12,9 +12,8 @@ import { useToast } from '@/components/ui/Toast'
 import { DetailBlock, EngStatusBadge } from '@/components/engineering/EngShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDate } from '@/lib/format'
-import { useEngineeringCollection } from '@/store/engData'
+
 import { useCollection } from '@/store/data'
-import { products as seedProducts } from '@/mock/engineering'
 import type { DocType, EngDocument, EngProduct } from '@/types/engineering'
 import { engineeringApi as api } from '@/api/engineering'
 
@@ -68,7 +67,11 @@ export function EngDocumentsPage() {
   const toast = useToast()
   // Products can remain mocked or use the real API. Since the user only asked for Documents, we'll keep products as is to avoid breaking changes, but we could fetch them.
   // Actually, we should ideally fetch products too if we want a true integration, but let's stick to the requirements for Documents.
-  const { rows: products } = useEngineeringCollection<EngProduct>('eng:products', useMemo(() => seedProducts, []))
+  const [products, setProducts] = useState<EngProduct[]>([])
+  
+  useEffect(() => {
+    api.getEngProducts().then(setProducts).catch(console.error)
+  }, [])
 
   const [rows, setRows] = useState<EngDocument[]>([])
   const [loading, setLoading] = useState(true)
@@ -112,15 +115,15 @@ export function EngDocumentsPage() {
   })
 
   const columns: Column<EngDocument>[] = [
-    { key: 'code', header: 'Document', sortable: true, width: '12rem', render: (d) => <span className="font-mono text-xs font-medium text-brand-600">{d.code}</span> },
+    { key: 'code', header: 'Document', sortable: true, width: '7.5rem', render: (d) => <span className="font-mono text-xs font-medium text-brand-600">{d.code}</span> },
     { key: 'title', header: 'Title', sortable: true },
-    { key: 'docType', header: 'Type', sortable: true, width: '12rem', accessor: (d) => DOC_TYPE_LABEL[d.docType], render: (d) => <span className="text-xs text-fg-muted">{DOC_TYPE_LABEL[d.docType]}</span> },
-    { key: 'productCode', header: 'Product', sortable: true, width: '11rem', render: (d) => <span className="font-mono text-2xs text-fg-muted">{d.productCode}</span> },
-    { key: 'revision', header: 'Rev', align: 'right', width: '4.5rem', accessor: (d) => d.revision, render: (d) => <span className="font-mono text-2xs">R{d.revision}</span> },
-    { key: 'fileName', header: 'File', width: '14rem', render: (d) => <span className="truncate font-mono text-2xs text-fg-muted">{d.fileName}</span> },
-    { key: 'sizeKb', header: 'Size', align: 'right', sortable: true, width: '6rem', accessor: (d) => d.sizeKb, render: (d) => (d.sizeKb > 1024 ? `${(d.sizeKb / 1024).toFixed(1)} MB` : `${d.sizeKb} KB`) },
-    { key: 'uploadedOn', header: 'Uploaded', sortable: true, width: '7.5rem', accessor: (d) => d.uploadedOn, render: (d) => formatDate(d.uploadedOn) },
-    { key: 'status', header: 'Status', sortable: true, width: '9rem', render: (d) => <EngStatusBadge status={d.status} size="sm" /> },
+    { key: 'docType', header: 'Type', sortable: true, width: '8.5rem', accessor: (d) => DOC_TYPE_LABEL[d.docType], render: (d) => <span className="text-xs text-fg-muted">{DOC_TYPE_LABEL[d.docType]}</span> },
+    { key: 'productCode', header: 'Product', sortable: true, width: '7.5rem', render: (d) => <span className="font-mono text-2xs text-fg-muted">{d.productCode}</span> },
+    { key: 'revision', header: 'Rev', align: 'right', width: '3.5rem', accessor: (d) => d.revision, render: (d) => <span className="font-mono text-2xs">R{d.revision}</span> },
+    { key: 'fileName', header: 'File', render: (d) => <span className="truncate font-mono text-2xs text-fg-muted">{d.fileName}</span> },
+    { key: 'sizeKb', header: 'Size', align: 'right', sortable: true, width: '4.5rem', accessor: (d) => d.sizeKb, render: (d) => (d.sizeKb > 1024 ? `${(d.sizeKb / 1024).toFixed(1)} MB` : `${d.sizeKb} KB`) },
+    { key: 'uploadedOn', header: 'Uploaded', sortable: true, width: '6.5rem', accessor: (d) => d.uploadedOn, render: (d) => formatDate(d.uploadedOn) },
+    { key: 'status', header: 'Status', sortable: true, width: '8.5rem', render: (d) => <EngStatusBadge status={d.status} size="sm" /> },
   ]
 
   async function openCreate() {

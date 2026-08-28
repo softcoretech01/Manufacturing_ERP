@@ -43,8 +43,7 @@ function pmOverdue(m: Machine) {
   return !!m.nextPmOn && new Date(m.nextPmOn) < new Date()
 }
 
-function MachineDetail({ m, onClose }: { m: Machine; onClose: () => void }) {
-  const toast = useToast()
+function MachineDetail({ m, onClose, onEdit }: { m: Machine; onClose: () => void; onEdit: () => void }) {
   const [tab, setTab] = useState('general')
   const overdue = pmOverdue(m)
 
@@ -67,7 +66,7 @@ function MachineDetail({ m, onClose }: { m: Machine; onClose: () => void }) {
           <MasterActions
             status={m.status}
             usageCount={m.whereUsed.filter((w) => w.isOpen).length}
-            onEdit={() => toast.info('Edit')}
+            onEdit={onEdit}
           />
         </div>
       }
@@ -127,9 +126,9 @@ function MachineDetail({ m, onClose }: { m: Machine; onClose: () => void }) {
                   <DataGrid
                     columns={1}
                     items={[
-                      { label: 'Plant', value: m.plantUid },
-                      { label: 'Line', value: m.lineCode },
-                      { label: 'Work centre', value: m.workCentreCode },
+                      { label: 'Plant', value: m.plantName ?? m.plantCode },
+                      { label: 'Line', value: m.lineName ?? m.lineCode },
+                      { label: 'Work centre', value: m.workCentreName ?? m.workCentreCode },
                       { label: 'Installed on', value: formatDate(m.installedOn) },
                       { label: 'Warranty until', value: m.warrantyUntil ? formatDate(m.warrantyUntil) : 'Expired / none' },
                     ]}
@@ -141,8 +140,8 @@ function MachineDetail({ m, onClose }: { m: Machine; onClose: () => void }) {
                 createdAt={m.createdDate as any}
                 modifiedBy={m.modifiedBy}
                 modifiedAt={m.modifiedDate as any}
-                approvedBy={undefined}
-                approvedAt={undefined}
+                approvedBy={null}
+                approvedAt={null}
                 revision={1}
                 effectiveFrom={null as any}
                 effectiveTo={null}
@@ -244,27 +243,122 @@ function MachineDetail({ m, onClose }: { m: Machine; onClose: () => void }) {
   )
 }
 
+/* ── Client-side mirror of the server's machine rules ──────────────────────
+   The API is the authority; this exists so the user sees the problem next to
+   the field instead of as a toast after a round trip. Keep the two in step. */
+const CURRENT_YEAR = new Date().getFullYear()
+
+function validateMachine(f: any, wcsForLine: any[]): Record<string, string> {
+  const e: Record<string, string> = {}
+  const text = (v: any) => (typeof v === 'string' ? v.trim() : v ?? '')
+
+  if (!text(f.name)) e.name = 'Name is required.'
+  else if (text(f.name).length < 2) e.name = 'Name must be at least 2 characters.'
+  else if (text(f.name).length > 150) e.name = 'Name cannot exceed 150 characters.'
+
+  if (!text(f.manufacturer)) e.manufacturer = 'Manufacturer is required.'
+  else if (text(f.manufacturer).length > 150) e.manufacturer = 'Manufacturer cannot exceed 150 characters.'
+
+  if (!f.machineGroupId) e.machineGroupId = 'Machine group is required.'
+  if (!f.plantId) e.plantId = 'Plant is required.'
+  if (!f.lineId) e.lineId = 'Line is required.'
+  if (!f.workCentreId) e.workCentreId = 'Work centre is required.'
+  else if (f.lineId && !wcsForLine.some((w) => w.id === Number(f.workCentreId))) {
+    e.workCentreId = 'This work centre is not on the selected line.'
+  }
+
+  if (text(f.modelNumber).length > 100) e.modelNumber = 'Model number cannot exceed 100 characters.'
+  if (text(f.serialNumber).length > 100) e.serialNumber = 'Serial number cannot exceed 100 characters.'
+  if (text(f.assetCode).length > 100) e.assetCode = 'Asset code cannot exceed 100 characters.'
+
+  const cap = Number(f.capacityPerHour)
+  if (f.capacityPerHour === '' || f.capacityPerHour === undefined || f.capacityPerHour === null || Number.isNaN(cap)) {
+    e.capacityPerHour = 'Capacity per hour is required.'
+  } else if (cap <= 0) e.capacityPerHour = 'Capacity must be greater than zero.'
+  else if (cap > 99999999.99) e.capacityPerHour = 'Capacity is unrealistically large.'
+
+  if (!text(f.capacityUom)) e.capacityUom = 'Capacity UOM is required.'
+
+  if (f.powerKw !== '' && f.powerKw !== undefined && f.powerKw !== null) {
+    const kw = Number(f.powerKw)
+    if (Number.isNaN(kw) || kw < 0) e.powerKw = 'Power cannot be negative.'
+    else if (kw > 99999999.99) e.powerKw = 'Power is unrealistically large.'
+  }
+
+  if (f.operatorsRequired !== '' && f.operatorsRequired !== undefined && f.operatorsRequired !== null) {
+    const ops = Number(f.operatorsRequired)
+    if (Number.isNaN(ops) || ops < 0) e.operatorsRequired = 'Operators cannot be negative.'
+    else if (ops > 100) e.operatorsRequired = 'At most 100 operators.'
+  }
+
+  const pm = Number(f.pmFrequencyDays)
+  if (f.pmFrequencyDays === '' || f.pmFrequencyDays === undefined || f.pmFrequencyDays === null || Number.isNaN(pm)) {
+    e.pmFrequencyDays = 'PM frequency is required.'
+  } else if (pm < 1) e.pmFrequencyDays = 'PM frequency must be at least 1 day.'
+  else if (pm > 3650) e.pmFrequencyDays = 'PM frequency cannot exceed 3650 days (10 years).'
+
+  if (f.yearOfManufacture !== '' && f.yearOfManufacture !== undefined && f.yearOfManufacture !== null) {
+    const y = Number(f.yearOfManufacture)
+    if (Number.isNaN(y) || y < 1900 || y > CURRENT_YEAR + 1) {
+      e.yearOfManufacture = `Year must be between 1900 and ${CURRENT_YEAR + 1}.`
+    }
+  }
+
+  if (f.oeePct !== '' && f.oeePct !== undefined && f.oeePct !== null) {
+    const oee = Number(f.oeePct)
+    if (Number.isNaN(oee) || oee < 0 || oee > 100) e.oeePct = 'OEE must be between 0 and 100.'
+  }
+
+  if (f.installedOn && f.warrantyUntil && f.warrantyUntil < f.installedOn) {
+    e.warrantyUntil = 'Warranty cannot end before the machine was installed.'
+  }
+  if (f.lastPmOn && f.nextPmOn && f.nextPmOn < f.lastPmOn) {
+    e.nextPmOn = 'Next PM cannot be before the last PM.'
+  }
+  return e
+}
+
 export function MachineMasterPage() {
   const toast = useToast()
-  
+
   const [machines, setMachines] = useState<any[]>([])
-  
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [groups, setGroups] = useState<any[]>([])
+  const [plants, setPlants] = useState<any[]>([])
+  const [lines, setLines] = useState<any[]>([])
+  const [workCentres, setWorkCentres] = useState<any[]>([])
+
   const loadMachines = async () => {
     try {
       const data = await api.getMachines()
-      setMachines(data.map(m => ({
-        ...m,
-        uid: String(m.id),
-        whereUsed: [],
-        revisions: []
-      })))
+      setMachines(data.map((m: any) => ({ ...m, uid: String(m.id), whereUsed: [], revisions: [] })))
+      setLoadError(null)
     } catch (e: any) {
-      toast.error('Failed to load machines', e.message)
+      setLoadError(e?.message ?? 'Unknown error')
+      toast.error('Failed to load machines', e?.message)
+    }
+  }
+
+  const loadLookups = async () => {
+    try {
+      const [g, p, l, w] = await Promise.all([
+        api.getMachineGroups(),
+        api.getProductionPlants(),
+        api.getProductionLines(),
+        api.getWorkCentres(),
+      ])
+      setGroups(g)
+      setPlants(p)
+      setLines(l)
+      setWorkCentres(w)
+    } catch (e: any) {
+      toast.error('Failed to load machine lookups', e?.message)
     }
   }
 
   useEffect(() => {
     loadMachines()
+    loadLookups()
   }, [])
 
   function doExport(format: ExportFormat) {
@@ -278,31 +372,163 @@ export function MachineMasterPage() {
   const [tab, setTab] = useState('list')
   const [detail, setDetail] = useState<Machine | null>(null)
   const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState<any | null>(null)
   const [form, setForm] = useState<any>({ operations: [], criticality: 'C', currentState: 'IDLE' })
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState(false)
   const [filter, setFilter] = useState('')
+
+  // Work centres belong to a line, and lines to a plant — so each dropdown is
+  // narrowed by the one above it rather than offering impossible combinations.
+  const linesForPlant = useMemo(
+    () => (form.plantId ? lines.filter((l) => l.plantId === Number(form.plantId)) : lines),
+    [lines, form.plantId],
+  )
+  const wcsForLine = useMemo(
+    () => (form.lineId ? workCentres.filter((w) => w.lineId === Number(form.lineId)) : []),
+    [workCentres, form.lineId],
+  )
 
   const handleOpenNew = async () => {
     try {
       const res = await api.getNextMachineCode()
-      setForm({ code: res.nextCode, operations: [], criticality: 'C', currentState: 'IDLE', operatorsRequired: 1, pmFrequencyDays: 90 })
+      setEditing(null)
+      setErrors({})
+      setForm({
+        code: res.nextCode,
+        operations: [],
+        criticality: 'C',
+        currentState: 'IDLE',
+        operatorsRequired: 1,
+        pmFrequencyDays: 90,
+        capacityUom: 'NOS',
+        oeePct: 0,
+      })
       setFormOpen(true)
     } catch (e) {
       toast.error('Failed to fetch next code')
     }
   }
-  
-  const handleCreate = async () => {
-    try {
-      await api.createMachine(form)
-      toast.success('Machine created')
-      setFormOpen(false)
-      loadMachines()
-    } catch (e) {
-      toast.error('Failed to create machine')
+
+  const handleOpenEdit = (m: any) => {
+    setEditing(m)
+    setErrors({})
+    setForm({
+      code: m.code,
+      name: m.name,
+      machineGroupId: m.machineGroupId,
+      plantId: m.plantId,
+      lineId: m.lineId,
+      workCentreId: m.workCentreId,
+      manufacturer: m.manufacturer,
+      modelNumber: m.modelNumber ?? '',
+      serialNumber: m.serialNumber ?? '',
+      yearOfManufacture: m.yearOfManufacture ?? '',
+      assetCode: m.assetCode ?? '',
+      capacityPerHour: m.capacityPerHour,
+      capacityUom: m.capacityUom,
+      powerKw: m.powerKw ?? '',
+      operatorsRequired: m.operatorsRequired,
+      installedOn: m.installedOn ?? '',
+      warrantyUntil: m.warrantyUntil ?? '',
+      pmFrequencyDays: m.pmFrequencyDays,
+      lastPmOn: m.lastPmOn ?? '',
+      nextPmOn: m.nextPmOn ?? '',
+      criticality: m.criticality,
+      currentState: m.currentState,
+      oeePct: m.oeePct,
+      operations: m.operations ?? [],
+      status: m.status,
+    })
+    setDetail(null)
+    setFormOpen(true)
+  }
+
+  /** Blank optional strings must go as null, and numerics as numbers. */
+  const toPayload = (f: any) => {
+    const num = (v: any) => (v === '' || v === null || v === undefined ? null : Number(v))
+    const str = (v: any) => {
+      const s = typeof v === 'string' ? v.trim() : v
+      return s === '' || s === undefined ? null : s
+    }
+    return {
+      code: str(f.code),
+      name: str(f.name),
+      machineGroupId: num(f.machineGroupId),
+      plantId: num(f.plantId),
+      lineId: num(f.lineId),
+      workCentreId: num(f.workCentreId),
+      manufacturer: str(f.manufacturer),
+      modelNumber: str(f.modelNumber),
+      serialNumber: str(f.serialNumber),
+      yearOfManufacture: num(f.yearOfManufacture),
+      assetCode: str(f.assetCode),
+      capacityPerHour: num(f.capacityPerHour),
+      capacityUom: str(f.capacityUom),
+      powerKw: num(f.powerKw),
+      operatorsRequired: num(f.operatorsRequired) ?? 1,
+      installedOn: str(f.installedOn),
+      warrantyUntil: str(f.warrantyUntil),
+      pmFrequencyDays: num(f.pmFrequencyDays),
+      lastPmOn: str(f.lastPmOn),
+      nextPmOn: str(f.nextPmOn),
+      criticality: f.criticality || 'C',
+      currentState: f.currentState || 'IDLE',
+      oeePct: num(f.oeePct) ?? 0,
+      operations: f.operations ?? [],
+      status: f.status || 'ACTIVE',
     }
   }
 
-  const groups = useMemo(() => [...new Set(machines.map((m) => m.machineGroup))].sort(), [])
+  /** Turn the API's RFC 9457 `errors[]` into per-field messages. */
+  const applyServerErrors = (e: any): boolean => {
+    const list = e?.problem?.errors
+    if (!Array.isArray(list) || !list.length) return false
+    const mapped: Record<string, string> = {}
+    for (const item of list) {
+      // Pydantic reports a path ("body.capacityPerHour"); our services report a field.
+      const field = String(item.field ?? '').split('.').pop() ?? ''
+      if (field) mapped[field] = item.message ?? 'Invalid value.'
+    }
+    if (!Object.keys(mapped).length) return false
+    setErrors(mapped)
+    return true
+  }
+
+  const handleSave = async () => {
+    const e = validateMachine(form, wcsForLine)
+    setErrors(e)
+    if (Object.keys(e).length) {
+      toast.error('Cannot save', `${Object.keys(e).length} field(s) need attention.`)
+      return
+    }
+    setSaving(true)
+    try {
+      if (editing) {
+        await api.updateMachine(editing.id, toPayload(form))
+        toast.success('Machine updated', `${form.code} — ${form.name}`)
+      } else {
+        await api.createMachine(toPayload(form))
+        toast.success('Machine created', `${form.code} — ${form.name}`)
+      }
+      setFormOpen(false)
+      setEditing(null)
+      loadMachines()
+    } catch (err: any) {
+      if (applyServerErrors(err)) {
+        toast.error('Cannot save', 'The server rejected some values — see the highlighted fields.')
+      } else {
+        toast.error(editing ? 'Failed to update machine' : 'Failed to create machine', err?.message)
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const groupNames = useMemo(
+    () => [...new Set(machines.map((m) => m.machineGroup).filter(Boolean))].sort(),
+    [machines],
+  )
 
   const rows = useMemo(() => {
     if (filter === 'breakdown') return machines.filter((m) => m.currentState === 'BREAKDOWN')
@@ -310,7 +536,7 @@ export function MachineMasterPage() {
     if (filter === 'critical') return machines.filter((m) => m.criticality === 'A')
     if (filter) return machines.filter((m) => m.machineGroup === filter)
     return machines
-  }, [filter])
+  }, [filter, machines])
 
   const down = machines.filter((m) => m.currentState === 'BREAKDOWN')
   const overduePm = machines.filter((m) => pmOverdue(m) && m.currentState !== 'DECOMMISSIONED')
@@ -435,7 +661,7 @@ export function MachineMasterPage() {
                 { value: 'breakdown', label: 'Down now' },
                 { value: 'pm', label: 'PM overdue' },
                 { value: 'critical', label: 'Criticality A' },
-                ...groups.map((g) => ({ value: g, label: `Group — ${g}` })),
+                ...groupNames.map((g) => ({ value: g, label: `Group — ${g}` })),
               ]}
             />
           }
@@ -443,7 +669,7 @@ export function MachineMasterPage() {
           rowActions={(m) => (
             <>
               <MenuItem label="Open" onClick={() => setDetail(m)} />
-              <MenuItem label="Edit" onClick={() => setDetail(m)} />
+              <MenuItem label="Edit" onClick={() => handleOpenEdit(m)} />
               <MenuItem
                 label="Raise breakdown call"
                 danger={m.currentState !== 'BREAKDOWN'}
@@ -460,7 +686,7 @@ export function MachineMasterPage() {
                 onClick={async () => {
                   const off = m.currentState === 'DECOMMISSIONED'
                   try {
-                    await api.updateMachine(m.id, { currentState: off ? 'IDLE' : 'DECOMMISSIONED', status: off ? 'ACTIVE' : 'INACTIVE' })
+                    await api.updateMachine(m.uid, { currentState: off ? 'IDLE' : 'DECOMMISSIONED', status: off ? 'ACTIVE' : 'INACTIVE' })
                     toast.success(off ? 'Recommissioned' : 'Decommissioned', m.name)
                     loadMachines()
                   } catch (e) {
@@ -474,7 +700,7 @@ export function MachineMasterPage() {
                 disabled={m.whereUsed?.length > 0}
                 onClick={async () => { 
                   try {
-                    await api.deleteMachine(m.id)
+                    await api.deleteMachine(m.uid)
                     toast.success('Deleted', `${m.code} — ${m.name}`)
                     loadMachines()
                   } catch (e) {
@@ -489,51 +715,146 @@ export function MachineMasterPage() {
 
       
 
-      {detail && <MachineDetail m={detail} onClose={() => setDetail(null)} />}
+      {detail && <MachineDetail m={detail} onClose={() => setDetail(null)} onEdit={() => handleOpenEdit(detail)} />}
 
       <Modal
         open={formOpen}
         onClose={() => setFormOpen(false)}
         size="lg"
-        title="New machine"
+        title={editing ? `Edit machine — ${editing.code}` : 'New machine'}
         footer={
           <>
-            <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={handleCreate}>Create</Button>
+            <Button variant="outline" onClick={() => setFormOpen(false)} disabled={saving}>Cancel</Button>
+            <Button variant="primary" onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving…' : editing ? 'Save changes' : 'Create'}
+            </Button>
           </>
         }
       >
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-3.5">
             <Input label="Machine code" required disabled value={form.code || ''} className="font-mono" />
-            <Input label="Name" required value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            <Select label="Machine group" required value={form.machineGroup || ''} onChange={(e) => setForm({ ...form, machineGroup: e.target.value })} options={groups.map((g) => ({ value: g, label: g }))} />
-            <Input label="Manufacturer" required value={form.manufacturer || ''} onChange={(e) => setForm({ ...form, manufacturer: e.target.value })} />
-            <Input label="Model number" value={form.modelNumber || ''} onChange={(e) => setForm({ ...form, modelNumber: e.target.value })} className="font-mono" />
-            <Input label="Serial number" value={form.serialNumber || ''} onChange={(e) => setForm({ ...form, serialNumber: e.target.value })} className="font-mono" />
-            <Input label="Asset code" required value={form.assetCode || ''} onChange={(e) => setForm({ ...form, assetCode: e.target.value })} className="font-mono" hint="Must match an existing fixed-asset record." />
+            <Input
+              label="Name" required maxLength={150}
+              value={form.name || ''} error={errors.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
+            <Select
+              label="Machine group" required
+              value={form.machineGroupId ?? ''} error={errors.machineGroupId}
+              onChange={(e) => setForm({ ...form, machineGroupId: e.target.value })}
+              options={[
+                { value: '', label: 'Select a group…' },
+                ...groups.map((g) => ({ value: String(g.id), label: `${g.code} — ${g.name}` })),
+              ]}
+            />
+            <Input
+              label="Manufacturer" required maxLength={150}
+              value={form.manufacturer || ''} error={errors.manufacturer}
+              onChange={(e) => setForm({ ...form, manufacturer: e.target.value })}
+            />
+            <Input
+              label="Model number" maxLength={100} className="font-mono"
+              value={form.modelNumber || ''} error={errors.modelNumber}
+              onChange={(e) => setForm({ ...form, modelNumber: e.target.value })}
+            />
+            <Input
+              label="Serial number" maxLength={100} className="font-mono"
+              value={form.serialNumber || ''} error={errors.serialNumber}
+              onChange={(e) => setForm({ ...form, serialNumber: e.target.value })}
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Year of manufacture" type="number" min={1900} max={CURRENT_YEAR + 1}
+                value={form.yearOfManufacture ?? ''} error={errors.yearOfManufacture}
+                onChange={(e) => setForm({ ...form, yearOfManufacture: e.target.value })}
+              />
+              <Input
+                label="Asset code" maxLength={100} className="font-mono"
+                value={form.assetCode || ''} error={errors.assetCode}
+                onChange={(e) => setForm({ ...form, assetCode: e.target.value })}
+                hint="Fixed-asset register reference."
+              />
+            </div>
           </div>
           <div className="space-y-3.5">
             <div className="grid grid-cols-2 gap-3">
-              <Select label="Plant" required value={form.plantUid || ''} onChange={(e) => setForm({ ...form, plantUid: e.target.value })} options={[{ value: 'P1', label: 'P1' }]} />
-              <Select label="Line" required value={form.lineCode || ''} onChange={(e) => setForm({ ...form, lineCode: e.target.value })} options={[{ value: 'LN-A', label: 'Line A' }, { value: 'LN-B', label: 'Line B' }, { value: 'LN-C', label: 'Line C' }]} />
+              <Select
+                label="Plant" required
+                value={form.plantId ?? ''} error={errors.plantId}
+                // Changing the plant invalidates the line and work centre below it.
+                onChange={(e) => setForm({ ...form, plantId: e.target.value, lineId: '', workCentreId: '' })}
+                options={[
+                  { value: '', label: 'Select a plant…' },
+                  ...plants.map((p) => ({ value: String(p.id), label: `${p.code} — ${p.name}` })),
+                ]}
+              />
+              <Select
+                label="Line" required disabled={!form.plantId}
+                value={form.lineId ?? ''} error={errors.lineId}
+                onChange={(e) => setForm({ ...form, lineId: e.target.value, workCentreId: '' })}
+                options={[
+                  { value: '', label: form.plantId ? 'Select a line…' : 'Choose a plant first' },
+                  ...linesForPlant.map((l) => ({ value: String(l.id), label: `${l.code} — ${l.name}` })),
+                ]}
+              />
+            </div>
+            <Select
+              label="Work centre" required disabled={!form.lineId}
+              value={form.workCentreId ?? ''} error={errors.workCentreId}
+              onChange={(e) => setForm({ ...form, workCentreId: e.target.value })}
+              options={[
+                { value: '', label: form.lineId ? 'Select a work centre…' : 'Choose a line first' },
+                ...wcsForLine.map((w) => ({ value: String(w.id), label: `${w.code} — ${w.name}` })),
+              ]}
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Capacity / hour" type="number" required min={0} step="0.01"
+                value={form.capacityPerHour ?? ''} error={errors.capacityPerHour}
+                onChange={(e) => setForm({ ...form, capacityPerHour: e.target.value })}
+              />
+              <Select
+                label="Capacity UOM" required
+                value={form.capacityUom || ''} error={errors.capacityUom}
+                onChange={(e) => setForm({ ...form, capacityUom: e.target.value })}
+                options={[
+                  { value: 'NOS', label: 'NOS' },
+                  { value: 'KG', label: 'KG' },
+                  { value: 'CTN', label: 'CTN' },
+                  { value: 'LTR', label: 'LTR' },
+                  { value: 'MTR', label: 'MTR' },
+                ]}
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Select label="Work centre" required value={form.workCentreCode || ''} onChange={(e) => setForm({ ...form, workCentreCode: e.target.value })} options={[{ value: 'WC-01', label: 'WC-01' }, { value: 'WC-02', label: 'WC-02' }, { value: 'WC-03', label: 'WC-03' }]} />
+              <Input
+                label="Power (kW)" type="number" min={0} step="0.01"
+                value={form.powerKw ?? ''} error={errors.powerKw}
+                onChange={(e) => setForm({ ...form, powerKw: e.target.value })}
+              />
+              <Input
+                label="Operators required" type="number" min={0} max={100}
+                value={form.operatorsRequired ?? ''} error={errors.operatorsRequired}
+                onChange={(e) => setForm({ ...form, operatorsRequired: e.target.value })}
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Input label="Capacity / hour" type="number" required value={form.capacityPerHour || ''} onChange={(e) => setForm({ ...form, capacityPerHour: parseFloat(e.target.value) })} />
-              <Select label="Capacity UOM" value={form.capacityUom || ''} onChange={(e) => setForm({ ...form, capacityUom: e.target.value })} options={[{ value: 'NOS', label: 'NOS' }, { value: 'KG', label: 'KG' }, { value: 'CTN', label: 'CTN' }]} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Input label="Power (kW)" type="number" value={form.powerKw || ''} onChange={(e) => setForm({ ...form, powerKw: parseFloat(e.target.value) })} />
-              <Input label="Operators required" type="number" value={form.operatorsRequired || ''} onChange={(e) => setForm({ ...form, operatorsRequired: parseInt(e.target.value) })} />
+              <Input
+                label="Installed on" type="date"
+                value={form.installedOn || ''} error={errors.installedOn}
+                onChange={(e) => setForm({ ...form, installedOn: e.target.value })}
+              />
+              <Input
+                label="Warranty until" type="date"
+                value={form.warrantyUntil || ''} error={errors.warrantyUntil}
+                onChange={(e) => setForm({ ...form, warrantyUntil: e.target.value })}
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <Select
-                label="Criticality"
-                required
-                value={form.criticality || ''}
+                label="Criticality" required
+                value={form.criticality || ''} error={errors.criticality}
                 onChange={(e) => setForm({ ...form, criticality: e.target.value })}
                 options={[
                   { value: 'A', label: 'A — line stops' },
@@ -541,9 +862,31 @@ export function MachineMasterPage() {
                   { value: 'C', label: 'C — low impact' },
                 ]}
               />
-              <Input label="PM frequency (days)" type="number" required value={form.pmFrequencyDays || ''} onChange={(e) => setForm({ ...form, pmFrequencyDays: parseInt(e.target.value) })} />
+              <Input
+                label="PM frequency (days)" type="number" required min={1} max={3650}
+                value={form.pmFrequencyDays ?? ''} error={errors.pmFrequencyDays}
+                onChange={(e) => setForm({ ...form, pmFrequencyDays: e.target.value })}
+              />
             </div>
-            <Textarea label="Operations performed" rows={2} value={form.operations?.join(', ')} onChange={(e) => setForm({ ...form, operations: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })} placeholder="Deep Drawing, Bottle Forming" hint="Comma separated." />
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Last PM on" type="date"
+                value={form.lastPmOn || ''} error={errors.lastPmOn}
+                onChange={(e) => setForm({ ...form, lastPmOn: e.target.value })}
+              />
+              <Input
+                label="Next PM on" type="date"
+                value={form.nextPmOn || ''} error={errors.nextPmOn}
+                onChange={(e) => setForm({ ...form, nextPmOn: e.target.value })}
+              />
+            </div>
+            <Textarea
+              label="Operations performed" rows={2}
+              value={form.operations?.join(', ') ?? ''}
+              onChange={(e) => setForm({ ...form, operations: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })}
+              placeholder="Deep Drawing, Bottle Forming"
+              hint="Comma separated, up to 30 operations."
+            />
           </div>
         </div>
       </Modal>
