@@ -11,6 +11,11 @@ import { formatDate, formatCurrency } from '@/lib/format'
 import { ProcStatusBadge } from '@/components/procurement/ProcShell'
 import { ProcurementToolbar } from '@/components/procurement/ProcurementToolbar'
 import * as api from '@/api/procurement'
+import { useDocDetail } from '@/hooks/useDocDetail'
+import {
+  ProcModal, ModalFooter, Section, FieldGrid, Field,
+  LineItemsTable, TotalsPanel, RowActions, money, qty as fmtQty,
+} from '@/components/procurement/ProcKit'
 import { getSuppliers, getPaymentTerms, getTaxes } from '@/api/masters'
 import { getWarehouses, getCurrencies, getPlants } from '@/api/masters_extra'
 
@@ -36,6 +41,7 @@ export function OrdersPage() {
   const [formOpen, setFormOpen] = useState(false)
   const [viewOpen, setViewOpen] = useState(false)
   const [editing, setEditing] = useState<any | null>(null)
+  const detail = useDocDetail<any>(api.getPurchaseOrder)
   
   const [form, setForm] = useState<any>({
     supplierUid: '',
@@ -69,13 +75,21 @@ export function OrdersPage() {
       getSuppliers(), getPaymentTerms(), getTaxes(), 
       getWarehouses(), getCurrencies(), getPlants(), api.getQuotations()
     ]).then(([suppliers, terms, taxes, stores, currencies, plants, quotes]) => {
-      setMasters({ suppliers, terms, taxes, stores, currencies, plants, quotes: quotes.filter((q:any) => q.status === 'APPROVED' || q.status === 'QUOTED') })
+      // Only a quotation that won its comparison may become a purchase order,
+      // and only until it has been used — a USED quotation never reappears.
+      setMasters({ suppliers, terms, taxes, stores, currencies, plants,
+        quotes: quotes.filter((q: any) => q.status === 'SELECTED') })
     }).catch(() => toast.error('Error', 'Failed to load master data'))
   }, [])
 
   const filteredData = useMemo(() => {
     return data.filter(d => {
-      if (search && !d.docNo?.toLowerCase().includes(search.toLowerCase()) && !d.rfqNo?.toLowerCase().includes(search.toLowerCase())) return false
+      const q = search.toLowerCase()
+      if (search && !(
+        d.docNo?.toLowerCase().includes(q) ||
+        d.rfqNo?.toLowerCase().includes(q) ||
+        (d.supplierName || '').toLowerCase().includes(q)
+      )) return false
       if (dateFrom && new Date(d.docDate) < new Date(dateFrom)) return false
       if (dateTo && new Date(d.docDate) > new Date(dateTo)) return false
       return true
@@ -89,7 +103,8 @@ export function OrdersPage() {
     fetchList()
   }
 
-  const handleOpenForm = (po?: any) => {
+  const handleOpenForm = async (poRow?: any) => {
+    const po = poRow ? await detail.load(poRow) : undefined
     if (po) {
       setEditing(po)
       setForm({
@@ -126,9 +141,10 @@ export function OrdersPage() {
     setFormOpen(true)
   }
 
-  const handleView = (po: any) => {
+  const handleView = async (po: any) => {
     setEditing(po)
     setViewOpen(true)
+    setEditing(await detail.load(po))
   }
 
   const handleQuoteSelect = (quoteNo: string) => {
@@ -265,14 +281,11 @@ export function OrdersPage() {
       width: '120px',
       className: 'col-flex',
       render: (r) => (
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => handleView(r)} title="View">
-            <Eye className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => handleOpenForm(r)} title="Edit">
-            <Edit className="h-4 w-4" />
-          </Button>
-        </div>
+        <RowActions
+          onView={() => handleView(r)}
+          // Approved, released or partly received orders are no longer editable.
+          onEdit={['DRAFT', 'REJECTED'].includes(r.status) ? () => handleOpenForm(r) : undefined}
+        />
       ),
     },
   ]
@@ -294,6 +307,7 @@ export function OrdersPage() {
         dateFrom={dateFrom} onDateFromChange={setDateFrom}
         dateTo={dateTo} onDateToChange={setDateTo}
         onReset={handleResetFilters}
+        searchHint="PO number, supplier or quotation" dateLabel="PO date"
       />
 
       <div className="flex-1 flex flex-col min-h-0 bg-surface-2 pt-4 w-full">
@@ -396,71 +410,91 @@ export function OrdersPage() {
         </div>
       </Modal>
 
-      <Modal open={viewOpen} onClose={() => setViewOpen(false)} title={`View PO - ${editing?.docNo}`} size="2xl">
-        {editing && (
-          <div className="flex flex-col gap-6">
-            <div className="grid grid-cols-4 gap-4 text-sm bg-gray-50/50 p-4 rounded-lg border border-border">
-              <div><span className="text-fg-muted">PO No:</span> <span className="font-medium">{editing.docNo}</span></div>
-              <div><span className="text-fg-muted">Date:</span> <span className="font-medium">{formatDate(editing.docDate)}</span></div>
-              <div><span className="text-fg-muted">Supplier:</span> <span className="font-medium">{masters.suppliers.find(s => (s.uid || s.id) === editing.supplierUid)?.name || editing.supplierUid}</span></div>
-              <div><span className="text-fg-muted">Promised:</span> <span className="font-medium">{editing.promisedDate ? formatDate(editing.promisedDate) : '-'}</span></div>
-            </div>
+      <ProcModal
+        open={viewOpen}
+        onClose={() => setViewOpen(false)}
+        title={`Purchase Order ${editing?.docNo ?? ''}`.trim()}
+        width="wide"
+        footer={
+          <ModalFooter onCancel={() => setViewOpen(false)} cancelLabel="Close">
+            {editing?.status === 'DRAFT' && (
+              <Button variant="primary" onClick={() => handleSubmitApproval(editing)}>Submit for Approval</Button>
+            )}
+          </ModalFooter>
+        }
+      >
+        {editing && (() => {
+          const lines = editing.lines || []
+          const approvals = editing.approvals || []
+          const decided = approvals.find((a: any) => a.status && a.status !== 'PENDING')
+          const ordered = lines.reduce((a: number, l: any) => a + (Number(l.qty) || 0), 0)
+          const received = lines.reduce((a: number, l: any) => a + (Number(l.receivedQty) || 0), 0)
+          return (
+            <>
+              <Section title="PO Information">
+                <FieldGrid>
+                  <Field label="PO Number" mono value={editing.docNo} />
+                  <Field label="PO Date" value={formatDate(editing.docDate)} />
+                  <Field label="Supplier" value={
+                    masters.suppliers.find((x: any) => String(x.uid || x.id) === String(editing.supplierUid))?.name
+                    || editing.supplierName || editing.supplierUid} />
+                  <Field label="Reference Quotation" mono value={editing.rfqNo} />
+                  <Field label="Delivery Store" value={
+                    masters.stores.find((w: any) => String(w.code) === String(editing.deliveryWarehouse))?.name
+                    || editing.deliveryWarehouse} />
+                  <Field label="Expected Delivery" value={editing.promisedDate ? formatDate(editing.promisedDate) : null} />
+                  <Field label="Payment Terms" value={editing.paymentTerms} />
+                  <Field label="Status" value={<ProcStatusBadge status={editing.status} />} />
+                  <Field label="Remarks" span value={editing.remarks} />
+                </FieldGrid>
+              </Section>
 
-            <Card>
-              <CardHeader title="Order Lines" />
-              <CardBody className="p-0 overflow-x-auto">
-                <table className="grid-table w-full text-sm min-w-[800px]">
-                  <thead>
-                    <tr>
-                      <th className="w-10">#</th>
-                      <th>Item</th>
-                      <th className="w-20">Qty</th>
-                      <th className="text-right">Rate</th>
-                      <th className="text-right">Tax %</th>
-                      <th className="text-right">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {editing.lines?.map((l: any, i: number) => (
-                      <tr key={i}>
-                        <td className="text-center">{i + 1}</td>
-                        <td>{l.itemName} <span className="text-xs text-fg-muted">({l.uom})</span></td>
-                        <td>{l.qty}</td>
-                        <td className="text-right">{formatCurrency(l.rate)}</td>
-                        <td className="text-right">{l.taxPct}%</td>
-                        <td className="text-right font-medium">{formatCurrency(l.total)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div className="flex justify-end p-4 border-t border-border bg-gray-50/50">
-                  <div className="w-64 space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-fg-muted">Basic Value</span>
-                      <span className="font-medium">{formatCurrency(editing.basicValue)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-fg-muted">Tax Value</span>
-                      <span className="font-medium">{formatCurrency(editing.taxValue)}</span>
-                    </div>
-                    <div className="flex justify-between border-t border-border pt-2">
-                      <span className="font-medium">Total Value</span>
-                      <span className="font-bold text-brand-600">{formatCurrency(editing.totalValue)}</span>
-                    </div>
-                  </div>
-                </div>
-              </CardBody>
-            </Card>
+              <Section title="Items">
+                <LineItemsTable
+                  rows={lines}
+                  empty="This order has no items."
+                  columns={[
+                    { key: 'itemName', header: 'Item', render: (l) => <span className="font-medium text-fg">{l.itemName}</span> },
+                    { key: 'qty', header: 'Ordered', align: 'right', width: '95px', render: (l) => fmtQty(l.qty) },
+                    { key: 'uom', header: 'UOM', align: 'center', width: '70px' },
+                    { key: 'rate', header: 'Unit Price', align: 'right', width: '110px', render: (l) => money(l.rate) },
+                    { key: 'taxPct', header: 'Tax %', align: 'right', width: '75px', render: (l) => `${Number(l.taxPct) || 0}%` },
+                    { key: 'lineTotal', header: 'Amount', align: 'right', width: '120px', render: (l) =>
+                        <span className="font-medium text-fg">{money(l.lineTotal)}</span> },
+                    { key: 'receivedQty', header: 'Received', align: 'right', width: '95px', render: (l) => fmtQty(l.receivedQty) },
+                    { key: 'remaining', header: 'Remaining', align: 'right', width: '100px', render: (l) =>
+                        fmtQty((Number(l.qty) || 0) - (Number(l.receivedQty) || 0)) },
+                  ]}
+                />
+                <TotalsPanel
+                  subtotal={Number(editing.basicValue) || 0}
+                  tax={Number(editing.taxValue) || 0}
+                  grandTotal={Number(editing.totalValue) || 0}
+                />
+              </Section>
 
-            <div className="flex justify-end gap-2 border-t border-border pt-4">
-              <Button variant="outline" onClick={() => setViewOpen(false)}>Close</Button>
-              {editing.status === 'DRAFT' && (
-                <Button variant="primary" onClick={() => handleSubmitApproval(editing)}>Submit for Approval</Button>
+              {decided && (
+                <Section title="Approval">
+                  <FieldGrid>
+                    <Field label="Approval Status" value={<ProcStatusBadge status={decided.status} />} />
+                    <Field label="Approved By" value={decided.approver} />
+                    <Field label="Approved Date" value={decided.actedAt ? formatDate(decided.actedAt) : null} />
+                    <Field label="Approval Remarks" value={decided.remarks} />
+                  </FieldGrid>
+                </Section>
               )}
-            </div>
-          </div>
-        )}
-      </Modal>
+
+              <Section title="Receiving">
+                <FieldGrid cols={3}>
+                  <Field label="Ordered Quantity" value={fmtQty(ordered)} />
+                  <Field label="Received Quantity" value={fmtQty(received)} />
+                  <Field label="Remaining Quantity" value={fmtQty(ordered - received)} />
+                </FieldGrid>
+              </Section>
+            </>
+          )
+        })()}
+      </ProcModal>
     </div>
   )
 }

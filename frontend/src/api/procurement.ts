@@ -17,6 +17,10 @@ export const getQuotation = (id: string) => api.get<any>(`/procurement/quotation
 export const createQuotation = (data: any) => api.post<any>('/procurement/quotations', data)
 export const updateQuotation = (id: string, data: any) => api.put<any>(`/procurement/quotations/${id}`, data)
 export const deleteQuotation = (id: string) => api.del(`/procurement/quotations/${id}`)
+/** Award the RFQ to this supplier's quotation. The backend marks the winner
+ *  SELECTED, the others REJECTED and closes the RFQ, all in one transaction. */
+export const selectQuotation = (id: string, remarks?: string) =>
+  api.post(`/procurement/quotations/${id}/select`, { remarks: remarks || null })
 
 export const getPurchaseOrders = () => api.get<any>('/procurement/purchase-orders').then(res => Array.isArray(res) ? res : res.data || [])
 export const getPurchaseOrder = (id: string) => api.get<any>(`/procurement/purchase-orders/${id}`)

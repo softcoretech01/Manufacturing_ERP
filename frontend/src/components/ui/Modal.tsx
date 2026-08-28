@@ -11,6 +11,7 @@ const SIZES = {
   xl: 'max-w-3xl',
   '2xl': 'max-w-4xl',
   '3xl': 'max-w-5xl',
+  '4xl': 'max-w-6xl',
   full: 'max-w-[95vw]',
 }
 
