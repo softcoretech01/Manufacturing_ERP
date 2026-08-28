@@ -1,21 +1,40 @@
-from pydantic import BaseModel, Field, constr
+from pydantic import BaseModel, Field, constr, field_validator
 from typing import List, Optional, Union
 from datetime import date, datetime
 
-class PrLineSchema(BaseModel):
+
+class ProcBase(BaseModel):
+    """Base for procurement documents. Stored procedures return SQL NULL for
+    unset numeric columns (e.g. receivedQty, discountPct); the schema types them
+    as plain float/int with a 0 default, and a bare None would fail response
+    validation (422 on read). This coerces None -> 0 for numeric-typed fields so
+    reads never 422 on unpopulated numbers, while leaving Optional/str fields as-is.
+    """
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _null_numeric_to_zero(cls, v, info):
+        if v is None:
+            ann = cls.model_fields[info.field_name].annotation
+            if ann in (float, int):
+                return 0
+        return v
+
+
+class PrLineSchema(ProcBase):
     uid: Optional[Union[int, str]] = None
     itemCode: str
     itemName: str
     uom: str
     qty: float
-    qtyOrdered: float = 0
+    qtyOrdered: float = 0.0
     requiredBy: date
-    estimatedRate: float
+    estimatedRate: float = 0.0            # MySQL DECIMAL NOT NULL — default 0
     costCentre: Optional[str] = None
     suggestedSupplier: Optional[str] = None
     specification: Optional[str] = None
 
-class ApprovalStepSchema(BaseModel):
+class ApprovalStepSchema(ProcBase):
     level: int
     role: str
     approver: str
@@ -23,9 +42,9 @@ class ApprovalStepSchema(BaseModel):
     actedAt: Optional[datetime] = None
     remarks: Optional[str] = None
 
-class PurchaseRequisitionSchema(BaseModel):
+class PurchaseRequisitionSchema(ProcBase):
     uid: Optional[Union[int, str]] = None
-    docNo: str
+    docNo: Optional[str] = None           # None → SP auto-generates the PR number
     docDate: date
     status: str
     plant: str
@@ -39,9 +58,9 @@ class PurchaseRequisitionSchema(BaseModel):
     priority: str
     requiredBy: date
     justification: str
-    estimatedValue: float = 0
+    estimatedValue: float = 0.0
     budgetCode: Optional[str] = None
-    budgetAvailable: Optional[float] = None
+    budgetAvailable: float = 0.0          # MySQL DECIMAL NOT NULL — never send null
     convertedTo: Optional[str] = None
     createdBy: Optional[str] = None
     createdAt: Optional[datetime] = None
@@ -49,33 +68,33 @@ class PurchaseRequisitionSchema(BaseModel):
     lines: List[PrLineSchema] = []
     approvals: List[ApprovalStepSchema] = []
 
-class RfqLineSchema(BaseModel):
+class RfqLineSchema(ProcBase):
     uid: Optional[Union[int, str]] = None
     itemCode: str
     itemName: str
     uom: str
     qty: float
-    requiredBy: date
+    requiredBy: Optional[date] = None
     specification: Optional[str] = None
 
-class RfqSupplierSchema(BaseModel):
+class RfqSupplierSchema(ProcBase):
     supplierUid: str
     supplierName: str
-    invitedAt: datetime
+    invitedAt: Optional[datetime] = None
     respondedAt: Optional[datetime] = None
-    responseStatus: str
+    responseStatus: Optional[str] = "PENDING"
     quotationUid: Optional[str] = None
 
-class RfqSchema(BaseModel):
+class RfqSchema(ProcBase):
     uid: Optional[Union[int, str]] = None
-    docNo: str
+    docNo: Optional[str] = None
     docDate: date
-    status: str
-    plant: str
-    title: str
+    status: Optional[str] = None
+    plant: Optional[str] = None
+    title: Optional[str] = None
     category: str
     quoteDueBy: date
-    buyer: str
+    buyer: Optional[str] = None
     sealed: bool = True
     currency: str = "INR"
     estimatedValue: float = 0
@@ -92,7 +111,7 @@ class RfqSchema(BaseModel):
     suppliers: List[RfqSupplierSchema] = []
     approvals: List[ApprovalStepSchema] = []
 
-class SupplierQuotationLineSchema(BaseModel):
+class SupplierQuotationLineSchema(ProcBase):
     uid: Optional[Union[int, str]] = None
     itemCode: str
     itemName: str
@@ -107,14 +126,14 @@ class SupplierQuotationLineSchema(BaseModel):
     moq: float = 0
     remarks: Optional[str] = None
 
-class SupplierQuotationSchema(BaseModel):
+class SupplierQuotationSchema(ProcBase):
     uid: Optional[Union[int, str]] = None
-    docNo: str
+    docNo: Optional[str] = None
     docDate: date
     rfqNo: str
     supplierUid: str
     supplierName: str
-    status: str
+    status: str = "QUOTED"
     currency: str = "INR"
     exchangeRate: float = 1
     validTill: date
@@ -137,13 +156,13 @@ class SupplierQuotationSchema(BaseModel):
     modifiedAt: Optional[datetime] = None
     lines: List[SupplierQuotationLineSchema] = []
 
-class PoScheduleSchema(BaseModel):
+class PoScheduleSchema(ProcBase):
     uid: Optional[Union[int, str]] = None
     dueDate: date
     qty: float
     receivedQty: float = 0
 
-class PoLineSchema(BaseModel):
+class PoLineSchema(ProcBase):
     uid: Optional[Union[int, str]] = None
     itemCode: str
     itemName: str
@@ -163,21 +182,21 @@ class PoLineSchema(BaseModel):
     qcRequired: bool = False
     schedules: List[PoScheduleSchema] = []
 
-class PoAmendmentChangeSchema(BaseModel):
+class PoAmendmentChangeSchema(ProcBase):
     field: str
     fromValue: Optional[str] = Field(None, alias='from')
     toValue: Optional[str] = Field(None, alias='to')
 
-class PoAmendmentSchema(BaseModel):
+class PoAmendmentSchema(ProcBase):
     revision: int
     amendedAt: str
     amendedBy: str
     reason: str
     changes: List[PoAmendmentChangeSchema] = []
 
-class PurchaseOrderSchema(BaseModel):
+class PurchaseOrderSchema(ProcBase):
     uid: Optional[Union[int, str]] = None
-    docNo: str
+    docNo: Optional[str] = None
     docDate: date
     status: str
     plant: str
@@ -216,7 +235,7 @@ class PurchaseOrderSchema(BaseModel):
     amendments: List[PoAmendmentSchema] = []
     approvals: List[ApprovalStepSchema] = []
 
-class GrnLineSchema(BaseModel):
+class GrnLineSchema(ProcBase):
     uid: Optional[Union[int, str]] = None
     itemCode: str
     itemName: str
@@ -237,7 +256,7 @@ class GrnLineSchema(BaseModel):
     qcStatus: str = "NOT_REQUIRED"
     rejectionReason: Optional[str] = None
 
-class GrnSchema(BaseModel):
+class GrnSchema(ProcBase):
     uid: Optional[Union[int, str]] = None
     docNo: str
     docDate: date
@@ -271,7 +290,7 @@ class GrnSchema(BaseModel):
     lines: List[GrnLineSchema] = []
     approvals: List[ApprovalStepSchema] = []
 
-class InspectionParameterSchema(BaseModel):
+class InspectionParameterSchema(ProcBase):
     uid: Optional[Union[int, str]] = None
     name: str
     method: str
@@ -280,7 +299,7 @@ class InspectionParameterSchema(BaseModel):
     result: str
     critical: bool = False
 
-class IncomingInspectionSchema(BaseModel):
+class IncomingInspectionSchema(ProcBase):
     uid: Optional[Union[int, str]] = None
     docNo: str
     docDate: date

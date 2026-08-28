@@ -6,9 +6,11 @@ import { Button } from './Button'
 
 const SIZES = {
   sm: 'max-w-md',
-  md: 'max-w-xl',
-  lg: 'max-w-3xl',
-  xl: 'max-w-5xl',
+  md: 'max-w-lg',
+  lg: 'max-w-2xl',
+  xl: 'max-w-3xl',
+  '2xl': 'max-w-4xl',
+  '3xl': 'max-w-5xl',
   full: 'max-w-[95vw]',
 }
 

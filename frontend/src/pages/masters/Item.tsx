@@ -258,10 +258,15 @@ export function ItemMasterPage() {
 
   useEffect(() => { setCategoryFilter('') }, [group])
 
+  // Map sub-category to parent
+  const PRODUCT_CATS = new Set(['Raw Materials', 'Components', 'Semi-Finished Goods', 'Finished Goods', 'Packing Materials', 'Production Consumables'])
+  const parentOf = (cat: string) => PRODUCT_CATS.has(cat) ? 'Product Items' : 'Company Items'
+
   const columns: Column<Item>[] = [
     { key: 'sno', header: 'S.no', width: '60px', render: (_, i) => <span className="text-2xs text-fg-subtle">{i + 1}</span> },
     { key: 'code', header: 'Item code', sortable: true, sticky: true, width: '130px', accessor: (i) => i.code, render: (i) => <span className="font-mono text-2xs font-medium text-brand-600">{i.code}</span> },
     { key: 'name', header: 'Item name', sortable: true, width: '260px', accessor: (i) => i.name, render: (i) => <span className="truncate text-xs text-fg">{i.name}</span> },
+    { key: 'itemType', header: 'Type', width: '140px', render: (i) => <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${PRODUCT_CATS.has(i.category) ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>{parentOf(i.category)}</span> },
     { key: 'category', header: 'Category', width: '200px', sortable: true, render: (i) => <span className="truncate text-xs text-fg-muted">{i.category}</span> },
     { key: 'baseUom', header: 'UOM', width: '90px', sortable: true, render: (i) => <span className="text-xs text-fg-muted">{i.baseUom}</span> },
     { key: 'sellingPrice', header: 'Unit price', align: 'right', sortable: true, width: '130px', accessor: (i) => i.sellingPrice ?? 0, render: (i) => i.sellingPrice ? formatCurrency(i.sellingPrice) : <span className="text-2xs text-fg-subtle">—</span> },

@@ -1,29 +1,57 @@
 import { useMemo, useState } from 'react'
 import { ArrowRight, Truck } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
-import { Card, CardBody, CardHeader } from '@/components/ui/Card'
-import { DataTable, type Column } from '@/components/ui/DataTable'
-import { Alert, PageHeader } from '@/components/ui/Misc'
+import { Modal } from '@/components/ui/Modal'
+import { Alert } from '@/components/ui/Misc'
 import { Input, Select } from '@/components/ui/Input'
 import { useToast } from '@/components/ui/Toast'
-import { formatQty, formatDate } from '@/lib/format'
+import { formatQty } from '@/lib/format'
 import { ProblemError } from '@/api/client'
 import { useSession } from '@/api/session'
-import { useItems, useMovements, useTransfer } from '@/hooks/useStock'
+import { useItems, useTransfer } from '@/hooks/useStock'
 import { useWarehouses } from '@/hooks/useOrganisation'
-import type { MovementRow } from '@/api/stock'
+import { DataTable, type Column } from '@/components/ui/DataTable'
+import { PageHeader } from '@/components/ui/Misc'
 
-/** Stock transfer (SRS Vol 4 Ch 5) — moves material between warehouses as an
- *  OUT at the source + an IN at the destination, at the same rate, so the total
- *  value across warehouses is unchanged (V4-STK-FR-003). */
 export function TransfersPage() {
+  const [modalOpen, setModalOpen] = useState(false)
+  const columns: Column<any>[] = [
+    { key: 'date', header: 'Date', width: '120px' },
+    { key: 'item', header: 'Item' },
+    { key: 'qty', header: 'Quantity' },
+    { key: 'from', header: 'From Warehouse' },
+    { key: 'to', header: 'To Warehouse' }
+  ]
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <PageHeader 
+        title="Stock transfer" 
+        description="Move material from one warehouse/store to another immediately."
+        breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Inventory' }, { label: 'Transfers' }]} 
+        actions={<Button variant="primary" onClick={() => setModalOpen(true)}>New Transfer</Button>}
+      />
+      <div className="flex-1 min-h-0 flex flex-col gap-4">
+        <DataTable
+          rows={[]}
+          columns={columns}
+          rowKey={(r) => r.id}
+          searchPlaceholder="Search transfers…"
+          emptyTitle="No recent transfers"
+        />
+      </div>
+      {modalOpen && <TransferModal onClose={() => setModalOpen(false)} />}
+    </div>
+  )
+}
+
+function TransferModal({ onClose }: { onClose: () => void }) {
   const toast = useToast()
   const companyUid = useSession((s) => s.companyUid)
   const items = useItems({ active_only: true }).data ?? []
   const warehouses = useWarehouses().data?.data ?? []
   const transfer = useTransfer()
-  const listQ = useMovements('TRANSFER_OUT,TRANSFER_IN')
-  const movements = listQ.data ?? []
 
   const [itemUid, setItemUid] = useState('')
   const [fromWh, setFromWh] = useState('')
@@ -52,6 +80,7 @@ export function TransfersPage() {
         onSuccess: (res: any) => {
           toast.success('Transferred', `${res.document_no} · ${formatQty(res.quantity)} ${res.item_code} ${res.from_warehouse} → ${res.to_warehouse}`)
           setQty(''); setBatch('')
+          onClose()
         },
         onError: (e) => {
           if (e instanceof ProblemError) {
@@ -65,51 +94,41 @@ export function TransfersPage() {
     )
   }
 
-  const columns: Column<MovementRow>[] = [
-    { key: 'business_date', header: 'Date', width: '100px', render: (m) => formatDate(m.business_date) },
-    { key: 'document_no', header: 'Document', width: '150px', render: (m) => <span className="font-mono text-2xs text-brand-600">{m.document_no}</span> },
-    { key: 'item', header: 'Item', render: (m) => <span className="text-xs">{m.item_code}</span> },
-    { key: 'dir', header: 'Leg', width: '110px', render: (m) => <span className={m.direction === 'IN' ? 'text-2xs text-success' : 'text-2xs text-danger'}>{m.movement_type === 'TRANSFER_IN' ? 'in →' : 'out ←'} {m.warehouse_code}</span> },
-    { key: 'quantity', header: 'Qty', align: 'right', width: '110px', render: (m) => <span className="tabular text-xs">{formatQty(m.quantity)}</span> },
-    { key: 'balance_qty_after', header: 'Balance', align: 'right', width: '110px', render: (m) => <span className="tabular text-2xs text-fg-muted">{formatQty(m.balance_qty_after)}</span> },
-  ]
-
   return (
-    <div>
-      <PageHeader title="Stock transfer"
-        description="Move material between warehouses. It leaves the source and arrives at the destination at the same rate — the total inventory value is unchanged."
-        breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Inventory' }, { label: 'Stock transfer' }]} />
+    <Modal
+      open={true}
+      onClose={onClose}
+      title="Stock transfer"
+      description="Move material from one warehouse/store to another immediately. Both sides of the transaction are ledgered atomically."
+      size="md"
+      closeOnBackdrop={false}
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" icon={<Truck className="h-4 w-4" />} loading={transfer.isPending} onClick={submit}>Transfer Stock</Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {!companyUid && <Alert tone="warning" title="Not signed in to the backend">Sign in first so the app has an API session.</Alert>}
 
-      {!companyUid && <Alert tone="warning" title="Not signed in to the backend">Sign in first so the app has an API session.</Alert>}
-
-      <div className="grid gap-4 lg:grid-cols-[420px_1fr]">
-        <Card>
-          <CardHeader title="Transfer stock" description="OUT at source + IN at destination, atomically." />
-          <CardBody className="space-y-3.5">
-            <Select label="Item" required value={itemUid} error={errors.item} onChange={(e) => setItemUid(e.target.value)}
-              options={[{ value: '', label: 'Select an item…' }, ...items.map((i) => ({ value: i.uid, label: `${i.code} — ${i.name}` }))]} />
-            <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
-              <Select label="From" required value={fromWh} error={errors.from} onChange={(e) => setFromWh(e.target.value)}
-                options={[{ value: '', label: 'Source…' }, ...warehouses.map((w) => ({ value: w.uid, label: w.code }))]} />
-              <ArrowRight className="mb-2.5 h-4 w-4 text-fg-subtle" />
-              <Select label="To" required value={toWh} error={errors.to} onChange={(e) => setToWh(e.target.value)}
-                options={[{ value: '', label: 'Destination…' }, ...warehouses.map((w) => ({ value: w.uid, label: w.code }))]} />
-            </div>
-            <Input label={`Quantity${item ? ` (${item.base_uom})` : ''}`} type="number" required value={qty} error={errors.quantity} onChange={(e) => setQty(e.target.value)} />
-            {needsBatch && <Input label="Batch number" required value={batch} error={errors.batch_no} onChange={(e) => setBatch(e.target.value)} />}
-            <Alert tone="info">Moving material between warehouses never changes its value — it ships at the source moving-average rate.</Alert>
-            <Button variant="primary" icon={<Truck className="h-4 w-4" />} loading={transfer.isPending} onClick={submit} className="w-full">Transfer stock</Button>
-          </CardBody>
-        </Card>
-
-        <Card>
-          <CardHeader title="Recent transfers" description="Both legs of each transfer." />
-          <CardBody className="p-0">
-            <DataTable rows={movements} columns={columns} rowKey={(m) => m.uid} loading={listQ.isLoading}
-              searchPlaceholder="Item, document…" emptyTitle="No transfers yet" />
-          </CardBody>
-        </Card>
+        <Select label="Item" required value={itemUid} error={errors.item} onChange={(e) => setItemUid(e.target.value)}
+          options={[{ value: '', label: 'Select an item…' }, ...items.map((i) => ({ value: i.uid, label: `${i.code} — ${i.name}` }))]} />
+        
+        <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
+          <Select label="From" required value={fromWh} error={errors.from} onChange={(e) => setFromWh(e.target.value)}
+            options={[{ value: '', label: 'Source…' }, ...warehouses.map((w) => ({ value: w.uid, label: w.code }))]} />
+          <ArrowRight className="mb-2.5 h-4 w-4 text-fg-subtle" />
+          <Select label="To" required value={toWh} error={errors.to} onChange={(e) => setToWh(e.target.value)}
+            options={[{ value: '', label: 'Destination…' }, ...warehouses.map((w) => ({ value: w.uid, label: w.code }))]} />
+        </div>
+        
+        <Input label={`Quantity${item ? ` (${item.base_uom})` : ''}`} type="number" required value={qty} error={errors.quantity} onChange={(e) => setQty(e.target.value)} />
+        
+        {needsBatch && <Input label="Batch number" required value={batch} error={errors.batch_no} onChange={(e) => setBatch(e.target.value)} />}
+        
+        <Alert tone="info">Moving material between warehouses never changes its value — it ships at the source moving-average rate.</Alert>
       </div>
-    </div>
+    </Modal>
   )
 }

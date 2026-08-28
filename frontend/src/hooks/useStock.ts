@@ -31,11 +31,33 @@ export function useStockEnquiry(
   })
 }
 
-export function useStockLedger(item: string | undefined, warehouse?: string) {
+export function useStockBalances(
+  params: { warehouse?: string; item_type?: string; search?: string; hide_zero?: boolean } = {},
+) {
   const c = useCompany()
   return useQuery({
-    queryKey: ['stock', c, 'ledger', item ?? '', warehouse ?? ''] as const,
-    queryFn: () => st.stock.ledger(item as string, warehouse),
+    queryKey: ['stock', c, 'balances', params] as const,
+    queryFn: () => st.stock.balanceEnquiry(params),
+    enabled: !!c,
+  })
+}
+
+export function useBatchEnquiry(
+  params: { item_type?: string; search?: string; hide_zero?: boolean } = {},
+) {
+  const c = useCompany()
+  return useQuery({
+    queryKey: ['stock', c, 'batches', params] as const,
+    queryFn: () => st.stock.batchesEnquiry(params),
+    enabled: !!c,
+  })
+}
+
+export function useStockLedger(item: string | undefined, warehouse?: string, batch?: string) {
+  const c = useCompany()
+  return useQuery({
+    queryKey: ['stock', c, 'ledger', item ?? '', warehouse ?? '', batch ?? ''] as const,
+    queryFn: () => st.stock.ledger(item as string, warehouse, batch),
     enabled: !!c && !!item,
   })
 }

@@ -8,7 +8,7 @@ from app.schemas.procurement import SupplierQuotationSchema
 
 router = APIRouter(prefix="/procurement/quotations", tags=["Procurement - Quotations"])
 
-@router.get("/", response_model=List[SupplierQuotationSchema])
+@router.get("", response_model=List[SupplierQuotationSchema])
 async def get_all_quotations(session: AsyncSession = Depends(get_session)) -> Any:
     query = text("CALL ERP_Procurement.SpManageSupplierQuotation('READ_ALL', NULL, NULL)")
     result = await session.execute(query)
@@ -28,7 +28,7 @@ async def get_quotation(uid: str, session: AsyncSession = Depends(get_session)) 
         return data
     raise HTTPException(status_code=404, detail="Quotation not found")
 
-@router.post("/", response_model=SupplierQuotationSchema, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=Any, status_code=status.HTTP_201_CREATED)
 async def create_quotation(req: SupplierQuotationSchema, session: AsyncSession = Depends(get_session)) -> Any:
     payload = req.model_dump_json()
     query = text("CALL ERP_Procurement.SpManageSupplierQuotation('CREATE', NULL, :payload)")
@@ -39,7 +39,7 @@ async def create_quotation(req: SupplierQuotationSchema, session: AsyncSession =
         return data
     raise HTTPException(status_code=500, detail="Failed to create Quotation")
 
-@router.put("/{uid}", response_model=SupplierQuotationSchema)
+@router.put("/{uid}", response_model=Any)
 async def update_quotation(uid: str, req: SupplierQuotationSchema, session: AsyncSession = Depends(get_session)) -> Any:
     if req.uid and str(req.uid) != str(uid):
         raise HTTPException(status_code=400, detail="UID in path does not match UID in payload")

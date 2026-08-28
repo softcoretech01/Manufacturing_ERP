@@ -45,10 +45,44 @@ async def stock_enquiry(
         warehouse_id=wid, item_type=item_type, search=search, hide_zero=hide_zero
     )
     # Value is sensitive (V4-STK §2.11): mask unless the caller holds STOCK.VALUE.
+    # Value is sensitive (V4-STK §2.11): mask unless the caller holds STOCK.VALUE.
     if not ctx.has("INVENTORY.STOCK.VALUE"):
         for r in rows:
             r["value"] = None
     return rows
+
+
+@router.get("/inventory/stock-balances", response_model=list[s.StockBalanceRow])
+async def stock_balances_enquiry(
+    session: SessionDep,
+    warehouse: str | None = None,
+    item_type: str | None = None,
+    search: str | None = None,
+    hide_zero: bool = True,
+    ctx: TenantContext = Depends(require("INVENTORY.STOCK.VIEW")),
+):
+    wid = await _wh_id(session, ctx, warehouse)
+    rows = await StockService(session, ctx).balance_enquiry(
+        warehouse_id=wid, item_type=item_type, search=search, hide_zero=hide_zero
+    )
+    if not ctx.has("INVENTORY.STOCK.VALUE"):
+        for r in rows:
+            r["stock_value"] = None
+            r["unit_cost"] = None
+    return rows
+
+
+@router.get("/inventory/batches", response_model=list[s.BatchRow])
+async def batch_enquiry(
+    session: SessionDep,
+    item_type: str | None = None,
+    search: str | None = None,
+    hide_zero: bool = True,
+    ctx: TenantContext = Depends(require("INVENTORY.STOCK.VIEW")),
+) -> Any:
+    return await StockService(session, ctx).batch_enquiry(
+        item_type=item_type, search=search, hide_zero=hide_zero
+    )
 
 
 @router.get("/inventory/stock/ledger", response_model=s.LedgerResponse)
@@ -56,10 +90,11 @@ async def stock_ledger(
     session: SessionDep,
     item: str,
     warehouse: str | None = None,
+    batch_no: str | None = None,
     ctx: TenantContext = Depends(require("INVENTORY.STOCK.VIEW")),
 ) -> Any:
     wid = await _wh_id(session, ctx, warehouse)
-    return await StockService(session, ctx).ledger(item_uid=item, warehouse_id=wid)
+    return await StockService(session, ctx).ledger(item_uid=item, warehouse_id=wid, batch_no=batch_no)
 
 
 @router.get("/inventory/bin-occupancy")

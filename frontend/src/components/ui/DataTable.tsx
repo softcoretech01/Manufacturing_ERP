@@ -437,10 +437,10 @@ export function DataTable<T>({
         ref={tableRef}
         tabIndex={0}
         onKeyDown={onKeyDown}
-        className="min-h-0 flex-1 overflow-auto focus:outline-none"
+        className="min-h-0 flex-1 overflow-x-auto focus:outline-none xl:overflow-x-visible"
         style={maxHeight ? { maxHeight } : undefined}
       >
-        <table className="grid-table">
+        <table className="grid-table w-full xl:table-fixed">
           <thead>
             <tr>
               {selectable && (
@@ -481,7 +481,7 @@ export function DataTable<T>({
                   </span>
                 </th>
               ))}
-              {rowActions && <th className="w-[6.5rem] text-right">Action</th>}
+              {rowActions && <th className="col-sticky-right" style={{ width: '148px', textAlign: 'right' }}>Action</th>}
             </tr>
           </thead>
           <tbody>
@@ -531,18 +531,20 @@ export function DataTable<T>({
                     {visibleColumns.map((c) => (
                       <td
                         key={c.key}
+                        title={c.className?.includes('col-flex') ? undefined : (c.render ? undefined : String(valueOf(row, c) ?? ''))}
                         className={cn(
                           c.align === 'right' && 'text-right tabular',
                           c.align === 'center' && 'text-center',
                           c.sticky && 'sticky left-0 z-10 bg-surface',
                           c.className,
                         )}
+                        style={c.className?.includes('col-flex') ? { overflow: 'visible', whiteSpace: 'normal' } : undefined}
                       >
                         {c.render ? c.render(row, i) : (valueOf(row, c) ?? '—')}
                       </td>
                     ))}
                     {rowActions && (
-                      <td onClick={(e) => e.stopPropagation()} className="text-right">
+                      <td onClick={(e) => e.stopPropagation()} className="col-sticky-right" style={{ textAlign: 'right' }}>
                         <RowActionCell actions={rowActions(row)} />
                       </td>
                     )}
