@@ -18,7 +18,6 @@ import { scheduleRouting } from '@/lib/planFlow'
 import { defaultRoutingFor, rollUpCost, NO_SIMULATION } from '@/lib/engFlow'
 import { newUid } from '@/store/data'
 import { usePlanningData } from './usePlanningData'
-import { items as masterItems } from '@/mock/masters'
 import type { MrpException, MrpItemPlan, MrpShortage, PlannedOrder } from '@/lib/planFlow'
 import type { ProductionOrder } from '@/types/planning'
 
@@ -50,7 +49,7 @@ export function MrpPage() {
 
   /** Which planned production orders have already been firmed into real ones. */
   const firmedKeys = useMemo(
-    () => new Set(orders.rows.filter((o) => !o.deletedAt).map((o) => `${o.productCode}|${o.plannedFinish.slice(0, 10)}`)),
+    () => new Set(orders.rows.filter((o) => !o.deletedAt && o.plannedFinish).map((o) => `${o.productCode}|${o.plannedFinish.slice(0, 10)}`)),
     [orders.rows],
   )
 
@@ -169,7 +168,7 @@ export function MrpPage() {
     const product = products.rows.find((p) => p.code === o.itemCode)
     const routing = defaultRoutingFor(o.itemCode, ctx.routings)
     const bom = ctx.boms.find((b) => b.productCode === o.itemCode && (b.status === 'ACTIVE' || b.status === 'APPROVED') && b.isDefault)
-    const roll = rollUpCost(o.itemCode, { ...ctx, tools: [], products: products.rows, items: masterItems }, NO_SIMULATION)
+    const roll = rollUpCost(o.itemCode, { ...ctx, tools: [], products: products.rows, items: ctx.items }, NO_SIMULATION)
 
     const start = o.releaseDate < starts[0] ? starts[0] : o.releaseDate
     const operations = routing ? scheduleRouting(routing, o.qty, start, 'FORWARD', ctx.calendar) : []
@@ -248,7 +247,7 @@ export function MrpPage() {
   }
 
   return (
-    <div>
+    <div className="flex h-full flex-col">
       <PageHeader
         title="Material requirements planning"
         breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Planning', to: '/planning' }, { label: 'MRP' }]}
@@ -297,6 +296,7 @@ export function MrpPage() {
 
       {tab === 'orders' && (
         <DataTable
+          className="flex-1"
           rows={plannedOrders}
           columns={orderColumns}
           rowKey={(o) => o.uid}
@@ -348,6 +348,7 @@ export function MrpPage() {
 
       {tab === 'plan' && (
         <DataTable
+          className="flex-1"
           rows={mrp.plans}
           columns={planColumns}
           rowKey={(p) => p.itemCode}
@@ -372,6 +373,7 @@ export function MrpPage() {
                 are the only three ways out.
               </Alert>
               <DataTable
+                className="flex-1"
                 rows={mrp.shortages}
                 columns={shortageColumns}
                 rowKey={(s) => `${s.itemCode}-${s.requiredOn}`}
@@ -399,6 +401,7 @@ export function MrpPage() {
 
       {tab === 'exceptions' && (
         <DataTable
+          className="flex-1"
           rows={exceptions}
           columns={exceptionColumns}
           rowKey={(e) => e.uid}

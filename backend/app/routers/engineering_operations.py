@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Dict, Any
 
 from app.core.database import get_session
+from app.core.deps import require
 from app.schemas.engineering_operation import EngOperationSchema
 from app.repositories.engineering_operation_repository import EngineeringOperationRepository
 from app.services.engineering_operation_service import EngineeringOperationService
@@ -12,16 +13,16 @@ router = APIRouter(tags=["Engineering Operations"])
 def get_service(db: AsyncSession = Depends(get_session)) -> EngineeringOperationService:
     return EngineeringOperationService(db)
 
-@router.get("", response_model=List[EngOperationSchema])
+@router.get("", response_model=List[EngOperationSchema], dependencies=[Depends(require("ENGINEERING.OPERATION.VIEW"))])
 async def get_operations(service: EngineeringOperationService = Depends(get_service)):
     return await service.get_all_operations()
 
-@router.get("/next-code")
+@router.get("/next-code", dependencies=[Depends(require("ENGINEERING.OPERATION.CREATE"))])
 async def get_next_code(service: EngineeringOperationService = Depends(get_service)):
     code = await service.get_next_code()
     return {"nextCode": code}
 
-@router.post("", response_model=EngOperationSchema, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=EngOperationSchema, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require("ENGINEERING.OPERATION.CREATE"))])
 async def create_operation(
     op: EngOperationSchema,
     service: EngineeringOperationService = Depends(get_service)
@@ -34,7 +35,7 @@ async def create_operation(
     data["uid"] = result_uid
     return data
 
-@router.put("/{op_uid}", response_model=EngOperationSchema)
+@router.put("/{op_uid}", response_model=EngOperationSchema, dependencies=[Depends(require("ENGINEERING.OPERATION.EDIT"))])
 async def update_operation(
     op_uid: str,
     op: EngOperationSchema,
@@ -48,7 +49,7 @@ async def update_operation(
     data["uid"] = result_uid
     return data
 
-@router.delete("/{op_uid}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{op_uid}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require("ENGINEERING.OPERATION.DELETE"))])
 async def delete_operation(
     op_uid: str,
     service: EngineeringOperationService = Depends(get_service)

@@ -59,6 +59,17 @@ _MODULES: dict[str, dict[str, tuple[str, ...]]] = {
         "SCRAP": ("VIEW", "POST"),
         "CYCLE_COUNT": ("VIEW", "CREATE", "COUNT", "APPROVE"),  # physical inventory
     },
+    # Product engineering — BOM, routing and change control (Vol 5).
+    "ENGINEERING": {
+        "BOM": _MASTER_CRUD,
+        "ROUTING": _MASTER_CRUD,
+        "OPERATION": _MASTER_CRUD,
+        "WORK_CENTRE": _MASTER_CRUD,
+        "TOOL": _MASTER_CRUD,
+        "CHANGE": _MASTER_CRUD,
+        "DOCUMENT": _MASTER_CRUD,
+        "COST": ("VIEW", "ROLLUP"),  # standard-cost roll-up over the live structure
+    },
     # Master data (Vol 1 Ch 7 / Vol 4 prerequisite).
     "MASTERS": {
         "ITEM": _CRUD,

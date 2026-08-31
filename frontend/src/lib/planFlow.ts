@@ -44,7 +44,8 @@ const pad = (n: number) => String(n).padStart(2, '0')
  * every bucket in the plan silently shifts by one. Parsing and formatting from
  * the local calendar components avoids the whole problem.
  */
-export function parseDate(input: Date | string): Date {
+export function parseDate(input: Date | string | null | undefined): Date {
+  if (!input) return new Date(NaN)
   if (input instanceof Date) {
     const d = new Date(input)
     d.setHours(0, 0, 0, 0)
@@ -83,8 +84,8 @@ export function bucketStarts(count: number, from: Date | string = new Date()): s
  * how a plan quietly ignores its own backlog. A date past the horizon returns
  * -1 and is left out of the run.
  */
-export function bucketIndex(date: string, starts: string[]): number {
-  if (!starts.length) return -1
+export function bucketIndex(date: string | null | undefined, starts: string[]): number {
+  if (!starts.length || !date) return -1
   const t = parseDate(date).getTime()
   const first = parseDate(starts[0]).getTime()
   if (t < first) return 0
@@ -96,7 +97,8 @@ export function bucketIndex(date: string, starts: string[]): number {
 }
 
 /** Whether a required-by date is already behind us. */
-export function isPastDue(date: string, today: Date = new Date()) {
+export function isPastDue(date: string | null | undefined, today: Date = new Date()) {
+  if (!date) return false
   return parseDate(date).getTime() < parseDate(today).getTime()
 }
 

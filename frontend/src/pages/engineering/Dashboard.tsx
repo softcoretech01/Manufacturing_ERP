@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -55,6 +55,10 @@ export function EngineeringDashboardPage() {
   const [tools, settools] = useState<any[]>([])
   const [changes, setchanges] = useState<any[]>([])
   const [documents, setdocuments] = useState<any[]>([])
+  // Monthly throughput used to come from the engineering mock. That import was
+  // dropped in the move to live data and no endpoint supplies it yet, so the
+  // chart renders empty rather than showing invented figures.
+  const [engTrend, setengTrend] = useState<any[]>([])
 
   const ctx = { boms, routings, workCentres, tools, items: masterItems, products }
 

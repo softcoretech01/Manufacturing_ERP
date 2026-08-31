@@ -26,7 +26,6 @@ import {
 import { NO_SIMULATION, defaultBomFor, defaultRoutingFor, rollUpCost } from '@/lib/engFlow'
 import { newUid } from '@/store/data'
 import { usePlanningData } from './usePlanningData'
-import { items as masterItems } from '@/mock/masters'
 import type { OrderComponent, ProductionOrder, ProductionOrderType } from '@/types/planning'
 
 /**
@@ -145,7 +144,7 @@ export function ProductionOrdersPage() {
   /** Live simulation of whatever the form currently says. */
   const formSim: OrderSimulation | null = useMemo(() => {
     if (!formOpen || !form.productCode || !(Number(form.qty) > 0)) return null
-    const roll = rollUpCost(form.productCode, { ...ctx, tools: [], products: products.rows, items: masterItems }, NO_SIMULATION)
+    const roll = rollUpCost(form.productCode, { ...ctx, tools: [], products: products.rows, items: ctx.items }, NO_SIMULATION)
     return simulateOrder(form.productCode, Number(form.qty), form.plannedStart || starts[0], ctx, roll.total)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formOpen, form.productCode, form.qty, form.plannedStart, ctx])
@@ -166,7 +165,7 @@ export function ProductionOrdersPage() {
     const product = products.rows.find((p) => p.code === form.productCode)
     const bom = defaultBomFor(form.productCode, ctx.boms)
     const routing = defaultRoutingFor(form.productCode, ctx.routings)
-    const roll = rollUpCost(form.productCode, { ...ctx, tools: [], products: products.rows, items: masterItems }, NO_SIMULATION)
+    const roll = rollUpCost(form.productCode, { ...ctx, tools: [], products: products.rows, items: ctx.items }, NO_SIMULATION)
     const operations = routing ? scheduleRouting(routing, qty, form.plannedStart, 'FORWARD', ctx.calendar) : []
 
     const components: OrderComponent[] = (bom?.lines ?? []).map((l, i) => {
@@ -287,7 +286,7 @@ export function ProductionOrdersPage() {
   const detailBlockers = detail ? releaseBlockers(detail, ctx) : []
 
   return (
-    <div>
+    <div className="flex h-full flex-col">
       <PageHeader
         title="Production orders"
         breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Planning', to: '/planning' }, { label: 'Production orders' }]}
@@ -320,6 +319,7 @@ export function ProductionOrdersPage() {
       )}
 
       <DataTable
+        className="flex-1"
         rows={filtered}
         columns={columns}
         rowKey={(o) => o.uid}

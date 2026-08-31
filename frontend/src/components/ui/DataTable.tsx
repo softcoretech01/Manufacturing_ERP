@@ -437,7 +437,7 @@ export function DataTable<T>({
         ref={tableRef}
         tabIndex={0}
         onKeyDown={onKeyDown}
-        className="min-h-0 flex-1 overflow-x-auto focus:outline-none xl:overflow-x-visible"
+        className="min-h-0 flex-1 overflow-auto focus:outline-none"
         style={maxHeight ? { maxHeight } : undefined}
       >
         <table className="grid-table w-full xl:table-fixed">

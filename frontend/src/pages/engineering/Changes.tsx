@@ -1030,12 +1030,17 @@ export function ChangesPage() {
             </Button>
             <Button
               variant="danger"
-              onClick={() => {
-                if (confirmDelete) {
-                  remove(confirmDelete.uid)
-                  toast.success('Deleted', `${confirmDelete.docNo} was soft-deleted.`)
-                }
+              onClick={async () => {
+                const target = confirmDelete
                 setConfirmDelete(null)
+                if (!target) return
+                try {
+                  await api.deleteEngChange(target.uid)
+                  toast.success('Deleted', `${target.docNo} was soft-deleted.`)
+                  await loadData()
+                } catch (err) {
+                  toast.error('Delete failed', 'Could not delete the change.')
+                }
               }}
             >
               Delete

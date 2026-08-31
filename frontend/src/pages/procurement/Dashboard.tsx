@@ -5,8 +5,7 @@ import { PageHeader, Section } from '@/components/ui/Misc'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import { cn } from '@/lib/cn'
 import { formatCurrency } from '@/lib/format'
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'
+import { api as httpClient } from '@/api/client'
 
 export function ProcurementDashboardPage() {
   const navigate = useNavigate()
@@ -14,8 +13,8 @@ export function ProcurementDashboardPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch(`${API_URL}/procurement/dashboard/`)
-      .then((res) => res.json())
+    httpClient
+      .get<any>('/procurement/dashboard/')
       .then((json) => {
         setData(json)
         setLoading(false)

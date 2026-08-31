@@ -45,6 +45,12 @@ export interface ProblemDetail {
 }
 
 /** Typed error carrying the problem+json body so the UI can show field errors. */
+/**
+ * Where to send the user after a forced re-login. Written when a 401 bounces them
+ * to /login, read and cleared by the login screen.
+ */
+export const RETURN_TO_KEY = 'ssberp.returnTo'
+
 export class ProblemError extends Error {
   readonly status: number
   readonly problem: ProblemDetail
@@ -150,6 +156,14 @@ async function request<T>(method: string, path: string, opts: RequestOptions = {
     // redirect loop while ON /login (e.g. a wrong-password 401 shows inline there).
     clearSession()
     if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+      // Remember where they were. Without this, signing back in drops the user on
+      // their portal's home — and since `portalOf` falls back to ADMIN, an expired
+      // session on any screen looks like "it redirected me to admin".
+      try {
+        sessionStorage.setItem(RETURN_TO_KEY, window.location.pathname + window.location.search)
+      } catch {
+        // Private mode / blocked storage — fall back to the portal home.
+      }
       window.location.assign('/login')
     }
   }

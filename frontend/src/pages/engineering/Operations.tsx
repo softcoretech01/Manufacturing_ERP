@@ -12,8 +12,7 @@ import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatAmount } from '@/lib/format'
 import type { EngWorkCentre, Operation, Routing } from '@/types/engineering'
 import { engineeringApi as api } from '@/api/engineering'
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'
+import { api as httpClient } from '@/api/client'
 
 const SKILLS = [
   'Machine Operator',
@@ -70,7 +69,7 @@ export function OperationsPage() {
     try {
       const [ops, wcs, rts] = await Promise.all([
         api.getEngOperations(),
-        fetch(`${API_URL}/engineering/routings/workcentres`).then(res => res.json()).catch(() => []),
+        httpClient.get<any[]>('/engineering/routings/workcentres').catch(() => []),
         api.getRoutings().catch(() => [])
       ])
       setRows(ops)

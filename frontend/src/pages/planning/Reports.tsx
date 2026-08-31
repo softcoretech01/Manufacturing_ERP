@@ -19,8 +19,18 @@ import {
 import { defaultRoutingFor } from '@/lib/engFlow'
 import { usePlanningData } from './usePlanningData'
 import { DEMAND_SOURCE_LABEL } from '@/components/planning/PlanShell'
-import { planVsActual } from '@/mock/planning'
 
+/** Plan against actual output, last eight weeks. */
+const planVsActual = [
+  { week: 'W-8', planned: 4_200, actual: 4_050, onTimePct: 94 },
+  { week: 'W-7', planned: 4_200, actual: 4_310, onTimePct: 97 },
+  { week: 'W-6', planned: 4_500, actual: 3_980, onTimePct: 88 },
+  { week: 'W-5', planned: 4_500, actual: 4_460, onTimePct: 96 },
+  { week: 'W-4', planned: 4_800, actual: 4_120, onTimePct: 86 },
+  { week: 'W-3', planned: 4_800, actual: 4_740, onTimePct: 93 },
+  { week: 'W-2', planned: 5_000, actual: 5_020, onTimePct: 98 },
+  { week: 'W-1', planned: 5_000, actual: 4_580, onTimePct: 91 },
+]
 /**
  * Planning reports (Ch 21).
  *

@@ -4,6 +4,7 @@
 register their routers here. This phase mounts IAM (auth) and Organisation."""
 
 from __future__ import annotations
+from app.modules.planning.api.routers import router as planning_router
 
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
@@ -238,6 +239,7 @@ def create_app() -> FastAPI:
     async def health() -> dict[str, str]:
         return {"status": "ok", "app": settings.app_name}
 
+    app.include_router(planning_router, prefix=api)
     return app
 
 

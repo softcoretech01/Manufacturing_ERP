@@ -192,7 +192,7 @@ export function DemandPage() {
   const overdue = rows.filter((d) => d.status === 'OPEN' && isPastDue(d.requiredOn))
 
   return (
-    <div>
+    <div className="flex h-full flex-col">
       <PageHeader
         title="Demand"
         breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Planning', to: '/planning' }, { label: 'Demand' }]}
@@ -225,6 +225,7 @@ export function DemandPage() {
       )}
 
       <DataTable
+        className="flex-1"
         rows={filtered}
         columns={columns}
         rowKey={(d) => d.uid}
