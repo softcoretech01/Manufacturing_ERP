@@ -3,6 +3,7 @@ import { type UseMutationResult, useQuery } from '@tanstack/react-query'
 import { Send, Plus, Trash2, Eye, Pencil, RotateCcw } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Button, IconButton } from '@/components/ui/Button'
+import { MenuItem } from '@/components/ui/Menu'
 import { Modal } from '@/components/ui/Modal'
 import { Alert, PageHeader } from '@/components/ui/Misc'
 import { Input, Select } from '@/components/ui/Input'
@@ -409,18 +410,11 @@ export function MovementPage({
 
   const columns: Column<any>[] = [
     { key: 'date', header: 'Date', width: '120px' },
-    { key: 'document_no', header: 'Document No' },
-    { key: 'source', header: 'Source' },
-    { key: 'destination', header: 'Destination' },
-    { key: 'items', header: 'Items', render: (row) => `${row.itemsCount} items` },
-    { key: 'status', header: 'Status' },
-    { key: 'actions', header: 'Actions', align: 'right', render: (row) => (
-      <div className="flex justify-end gap-1">
-        <IconButton title="View" onClick={() => setViewRows(row.rawRows)} icon={Eye} />
-        <IconButton title="Edit" onClick={() => handleEdit(row.document_no, row.rawRows)} icon={Pencil} />
-        <IconButton title="Reverse / Delete" onClick={() => handleReverse(row.document_no)} className="text-red-500 hover:text-red-600 hover:bg-red-50" icon={Trash2} />
-      </div>
-    )}
+    { key: 'document_no', header: 'Document No', width: '170px' },
+    { key: 'source', header: 'Source', width: '200px' },
+    { key: 'destination', header: 'Destination', width: '200px' },
+    { key: 'items', header: 'Items', width: '110px', render: (row) => `${row.itemsCount} items` },
+    { key: 'status', header: 'Status', width: '140px' },
   ]
 
   return (
@@ -450,6 +444,13 @@ export function MovementPage({
           rows={groupedRows}
           columns={columns}
           rowKey={(r) => r.id}
+          rowActions={(row) => (
+            <>
+              <MenuItem label="View" icon={<Eye />} onClick={() => setViewRows(row.rawRows)} />
+              <MenuItem label="Edit" icon={<Pencil />} onClick={() => handleEdit(row.document_no, row.rawRows)} />
+              <MenuItem label="Reverse / Delete" icon={<Trash2 />} danger onClick={() => handleReverse(row.document_no)} />
+            </>
+          )}
           emptyTitle={`No ${config.title.toLowerCase()} records`}
           emptyDescription={`Click + New ${config.title} to create one.`}
         />
