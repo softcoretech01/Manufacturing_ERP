@@ -130,6 +130,8 @@ export function BomPage() {
 
   const costedLines = form.lines.map((l) => {
     const item = masterItems.find((i) => i.code === l.itemCode)
+    // Form fields are held as strings; an empty or half-typed cell costs nothing.
+    const qtyPer = Number(l.qtyPer) || 0
     const scrap = Number(l.scrapPct) || 0
     const rate = item ? item.standardCost || item.lastPurchaseRate || item.sellingPrice || 0 : 0
     const effectiveQty = qtyPer * (1 + scrap / 100)

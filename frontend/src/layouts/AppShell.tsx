@@ -10,11 +10,11 @@ export function AppShell() {
   if (!userUid) return <Navigate to="/login" replace />
 
   return (
-    <div className="flex min-h-screen bg-bg">
+    <div className="flex h-screen overflow-hidden bg-bg">
       <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 min-h-0 flex-1 flex-col">
         <Topbar />
-        <main className="min-w-0 flex-1 p-[32px] flex flex-col gap-[24px]">
+        <main className="min-w-0 min-h-0 flex-1 overflow-y-auto p-4 flex flex-col gap-4">
           <Outlet />
         </main>
         <footer className="no-print border-t border-border px-5 py-2.5 text-2xs text-fg-subtle">
