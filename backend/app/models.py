@@ -55,5 +55,14 @@ from app.modules.workflow.infrastructure.models import (  # noqa: F401
     CoreWorkflowInstance,
     CoreWorkflowTask,
 )
+from app.modules.planning.infrastructure.models import (  # noqa: F401
+    PpDemand,
+    PpMps,
+    PpPlanningPolicy,
+    PpProductionOrder,
+    PpProdOrderComponent,
+    PpProdOrderOperation,
+    PpCalendarDay,
+)
 
 __all__ = ["Base"]

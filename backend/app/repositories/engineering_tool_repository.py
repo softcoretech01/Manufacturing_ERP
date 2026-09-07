@@ -1,6 +1,7 @@
 from typing import List, Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
+from app.utils.dbtypes import as_bool
 
 class EngineeringToolRepository:
     def __init__(self, session: AsyncSession):
@@ -82,6 +83,6 @@ class EngineeringToolRepository:
                 "replacementCost": float(row[9]) if row[9] is not None else 0.0,
                 "location": row[10] if row[10] else "",
                 "status": row[11],
-                "isActive": bool(row[12])
+                "isActive": as_bool(row[12])
             })
         return tools

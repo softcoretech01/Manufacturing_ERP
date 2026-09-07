@@ -27,7 +27,35 @@ import { users } from '@/mock/data'
 import { PORTALS, portalOf, type PortalCode } from '@/config/portals'
 import type { User } from '@/types'
 import { login as apiLogin } from '@/api/organisation'
-import { ProblemError } from '@/api/client'
+import { ProblemError, RETURN_TO_KEY } from '@/api/client'
+
+/**
+ * The page a 401 interrupted. Only same-origin paths are honoured, so a crafted
+ * value cannot turn the login screen into an open redirect.
+ *
+ * Reading is deliberately side-effect free: StrictMode double-invokes render and
+ * state initialisers in development, so a read-and-delete here would throw the
+ * value away on the second call and land the user on the portal home instead.
+ * The entry is cleared explicitly, at the point of navigation.
+ */
+function readReturnTo(): string | null {
+  try {
+    const raw = sessionStorage.getItem(RETURN_TO_KEY)
+    if (!raw || !raw.startsWith('/') || raw.startsWith('//') || raw.startsWith('/login')) return null
+    return raw
+  } catch {
+    return null
+  }
+}
+
+function clearReturnTo(): void {
+  try {
+    sessionStorage.removeItem(RETURN_TO_KEY)
+  } catch {
+    // Nothing to do — the value simply expires with the tab.
+  }
+}
+
 
 type Step = 'credentials' | 'forgot' | 'otp' | 'reset' | 'pin'
 
@@ -46,7 +74,21 @@ export function LoginPage() {
 
   const chosen = portalOf(portal)
 
-  if (userUid && apiToken && !switching) return <Navigate to={chosen.home} replace />
+  // A 401 stores the page the user was on. Prefer it over the portal home so an
+  // expired session returns them to their work instead of the Administration
+  // dashboard (portalOf falls back to ADMIN whenever no portal is set).
+  const destination = readReturnTo() ?? chosen.home
+
+  /** Send the user on, and stop the stored path being reused for a later login. */
+  const goToDestination = () => {
+    clearReturnTo()
+    navigate(destination)
+  }
+
+  if (userUid && apiToken && !switching) {
+    clearReturnTo()
+    return <Navigate to={destination} replace />
+  }
 
   const handlePortalPick = (code: PortalCode) => {
     setPortal(code)
@@ -107,7 +149,7 @@ export function LoginPage() {
                         // The backend authenticated the user; drive the mock UI
                         // shell (nav, portals, permissions) with the sysadmin.
                         loginAsDemo('usr-16')
-                        navigate(chosen.home)
+                        goToDestination()
                       }}
                     />
                   )}
@@ -123,7 +165,7 @@ export function LoginPage() {
                       onBack={() => setStep('credentials')}
                       onDone={() => {
                         loginAsDemo('usr-12')
-                        navigate(chosen.home)
+                        goToDestination()
                       }}
                     />
                   )}

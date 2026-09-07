@@ -2,6 +2,7 @@ import json
 from typing import List, Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
+from app.utils.dbtypes import as_bool
 
 class EngineeringWorkCentreRepository:
     def __init__(self, session: AsyncSession):
@@ -58,8 +59,51 @@ class EngineeringWorkCentreRepository:
         data["uid"] = uid
         return await self._execute_sp("UPDATE", data, user)
 
+    async def count_references(self, uid: str) -> int:
+        """How many active operations still run on this work centre.
+
+        Resolved in two steps on purpose: EngineeringOperation and
+        EngineeringWorkCentre carry different collations, so joining their text
+        columns directly raises "Illegal mix of collations".
+        """
+        code = (
+            await self.session.execute(
+                text("SELECT Code FROM ERP_Product.EngineeringWorkCentre WHERE Id = :uid"),
+                {"uid": uid},
+            )
+        ).scalar()
+        if not code:
+            return 0
+        return int(
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT COUNT(*) FROM ERP_Product.EngineeringOperation"
+                        " WHERE DefaultWorkCentre = :code AND IsActive = 1"
+                    ),
+                    {"code": code},
+                )
+            ).scalar()
+            or 0
+        )
+
     async def delete_workcentre(self, uid: str, user: str) -> str:
-        return await self._execute_sp("DELETE", {"uid": uid}, user)
+        """Retire a work centre without destroying it.
+
+        `SpManageEngineeringWorkCentre`'s DELETE branch runs a physical
+        `DELETE FROM EngineeringWorkCentre`, which silently orphans every
+        operation and routing step that references the code — and contradicts the
+        soft-delete rule the rest of the system follows (CLAUDE.md §4.2). Until
+        that procedure is corrected, retire the row here instead.
+        """
+        sql = text(
+            "UPDATE ERP_Product.EngineeringWorkCentre"
+            " SET IsActive = 0, ModifiedBy = :user, ModifiedDate = CURRENT_TIMESTAMP"
+            " WHERE Id = :uid"
+        )
+        await self.session.execute(sql, {"uid": uid, "user": user})
+        await self.session.commit()
+        return uid
 
     async def get_all_workcentres(self) -> List[Dict[str, Any]]:
         sql = text("""
@@ -83,6 +127,6 @@ class EngineeringWorkCentreRepository:
                 "hoursPerDay": int(row[8]) if row[8] is not None else 0,
                 "oeeTargetPct": float(row[9]) if row[9] is not None else 0.0,
                 "machineCodes": json.loads(row[10]) if row[10] else [],
-                "isActive": bool(row[11])
+                "isActive": as_bool(row[11])
             })
         return workcentres

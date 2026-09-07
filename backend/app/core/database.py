@@ -7,28 +7,38 @@ never commit.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.pool import AsyncAdaptedQueuePool
+from sqlalchemy.pool import AsyncAdaptedQueuePool, NullPool
 
 from app.core.config import settings
 
-engine = create_async_engine(
-    settings.database_url,
-    echo=settings.db_echo,
-    poolclass=AsyncAdaptedQueuePool,
-    pool_size=settings.db_pool_size,
-    max_overflow=settings.db_max_overflow,
-    pool_pre_ping=True,
-    pool_recycle=1800,
-    future=True,
-)
+engine_kwargs: dict[str, Any] = {
+    "echo": settings.db_echo,
+    "future": True,
+}
+
+if settings.app_env == "prod":
+    engine_kwargs.update({
+        "poolclass": AsyncAdaptedQueuePool,
+        "pool_size": settings.db_pool_size,
+        "max_overflow": settings.db_max_overflow,
+        "pool_pre_ping": True,
+        "pool_recycle": 1800,
+    })
+else:
+    engine_kwargs.update({
+        "poolclass": NullPool,
+    })
+
+engine = create_async_engine(settings.database_url, **engine_kwargs)
 
 SessionFactory = async_sessionmaker(
     bind=engine,
@@ -38,7 +48,7 @@ SessionFactory = async_sessionmaker(
 )
 
 
-async def get_session() -> AsyncIterator[AsyncSession]:
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency. Commits on success, rolls back on any exception."""
     async with SessionFactory() as session:
         try:
@@ -51,7 +61,7 @@ async def get_session() -> AsyncIterator[AsyncSession]:
 
 
 @asynccontextmanager
-async def session_scope() -> AsyncIterator[AsyncSession]:
+async def session_scope() -> AsyncGenerator[AsyncSession, None]:
     """Unit of work for background jobs, seeds and CLI tasks."""
     async with SessionFactory() as session:
         try:
