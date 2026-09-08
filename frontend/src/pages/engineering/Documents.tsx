@@ -14,7 +14,7 @@ import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDate } from '@/lib/format'
 
 import { useCollection } from '@/store/data'
-import type { DocType, EngDocument, EngProduct } from '@/types/engineering'
+import type { DocType, DocumentType, EngDocument, EngProduct } from '@/types/engineering'
 import { engineeringApi as api } from '@/api/engineering'
 
 /**
@@ -28,18 +28,11 @@ import { engineeringApi as api } from '@/api/engineering'
  * actual file is the object store's job in the real system.
  */
 
-const DOC_TYPES: DocType[] = ['CAD_DRAWING', 'MODEL_3D', 'PDF_DRAWING', 'SOP', 'WORK_INSTRUCTION', 'CUSTOMER_SPEC', 'CERTIFICATE', 'DATASHEET', 'IMAGE']
-const DOC_TYPE_LABEL: Record<DocType, string> = {
-  CAD_DRAWING: 'CAD drawing',
-  MODEL_3D: '3D model',
-  PDF_DRAWING: 'PDF drawing',
-  SOP: 'Standard operating procedure',
-  WORK_INSTRUCTION: 'Work instruction',
-  CUSTOMER_SPEC: 'Customer specification',
-  CERTIFICATE: 'Certificate',
-  DATASHEET: 'Datasheet',
-  IMAGE: 'Image',
-}
+/**
+ * Document types are master data (ERP_Product.DocumentType), fetched at mount.
+ * A document already carrying a retired type still renders its label, because the
+ * master is fetched in full and only the picker filters to active rows.
+ */
 
 interface FormState {
   code: string
@@ -68,10 +61,23 @@ export function EngDocumentsPage() {
   // Products can remain mocked or use the real API. Since the user only asked for Documents, we'll keep products as is to avoid breaking changes, but we could fetch them.
   // Actually, we should ideally fetch products too if we want a true integration, but let's stick to the requirements for Documents.
   const [products, setProducts] = useState<EngProduct[]>([])
-  
+  const [docTypes, setDocTypes] = useState<DocumentType[]>([])
+
   useEffect(() => {
     api.getEngProducts().then(setProducts).catch(console.error)
+    // Whole master, not just active rows: retired types must still resolve to a
+    // label on the documents that already use them.
+    api.getDocumentTypes(false).then(setDocTypes).catch(console.error)
   }, [])
+
+  const docTypeLabel = useMemo(
+    () => Object.fromEntries(docTypes.map((t) => [t.code, t.name])) as Record<string, string>,
+    [docTypes],
+  )
+  const docTypeOptions = useMemo(
+    () => docTypes.filter((t) => t.isActive).map((t) => ({ value: t.code, label: t.name })),
+    [docTypes],
+  )
 
   const [rows, setRows] = useState<EngDocument[]>([])
   const [loading, setLoading] = useState(true)
@@ -117,19 +123,25 @@ export function EngDocumentsPage() {
   const columns: Column<EngDocument>[] = [
     { key: 'code', header: 'Document', sortable: true, width: '7.5rem', render: (d) => <span className="font-mono text-xs font-medium text-brand-600">{d.code}</span> },
     { key: 'title', header: 'Title', sortable: true },
-    { key: 'docType', header: 'Type', sortable: true, width: '8.5rem', accessor: (d) => DOC_TYPE_LABEL[d.docType], render: (d) => <span className="text-xs text-fg-muted">{DOC_TYPE_LABEL[d.docType]}</span> },
+    { key: 'docType', header: 'Type', sortable: true, width: '8.5rem', accessor: (d) => docTypeLabel[d.docType] ?? d.docType, render: (d) => <span className="text-xs text-fg-muted">{docTypeLabel[d.docType] ?? d.docType}</span> },
     { key: 'productCode', header: 'Product', sortable: true, width: '7.5rem', render: (d) => <span className="font-mono text-2xs text-fg-muted">{d.productCode}</span> },
-    { key: 'revision', header: 'Rev', align: 'right', width: '3.5rem', accessor: (d) => d.revision, render: (d) => <span className="font-mono text-2xs">R{d.revision}</span> },
+    { key: 'revision', header: 'Rev', align: 'right', width: '4.25rem', accessor: (d) => d.revision, render: (d) => <span className="font-mono text-2xs">R{d.revision}</span> },
     { key: 'fileName', header: 'File', render: (d) => <span className="truncate font-mono text-2xs text-fg-muted">{d.fileName}</span> },
-    { key: 'sizeKb', header: 'Size', align: 'right', sortable: true, width: '4.5rem', accessor: (d) => d.sizeKb, render: (d) => (d.sizeKb > 1024 ? `${(d.sizeKb / 1024).toFixed(1)} MB` : `${d.sizeKb} KB`) },
-    { key: 'uploadedOn', header: 'Uploaded', sortable: true, width: '6.5rem', accessor: (d) => d.uploadedOn, render: (d) => formatDate(d.uploadedOn) },
+    { key: 'sizeKb', header: 'Size', align: 'right', sortable: true, width: '5.5rem', accessor: (d) => d.sizeKb, render: (d) => (d.sizeKb > 1024 ? `${(d.sizeKb / 1024).toFixed(1)} MB` : `${d.sizeKb} KB`) },
+    { key: 'uploadedOn', header: 'Uploaded', sortable: true, width: '8rem', accessor: (d) => d.uploadedOn, render: (d) => formatDate(d.uploadedOn) },
     { key: 'status', header: 'Status', sortable: true, width: '8.5rem', render: (d) => <EngStatusBadge status={d.status} size="sm" /> },
   ]
 
   async function openCreate() {
     setEditing(null)
     setRevisingFrom(null)
-    setForm({ ...emptyForm, productCode: products[0]?.code ?? '' })
+    // Default to the first active type from the master, not a hardcoded code —
+    // the seeded set can be retired or reordered without touching this page.
+    setForm({
+      ...emptyForm,
+      productCode: products[0]?.code ?? '',
+      docType: docTypeOptions[0]?.value ?? '',
+    })
     setErrors({})
     setFormOpen(true)
     
@@ -347,7 +359,7 @@ export function EngDocumentsPage() {
               columns={2}
               items={[
                 { label: 'Code', value: detail.code, mono: true },
-                { label: 'Type', value: DOC_TYPE_LABEL[detail.docType] },
+                { label: 'Type', value: docTypeLabel[detail.docType] ?? detail.docType },
                 { label: 'Product', value: detail.productCode, mono: true },
                 { label: 'Revision', value: `R${detail.revision}` },
                 { label: 'File', value: detail.fileName, mono: true },
@@ -418,7 +430,7 @@ export function EngDocumentsPage() {
         <div className="grid gap-3.5 sm:grid-cols-2">
           <Input maxLength={255} label="Document code" disabled value={form.code ?? ''} placeholder="Auto-generated" />
           <Input label="Title" required value={form.title ?? ''} maxLength={150} error={errors.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-          <Select label="Type" value={form.docType ?? ''} onChange={(e) => setForm({ ...form, docType: e.target.value as DocType })} options={DOC_TYPES.map((t) => ({ value: t, label: DOC_TYPE_LABEL[t] }))} />
+          <Select label="Type" value={form.docType ?? ''} onChange={(e) => setForm({ ...form, docType: e.target.value as DocType })} options={docTypeOptions} />
           <Select
             label="Product"
             required

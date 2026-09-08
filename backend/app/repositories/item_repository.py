@@ -3,6 +3,19 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from collections import defaultdict
 
+# Every statement here is schema-qualified to ERP_Master on purpose.
+#
+# `SpItem` and `ItemUomConversion` exist in BOTH admin_erp and ERP_Master, and the
+# procedure body references an unqualified `Item`. Because the connection's default
+# database is admin_erp (DB_NAME), unqualified calls resolved to admin_erp.Item --
+# 5 UI test rows ("Steel", "Book", "test") -- while every BOM, routing and standard
+# cost in ERP_Product references ERP_Master.Item (23 real rows). The product pickers
+# on the BOM and BOM-explorer screens were therefore always empty: the intersection
+# of "items the API returns" and "products with a BOM" was zero.
+#
+# Qualify all of them together. Repointing SpItem alone would leave UOM conversion
+# rows keyed to the other schema's item ids.
+
 class ItemRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -17,7 +30,7 @@ class ItemRepository:
         return {k[0].lower() + k[1:]: v for k, v in data.items()}
 
     async def get_all_items(self) -> list[dict[str, Any]]:
-        stmt = text("CALL SpItem('LIST', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)")
+        stmt = text("CALL ERP_Master.SpItem('LIST', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)")
         result = await self.session.execute(stmt)
         rows = result.mappings().fetchall()
         
@@ -25,7 +38,7 @@ class ItemRepository:
         
         if items:
             # Fetch all conversions
-            conv_stmt = text("SELECT * FROM ItemUomConversion")
+            conv_stmt = text("SELECT * FROM ERP_Master.ItemUomConversion")
             conv_result = await self.session.execute(conv_stmt)
             conv_rows = conv_result.mappings().fetchall()
             
@@ -55,7 +68,7 @@ class ItemRepository:
         uom_conversions = data.pop('uomConversions', [])
         
         stmt = text("""
-            CALL SpItem(
+            CALL ERP_Master.SpItem(
                 'CREATE', NULL, :code, :name, :shortName, :itemType, :category, :family, :series,
                 :baseUom, :purchaseUom, :salesUom, :hsnCode, :gstRate,
                 :capacityMl, :bottleModel, :colour, :finishType, :lidType, :steelGrade, :thicknessMm, :isVacuumInsulated, :netWeightG,
@@ -76,7 +89,7 @@ class ItemRepository:
         
         if uom_conversions:
             insert_stmt = text("""
-                INSERT INTO ItemUomConversion (ItemId, Uom, Factor, Purpose)
+                INSERT INTO ERP_Master.ItemUomConversion (ItemId, Uom, Factor, Purpose)
                 VALUES (:item_id, :uom, :factor, :purpose)
             """)
             for conv in uom_conversions:
@@ -91,7 +104,7 @@ class ItemRepository:
         return await self.get_item_by_id(item_id)
         
     async def get_item_by_id(self, item_id: int) -> dict[str, Any]:
-        stmt = text("CALL SpItem('READ', :id, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)")
+        stmt = text("CALL ERP_Master.SpItem('READ', :id, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)")
         result = await self.session.execute(stmt, {'id': item_id})
         row = result.mappings().fetchone()
         
@@ -100,7 +113,7 @@ class ItemRepository:
             
         item = self._parse_row(row)
         
-        conv_stmt = text("SELECT * FROM ItemUomConversion WHERE ItemId = :item_id")
+        conv_stmt = text("SELECT * FROM ERP_Master.ItemUomConversion WHERE ItemId = :item_id")
         conv_result = await self.session.execute(conv_stmt, {'item_id': item_id})
         conv_rows = conv_result.mappings().fetchall()
         
@@ -118,7 +131,7 @@ class ItemRepository:
         uom_conversions = data.pop('uomConversions', [])
         
         stmt = text("""
-            CALL SpItem(
+            CALL ERP_Master.SpItem(
                 'UPDATE', :id, :code, :name, :shortName, :itemType, :category, :family, :series,
                 :baseUom, :purchaseUom, :salesUom, :hsnCode, :gstRate,
                 :capacityMl, :bottleModel, :colour, :finishType, :lidType, :steelGrade, :thicknessMm, :isVacuumInsulated, :netWeightG,
@@ -132,12 +145,12 @@ class ItemRepository:
         params = {**data, 'id': item_id, 'user': user_id}
         await self.session.execute(stmt, params)
         
-        del_stmt = text("DELETE FROM ItemUomConversion WHERE ItemId = :item_id")
+        del_stmt = text("DELETE FROM ERP_Master.ItemUomConversion WHERE ItemId = :item_id")
         await self.session.execute(del_stmt, {'item_id': item_id})
         
         if uom_conversions:
             insert_stmt = text("""
-                INSERT INTO ItemUomConversion (ItemId, Uom, Factor, Purpose)
+                INSERT INTO ERP_Master.ItemUomConversion (ItemId, Uom, Factor, Purpose)
                 VALUES (:item_id, :uom, :factor, :purpose)
             """)
             for conv in uom_conversions:
@@ -152,6 +165,6 @@ class ItemRepository:
         return await self.get_item_by_id(item_id)
 
     async def delete_item(self, item_id: int, user_id: str) -> None:
-        stmt = text("CALL SpItem('DELETE', :id, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, :user)")
+        stmt = text("CALL ERP_Master.SpItem('DELETE', :id, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, :user)")
         await self.session.execute(stmt, {'id': item_id, 'user': user_id})
         await self.session.commit()

@@ -323,13 +323,15 @@ const INVENTORY_NAV: NavGroup[] = [
 
 const ENGINEERING_NAV: NavGroup[] = [
   { portal: 'ENGINEERING', label: 'Dashboard', to: '/engineering', icon: LayoutDashboard },
+  // The product master itself lives in the Masters portal (Product Items).
+  // Engineering owns the documents attached to a product, not the product record.
   {
     portal: 'ENGINEERING',
-    label: 'Products',
-    icon: Shapes,
+    label: 'Documents',
+    icon: Files,
     children: [
-      { label: 'Product master', to: '/engineering/products', icon: Boxes },
       { label: 'Engineering documents', to: '/engineering/documents', icon: Files },
+      { label: 'Document types', to: '/engineering/document-types', icon: ScrollText },
     ],
   },
   {

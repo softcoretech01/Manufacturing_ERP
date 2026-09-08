@@ -53,7 +53,9 @@ async def item_tax_rates(session: AsyncSession, item_codes: list[str]) -> dict[s
     rows = (
         await session.execute(
             text(
-                f"SELECT Code, GstRate FROM Item "
+                # Qualified for the same reason as grn_posting: `Item` is
+                # ambiguous across admin_erp and ERP_Master.
+                f"SELECT Code, GstRate FROM ERP_Master.Item "
                 f" WHERE Code IN ({placeholders}) AND IFNULL(IsDeleted, 0) = 0"
             ),
             {f"c{i}": c for i, c in enumerate(codes)},

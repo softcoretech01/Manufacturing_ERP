@@ -304,6 +304,12 @@ export interface EngChange {
 
 /* ─────────────────────────── Documents ─────────────────────────── */
 
+/**
+ * Document type codes come from the DocumentType master, so this is a plain
+ * string rather than a closed union — adding a type is configuration, not a
+ * code change. The nine codes below are the seeded set, kept only as an
+ * editor hint.
+ */
 export type DocType =
   | 'CAD_DRAWING'
   | 'MODEL_3D'
@@ -314,6 +320,20 @@ export type DocType =
   | 'CERTIFICATE'
   | 'DATASHEET'
   | 'IMAGE'
+  | (string & {})
+
+/** A row of the document-type master. */
+export interface DocumentType {
+  uid: string
+  code: string
+  name: string
+  description?: string | null
+  retentionRule?: string | null
+  isVersioned: boolean
+  sortOrder: number
+  isActive: boolean
+  inUseCount: number
+}
 
 export interface EngDocument {
   uid: string

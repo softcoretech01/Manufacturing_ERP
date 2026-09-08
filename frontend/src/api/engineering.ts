@@ -1,7 +1,7 @@
 import { api } from './client'
 import type { 
-  Bom, EngProduct, EngDocument, Operation, EngWorkCentre, 
-  Tool, Routing, EngChange 
+  Bom, EngProduct, EngDocument, Operation, EngWorkCentre,
+  Tool, Routing, EngChange, DocumentType
 } from '@/types/engineering'
 
 const mapItemToEngProduct = (item: any) => ({
@@ -42,41 +42,14 @@ export const engineeringApi = {
   deleteBom: (id: string | number) => api.del(`/engineering/boms/${id}`),
   getNextBomCode: () => api.get<{nextCode: string}>('/engineering/boms/next-code'),
 
-  // Products (Migrated to Item Master)
+  // Products are read from the Item Master, which the Masters portal owns.
+  // Engineering reads the list and writes back a rolled-up standard cost; it does
+  // not create or delete product records -- do that in Masters > Product Items.
 
   getEngProducts: (): Promise<EngProduct[]> => api.get<any[]>('/items').then((res: any) => {
     const data = Array.isArray(res) ? res : res.data || [];
     return data.map(mapItemToEngProduct);
   }),
-  createEngProduct: (data: any) => {
-    const itemData = {
-      itemType: data.productType || 'FINISHED',
-      category: data.family || '',
-      family: data.family || '',
-      series: data.brand || '',
-      baseUom: data.baseUom || 'NOS',
-      capacityMl: data.capacityMl || null,
-      colour: data.colour || null,
-      netWeightG: data.netWeightG || null,
-      steelGrade: data.spec?.materialGrade || null,
-      lidType: null,
-      status: data.lifecycle === 'PRODUCTION' ? 'ACTIVE' : data.lifecycle === 'CONCEPT' ? 'DRAFT' : 'APPROVED',
-      effectiveFrom: data.effectiveFrom || new Date().toISOString().slice(0, 10),
-      specification: JSON.stringify(data.spec || {}),
-      standardCost: data.standardCost || 0,
-      description: data.remarks || '',
-      isManufactured: true,
-      isPurchased: false,
-      isSold: true,
-      name: data.name,
-      code: data.code,
-      shortName: (data.name || '').substring(0, 10),
-      purchaseUom: data.baseUom || 'NOS',
-      salesUom: data.baseUom || 'NOS',
-      valuationMethod: 'FIFO',
-    };
-    return api.post<any>('/items', itemData).then(mapItemToEngProduct);
-  },
   updateEngProduct: (id: string | number, data: any) => {
     const itemData = {
       itemType: data.productType || 'FINISHED',
@@ -106,8 +79,18 @@ export const engineeringApi = {
     };
     return api.put<any>(`/items/${id}`, itemData).then(mapItemToEngProduct);
   },
-  deleteEngProduct: (id: string | number) => api.del(`/items/${id}`),
-  getEngProductNextCode: () => api.get<{nextCode: string}>('/items/next-code'),
+
+  // Document types (master behind the document Type picker)
+  getDocumentTypes: (activeOnly = true): Promise<DocumentType[]> =>
+    api.get<DocumentType[]>(`/engineering/document-types/?active_only=${activeOnly}`)
+      .then((res: any) => (Array.isArray(res) ? res : res.data || [])),
+  createDocumentType: (data: Partial<DocumentType>) =>
+    api.post<DocumentType>('/engineering/document-types/', data),
+  updateDocumentType: (uid: string, data: Partial<DocumentType>) =>
+    api.put<DocumentType>(`/engineering/document-types/${uid}`, data),
+  /** Retires the type (IsActive = 0); the row is never physically deleted. */
+  retireDocumentType: (uid: string) =>
+    api.del<DocumentType>(`/engineering/document-types/${uid}`),
 
   // Documents
   getEngDocuments: (): Promise<EngDocument[]> => api.get<EngDocument[]>('/engineering/documents').then((res: any) => Array.isArray(res) ? res : res.data || []),
