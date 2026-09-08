@@ -99,7 +99,6 @@ import { BinMapPage } from '@/pages/inventory/BinMap'
 
 // Product engineering — BOM & routing (Vol 6)
 import { EngineeringDashboardPage } from '@/pages/engineering/Dashboard'
-import { ProductsPage } from '@/pages/engineering/Products'
 import { BomPage } from '@/pages/engineering/Bom'
 import { BomExplorerPage } from '@/pages/engineering/BomExplorer'
 import { RoutingPage } from '@/pages/engineering/Routing'
@@ -109,6 +108,7 @@ import { ToolsPage } from '@/pages/engineering/Tools'
 import { CostingPage } from '@/pages/engineering/Costing'
 import { ChangesPage } from '@/pages/engineering/Changes'
 import { EngDocumentsPage } from '@/pages/engineering/Documents'
+import { DocumentTypesPage } from '@/pages/engineering/DocumentTypes'
 import { EngReportsPage } from '@/pages/engineering/Reports'
 
 // Production planning & MRP (Vol 7)
@@ -372,7 +372,9 @@ export default function App() {
 
         {/* Product engineering */}
         <Route path="/engineering" element={<EngineeringDashboardPage />} />
-        <Route path="/engineering/products" element={<ProductsPage />} />
+        {/* Product master data belongs to the Masters portal; the engineering
+            copy was a second CRUD surface onto the same /items endpoint. */}
+        <Route path="/engineering/products" element={<Navigate to="/masters/product-items" replace />} />
         <Route path="/engineering/bom" element={<BomPage />} />
         <Route path="/engineering/bom-explorer" element={<BomExplorerPage />} />
         <Route path="/engineering/routing" element={<RoutingPage />} />
@@ -382,6 +384,7 @@ export default function App() {
         <Route path="/engineering/costing" element={<CostingPage />} />
         <Route path="/engineering/changes" element={<ChangesPage />} />
         <Route path="/engineering/documents" element={<EngDocumentsPage />} />
+        <Route path="/engineering/document-types" element={<DocumentTypesPage />} />
         <Route path="/engineering/reports" element={<EngReportsPage />} />
 
         {/* Production planning */}

@@ -101,6 +101,24 @@ convenience. Each is a decision made in the absence of an answer, with its blast
 
 ---
 
+## Assumptions register (product engineering)
+
+Recorded 2026-09-07 while repairing the standard-cost roll-up
+(`app/services/engineering_cost_service.py`) and backfilling the Operations master
+(`scripts/seed_engineering_operations.py`). The SRS volume for engineering is not yet
+written, so these are implementation decisions awaiting confirmation.
+
+| # | Assumption | If wrong |
+|---|---|---|
+| A5-01 | A work centre's cost per hour is `MachineRatePerHour + (LabourRatePerHour × Operators)` — the labour rate is **per operator**, not per work centre | Crew cost is over-counted on multi-operator steps. Powder Coating (3 operators) drops from ₹1,290/h to ₹910/h and the 750 ml flask loses ≈ ₹2.30/unit |
+| A5-02 | The full crew-and-machine rate applies during **setup** as well as run time | Setup would be charged at machine rate only; effect is small because setup is amortised over the costing lot size |
+| A5-03 | `OverheadPct` is a percentage uplift applied to (setup + run) cost at the work centre, not a plant-wide absorption rate | Overhead moves out of the routing and into a costing master; the roll-up would stop applying it per operation |
+| A5-04 | Scrap % on a BOM line is a **yield loss**, so issue quantity is `qty ÷ (1 − scrap%)`, not `qty × (1 + scrap%)` | Every material cost is understated slightly; at 8 % scrap the difference is ≈ 0.7 % of that line |
+| A5-05 | The roll-up is **single level** — a sub-assembly line contributes its stored `StandardCost` rather than being exploded again | Costing a parent before its children leaves stale figures; a recursive bottom-up roll-up would be needed |
+| A5-06 | Where routings disagree on setup/cycle time for one operation code, the Operations master default takes the most-used configuration (ties → lowest routing id) | Only the master's default changes; every routing keeps its own product-specific times, so no costed figure moves |
+
+---
+
 ## How to close a question
 
 1. Record the answer in this table with the date and who gave it.

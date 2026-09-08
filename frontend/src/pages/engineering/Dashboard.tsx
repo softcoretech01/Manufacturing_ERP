@@ -115,7 +115,7 @@ export function EngineeringDashboardPage() {
     { label: 'Routings awaiting approval', count: kpis.pendingRoutings.length, to: '/engineering/routing', icon: ClipboardCheck, tone: 'pending' as const },
     { label: 'Changes waiting on a decision', count: kpis.openChanges.length, to: '/engineering/changes', icon: GitBranch, tone: 'progress' as const },
     { label: 'Approved changes not yet applied', count: kpis.approvedNotApplied.length, to: '/engineering/changes', icon: AlertTriangle, tone: 'danger' as const },
-    { label: 'Products blocked from release', count: kpis.blocked.length, to: '/engineering/products', icon: Layers, tone: 'warning' as const },
+    { label: 'Products blocked from release', count: kpis.blocked.length, to: '/masters/product-items', icon: Layers, tone: 'warning' as const },
     { label: 'Documents awaiting approval', count: kpis.pendingDocs.length, to: '/engineering/documents', icon: FileWarning, tone: 'progress' as const },
     { label: 'Tools near end of life or calibration', count: kpis.toolsAtRisk.length, to: '/engineering/tools', icon: Wrench, tone: 'warning' as const },
     { label: 'Products with a drifted standard cost', count: kpis.drift.length, to: '/engineering/costing', icon: Calculator, tone: 'warning' as const },
@@ -146,7 +146,7 @@ export function EngineeringDashboardPage() {
             <Button variant="outline" size="sm" onClick={() => navigate('/engineering/bom-explorer')}>
               Explode a BOM
             </Button>
-            <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => navigate('/engineering/products')}>
+            <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => navigate('/masters/product-items')}>
               New product
             </Button>
           </>
@@ -161,7 +161,7 @@ export function EngineeringDashboardPage() {
           sub={`${kpis.inDevelopment.length} more in development`}
           icon={<Boxes />}
           tone="brand"
-          onClick={() => navigate('/engineering/products')}
+          onClick={() => navigate('/masters/product-items')}
         />
         <StatTile
           label="Live structures"
@@ -324,7 +324,7 @@ export function EngineeringDashboardPage() {
                 <p className="text-xs text-fg-subtle">Every product in development is ready for its next step.</p>
               ) : (
                 kpis.blocked.slice(0, 5).map(({ product, blockers }) => (
-                  <Link key={product.uid} to="/engineering/products" className="block border-b border-border pb-2.5 last:border-0 last:pb-0">
+                  <Link key={product.uid} to="/masters/product-items" className="block border-b border-border pb-2.5 last:border-0 last:pb-0">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="truncate font-mono text-2xs font-medium text-brand-600">{product.code}</p>

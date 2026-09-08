@@ -103,13 +103,16 @@ class GrnPostingService:
         if existing:
             return await self.stock._item(existing[0])
 
-        # Not in inventory yet — provision it from the procurement Item master.
+        # Not in inventory yet — provision it from the Item master.
+        # Schema-qualified: `Item` exists in both admin_erp and ERP_Master and the
+        # connection defaults to admin_erp, while /items now serves ERP_Master.
         src = (
             await self.session.execute(
                 text(
                     "SELECT Code, Name, ItemType, BaseUom, HsnCode, IsBatchTracked, "
                     "       RequiresIncomingInspection, StandardCost, ReorderLevel "
-                    "  FROM Item WHERE Code = :code AND IFNULL(IsDeleted, 0) = 0 LIMIT 1"
+                    "  FROM ERP_Master.Item"
+                    " WHERE Code = :code AND IFNULL(IsDeleted, 0) = 0 LIMIT 1"
                 ),
                 {"code": code},
             )

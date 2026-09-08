@@ -79,7 +79,7 @@ from app.routers.grn import router as grn_router
 from app.routers.analytics import router as analytics_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.settings import router as settings_router
-from app.routers import engineering_boms, engineering_routings, engineering_documents, engineering_operations, engineering_workcentres, engineering_tools, engineering_changes, engineering_cost
+from app.routers import engineering_boms, engineering_routings, engineering_documents, engineering_operations, engineering_workcentres, engineering_tools, engineering_changes, engineering_cost, document_types
 from app.routers import admin_audit
 from app.routers import quality_plans, inspections, defects, quality_lookups, ncr, capa, calibration, complaint, audit, supplier_quality
 import traceback
@@ -220,6 +220,7 @@ def create_app() -> FastAPI:
     app.include_router(dashboard_router, prefix="/api/v1/procurement/dashboard", tags=["procurement-dashboard"])
     app.include_router(settings_router, prefix="/api/v1/procurement/settings", tags=["procurement-settings"])
     app.include_router(engineering_documents.router, prefix="/api/v1/engineering/documents", tags=["Engineering Documents"])
+    app.include_router(document_types.router, prefix="/api/v1/engineering/document-types", tags=["Document Types"])
     app.include_router(engineering_boms.router, prefix="/api/v1/engineering/boms", tags=["Engineering BOMs"])
     app.include_router(engineering_routings.router, prefix="/api/v1/engineering/routings", tags=["Engineering Routings"])
     app.include_router(engineering_operations.router, prefix="/api/v1/engineering/operations")

@@ -1,24 +1,28 @@
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Dict, Any
 
 from app.core.database import get_session
 from app.core.deps import require
-from app.schemas.engineering_document import EngDocumentSchema
+from app.repositories.document_type_repository import DocumentTypeRepository
 from app.repositories.engineering_document_repository import EngineeringDocumentRepository
-from app.services.engineering_document_service import EngineeringDocumentService
+from app.schemas.engineering_document import EngDocumentSchema
+from app.services.engineering_document_service import (
+    EngineeringDocumentService,
+    UnknownDocumentTypeError,
+)
 
 router = APIRouter(tags=["Engineering Documents"])
 
 def get_service(db: AsyncSession = Depends(get_session)) -> EngineeringDocumentService:
     repository = EngineeringDocumentRepository(db)
-    return EngineeringDocumentService(repository)
+    return EngineeringDocumentService(repository, DocumentTypeRepository(db))
 
-@router.get("/", response_model=List[EngDocumentSchema], dependencies=[Depends(require("ENGINEERING.DOCUMENT.VIEW"))])
+@router.get("/", response_model=list[EngDocumentSchema], dependencies=[Depends(require("ENGINEERING.DOCUMENT.VIEW"))])
 async def get_documents(service: EngineeringDocumentService = Depends(get_service)):
     return await service.get_all_documents()
 
-@router.get("/next-code", response_model=Dict[str, str], dependencies=[Depends(require("ENGINEERING.DOCUMENT.CREATE"))])
+@router.get("/next-code", response_model=dict[str, str], dependencies=[Depends(require("ENGINEERING.DOCUMENT.CREATE"))])
 async def get_next_code(service: EngineeringDocumentService = Depends(get_service)):
     return await service.get_next_code()
 
@@ -29,7 +33,11 @@ async def create_document(
 ):
     user_id = "System"
     data = doc.model_dump(mode='json')
-    result = await service.create_document(data, user_id)
+    try:
+        result = await service.create_document(data, user_id)
+    except UnknownDocumentTypeError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail=str(exc)) from exc
     if not result:
         raise HTTPException(status_code=500, detail="Failed to create document")
     return result
@@ -42,7 +50,11 @@ async def update_document(
 ):
     user_id = "System"
     data = doc.model_dump(mode='json')
-    result = await service.update_document(doc_uid, data, user_id)
+    try:
+        result = await service.update_document(doc_uid, data, user_id)
+    except UnknownDocumentTypeError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail=str(exc)) from exc
     if not result:
         raise HTTPException(status_code=404, detail="Document not found or update failed")
     return result

@@ -68,6 +68,7 @@ _MODULES: dict[str, dict[str, tuple[str, ...]]] = {
         "TOOL": _MASTER_CRUD,
         "CHANGE": _MASTER_CRUD,
         "DOCUMENT": _MASTER_CRUD,
+        "DOCUMENT_TYPE": _MASTER_CRUD,  # master behind the document Type picker
         "COST": ("VIEW", "ROLLUP"),  # standard-cost roll-up over the live structure
     },
     # Master data (Vol 1 Ch 7 / Vol 4 prerequisite).

@@ -40,29 +40,50 @@ export function BomExplorerPage() {
   const [productCode, setProductCode] = useState('')
   const [qtyText, setQtyText] = useState('1000')
 
+  const [failedSources, setFailedSources] = useState<string[]>([])
+
   useEffect(() => {
     async function load() {
-      try {
-        const [bomData, productData, itemData] = await Promise.all([
-          api.getBoms(),
-          api.getEngProducts(),
-          getItems()
-        ])
-        setBoms(bomData)
-        setProducts(productData)
-        setMasterItems(itemData)
-        
-        // Initialize selections if empty
-        const explodableProducts = productData.filter((p: EngProduct) => defaultBomFor(p.code, bomData))
-        if (explodableProducts.length > 0) {
-          setProductCode(explodableProducts[0].code)
-        }
-      } catch (err) {
-        console.error('Failed to load data:', err)
-        toast.error('Failed to load', 'Could not load data from the server.')
-      } finally {
-        setIsLoading(false)
+      /*
+       * Settled, not all. These three come from different routers with different
+       * gates — /items is ungated while /engineering/boms requires a token — so
+       * `Promise.all` let one 401 reject the batch and leave every list empty.
+       * The page then rendered "Select a product…" over no options and an empty
+       * state that blamed the data, with nothing said about the real failure.
+       */
+      const [bomRes, productRes, itemRes] = await Promise.allSettled([
+        api.getBoms(),
+        api.getEngProducts(),
+        getItems(),
+      ])
+
+      const bomData = bomRes.status === 'fulfilled' ? bomRes.value : []
+      const productData = productRes.status === 'fulfilled' ? productRes.value : []
+      const itemData = itemRes.status === 'fulfilled' ? itemRes.value : []
+
+      setBoms(bomData)
+      setProducts(productData)
+      setMasterItems(itemData)
+
+      const failed = [
+        bomRes.status === 'rejected' && 'bills of material',
+        productRes.status === 'rejected' && 'products',
+        itemRes.status === 'rejected' && 'item costs',
+      ].filter(Boolean) as string[]
+      setFailedSources(failed)
+
+      if (failed.length) {
+        const reason = [bomRes, productRes, itemRes].find((r) => r.status === 'rejected')
+        console.error('BOM explorer failed to load:', reason && (reason as PromiseRejectedResult).reason)
+        toast.error('Some data did not load', `Could not load ${failed.join(' or ')}.`)
       }
+
+      // Preselect the first explodable product, if any survived.
+      const explodableProducts = productData.filter((p: EngProduct) => defaultBomFor(p.code, bomData))
+      if (explodableProducts.length > 0) {
+        setProductCode(explodableProducts[0].code)
+      }
+      setIsLoading(false)
     }
     load()
   }, [])
@@ -173,6 +194,23 @@ export function BomExplorerPage() {
           />
         }
       />
+
+      {/* An empty picker is otherwise indistinguishable from "no data exists". */}
+      {!isLoading && failedSources.length > 0 && (
+        <Alert tone="danger" className="mb-4">
+          Could not load {failedSources.join(' or ')} from the server, so the product
+          list below is incomplete. This is usually an expired session —{' '}
+          <a href="/login" className="font-semibold underline">sign in again</a> and reopen
+          this page.
+        </Alert>
+      )}
+
+      {!isLoading && failedSources.length === 0 && explodable.length === 0 && (
+        <Alert tone="warning" className="mb-4">
+          No product has a live bill of material yet. A BOM must be ACTIVE or APPROVED, and
+          marked as the default, before its product can be exploded.
+        </Alert>
+      )}
 
       {/* ── Explosion ───────────────────────────────────────────────────── */}
       {tab === 'explode' && (
