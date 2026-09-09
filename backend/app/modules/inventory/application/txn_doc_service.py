@@ -44,14 +44,22 @@ class TxnDocService:
 
         Returns: (legacy_id, MstItem, legacy_item_data_dict)
         """
-        # 1. Fetch from legacy Item table
+        # 1. Fetch from the Item master.
+        #
+        # Schema-qualified deliberately. An `Item` table exists in BOTH admin_erp
+        # (5 stale test rows) and ERP_Master (the 20 real items), the connection
+        # defaults to admin_erp, and `/items` — where the frontend picks the id
+        # from — serves ERP_Master via `ERP_Master.SpItem`. Reading unqualified
+        # here resolved the id against the *other* table: picking "Vaccum Flask"
+        # (ERP_Master id 1) silently posted stock for "Steel" (admin_erp id 1).
+        # Every other Item read in the backend is already qualified this way.
         src = (
             await self.session.execute(
                 text(
                     "SELECT Id, Code, Name, ItemType, BaseUom, HsnCode, IsBatchTracked, "
                     "       RequiresIncomingInspection, StandardCost, ReorderLevel, "
                     "       MinStock, MaxStock, Category, Status "
-                    "  FROM Item WHERE Id = :id AND IFNULL(IsDeleted, 0) = 0 LIMIT 1"
+                    "  FROM ERP_Master.Item WHERE Id = :id AND IFNULL(IsDeleted, 0) = 0 LIMIT 1"
                 ),
                 {"id": item_id},
             )
@@ -106,12 +114,28 @@ class TxnDocService:
 
         # Map to proper ItemType enum
         from app.core.enums import ItemType as EnumItemType
+        # The Item master's own type vocabulary, mapped onto the inventory enum.
+        # The live values in ERP_Master.Item are RAW, FINISHED, SEMI_FINISHED,
+        # COMPONENT, PACKING and CONSUMABLE — four of which this map used to miss,
+        # so 13 of the 20 real items provisioned into mst_item as RAW_MATERIAL by
+        # falling through to the default. Keep the longer spellings too; both
+        # vocabularies appear across the masters.
         _ITEM_TYPE_MAP = {
+            "RAW": EnumItemType.RAW_MATERIAL.value,
             "RAW_MATERIAL": EnumItemType.RAW_MATERIAL.value,
+            "RAW_MATERIALS": EnumItemType.RAW_MATERIAL.value,
+            "FINISHED": EnumItemType.FINISHED_GOODS.value,
             "FINISHED_GOOD": EnumItemType.FINISHED_GOODS.value,
             "FINISHED_GOODS": EnumItemType.FINISHED_GOODS.value,
             "SEMI_FINISHED": EnumItemType.WIP.value,
+            "WIP": EnumItemType.WIP.value,
+            # A component is a bought-in part consumed by production, which is
+            # how RAW_MATERIAL behaves in the stock engine.
+            "COMPONENT": EnumItemType.RAW_MATERIAL.value,
+            "COMPONENTS": EnumItemType.RAW_MATERIAL.value,
+            "PACKING": EnumItemType.PACKING.value,
             "PACKAGING": EnumItemType.PACKING.value,
+            "SPARE": EnumItemType.SPARE.value,
             "SPARES": EnumItemType.SPARE.value,
             "CONSUMABLE": EnumItemType.CONSUMABLE.value,
             "CONSUMABLES": EnumItemType.CONSUMABLE.value,
@@ -764,6 +788,11 @@ class TxnDocService:
             exists.mfg_date = mfg_date
             exists.expiry_date = expiry_date
         else:
+            # created_by/updated_by are NOT NULL on every CompanyEntity and are
+            # not defaulted by the ORM. Omitting them made posting any
+            # batch-tracked line fail on an IntegrityError from this insert —
+            # after the balance and ledger writes had already been staged.
+            now = utcnow()
             meta = InvBatchMaster(
                 company_id=self.ctx.company_id,
                 mst_item_id=mst_item_id,
@@ -771,8 +800,10 @@ class TxnDocService:
                 batch_no=batch_no,
                 mfg_date=mfg_date,
                 expiry_date=expiry_date,
-                created_at=utcnow(),
-                updated_at=utcnow(),
+                created_at=now,
+                created_by=self.ctx.user_id,
+                updated_at=now,
+                updated_by=self.ctx.user_id,
             )
             self.session.add(meta)
 

@@ -192,10 +192,10 @@ export function FixedAssetsPage() {
   /* ── columns ────────────────────────────────────────────────── */
 
   const registerColumns: Column<FixedAsset>[] = [
-    { key: 'asset', header: 'Asset', width: '20rem', render: (a) => (<><p className="truncate text-xs text-fg">{a.name}</p><p className="font-mono text-2xs text-fg-subtle">{a.code}{a.machineCode ? ` · ${a.machineCode}` : ''}</p></>) },
+    { key: 'asset', header: 'Asset', width: '20rem', render: (a) => (<><p className="truncate text-xs text-fg" title={String(a.name ?? "")}>{a.name}</p><p className="font-mono text-2xs text-fg-subtle">{a.code}{a.machineCode ? ` · ${a.machineCode}` : ''}</p></>) },
     { key: 'category', header: 'Category', width: '12rem', render: (a) => <span className="text-2xs text-fg-muted">{a.category}</span> },
     { key: 'cc', header: 'Cost centre', width: '10rem', render: (a) => <span className="font-mono text-2xs text-fg-muted">{a.costCentre || '—'}</span> },
-    { key: 'capitalised', header: 'Capitalised', width: '8rem', render: (a) => <span className="text-2xs tabular text-fg-muted">{formatDate(a.capitalisedOn)}</span> },
+    { key: 'capitalised', header: 'Capitalised', width: '8.5rem', render: (a) => <span className="text-2xs tabular text-fg-muted">{formatDate(a.capitalisedOn)}</span> },
     { key: 'cost', header: 'Cost', width: '11rem', align: 'right', render: (a) => <Amount value={a.cost} className="text-xs" /> },
     { key: 'acc', header: 'Depreciation', width: '11rem', align: 'right', render: (a) => <Amount value={a.accumulatedDepreciation} className="text-xs text-fg-muted" blankZero /> },
     {
@@ -214,7 +214,7 @@ export function FixedAssetsPage() {
   ]
 
   const runColumns: Column<(typeof runs)[number]>[] = [
-    { key: 'asset', header: 'Asset', width: '20rem', render: (r) => (<><p className="truncate text-xs text-fg">{r.asset.name}</p><p className="font-mono text-2xs text-fg-subtle">{r.asset.code}</p></>) },
+    { key: 'asset', header: 'Asset', width: '20rem', render: (r) => (<><p className="truncate text-xs text-fg" title={String(r.asset.name ?? "")}>{r.asset.name}</p><p className="font-mono text-2xs text-fg-subtle">{r.asset.code}</p></>) },
     { key: 'method', header: 'Method', width: '8rem', render: (r) => <Badge tone="neutral" size="sm" dot={false}>{r.run.method}</Badge> },
     { key: 'opening', header: 'Opening WDV', width: '12rem', align: 'right', render: (r) => <Amount value={r.run.openingWdv} className="text-xs" /> },
     {

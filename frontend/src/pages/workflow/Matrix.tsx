@@ -84,7 +84,7 @@ export function ApprovalMatrixPage() {
             <div className="flex overflow-hidden rounded border border-border">
               {coverage.bands.map((b, i) => (
                 <div key={i} className="flex-1 border-r border-border bg-brand-500/10 px-2 py-2.5 text-center last:border-r-0" style={{ minWidth: 0 }}>
-                  <p className="truncate text-2xs font-medium text-brand-600">{b.name}</p>
+                  <p className="truncate text-2xs font-medium text-brand-600" title={String(b.name ?? "")}>{b.name}</p>
                   <p className="mt-0.5 truncate text-[10px] text-fg-muted tabular">
                     {formatCompact(b.from)} – {b.to === null ? '∞' : formatCompact(b.to)}
                   </p>

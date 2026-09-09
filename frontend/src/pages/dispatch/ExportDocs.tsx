@@ -143,7 +143,7 @@ export function ExportDocsPage() {
     { key: 'exportShipmentNo', header: 'Export shipment', sortable: true, width: '11rem', render: (d) => (
       <span className="font-mono text-xs font-medium text-brand-600">{d.exportShipmentNo}</span>
     ) },
-    { key: 'docType', header: 'Document', sortable: true, render: (d) => (
+    { key: 'docType', header: 'Document', width: '16rem', sortable: true, render: (d) => (
       <div className="min-w-0">
         <p className="truncate text-xs font-medium text-fg">
           {EXPORT_DOC_LABEL[d.docType]}

@@ -46,9 +46,9 @@ export function GoodsInTransitPage() {
 
   const columns: Column<StockTransfer>[] = [
     { key: 'docNo', header: 'Transfer', sortable: true, width: '11rem', render: (t) => <span className="font-mono text-xs font-medium text-brand-600">{t.docNo}</span> },
-    { key: 'route', header: 'Route', accessor: (t) => `${t.fromWarehouse} → ${t.toWarehouse}`, render: (t) => (
+    { key: 'route', header: 'Route', width: '18rem', accessor: (t) => `${t.fromWarehouse} → ${t.toWarehouse}`, render: (t) => (
       <div className="min-w-0">
-        <p className="truncate text-xs text-fg">{t.fromWarehouse}</p>
+        <p className="truncate text-xs text-fg" title={String(t.fromWarehouse ?? "")}>{t.fromWarehouse}</p>
         <p className="truncate text-2xs text-fg-subtle">→ {t.toWarehouse} ({t.toPlant})</p>
       </div>
     ) },
@@ -69,7 +69,7 @@ export function GoodsInTransitPage() {
         <p className="font-mono text-2xs text-fg-subtle">{t.lrNo ?? ''}</p>
       </div>
     ) },
-    { key: 'dispatchedAt', header: 'Dispatched', sortable: true, width: '8rem', accessor: (t) => t.dispatchedAt ?? '', render: (t) => (t.dispatchedAt ? formatDate(t.dispatchedAt) : '—') },
+    { key: 'dispatchedAt', header: 'Dispatched', sortable: true, width: '8.5rem', accessor: (t) => t.dispatchedAt ?? '', render: (t) => (t.dispatchedAt ? formatDate(t.dispatchedAt) : '—') },
     { key: 'expectedOn', header: 'Expected', sortable: true, width: '8rem', accessor: (t) => t.expectedOn ?? '', render: (t) => {
       if (!t.expectedOn) return <span className="text-2xs text-fg-subtle">—</span>
       const late = new Date(t.expectedOn).getTime() < Date.now()

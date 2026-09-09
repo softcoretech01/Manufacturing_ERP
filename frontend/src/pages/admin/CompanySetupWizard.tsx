@@ -161,7 +161,7 @@ export function CompanySetupWizard({ open, onClose }: { open: boolean; onClose: 
               >
                 {state === 'done' ? <Check className="h-3.5 w-3.5" /> : <Icon className="h-3.5 w-3.5" />}
               </div>
-              <span className={cn('truncate text-xs', i === step ? 'font-medium text-fg' : 'text-fg-subtle')}>{s.label}</span>
+              <span className={cn('truncate text-xs', i === step ? 'font-medium text-fg' : 'text-fg-subtle')} title={String(s.label ?? "")}>{s.label}</span>
               {i < STEPS.length - 1 && <div className="mx-1 h-px flex-1 bg-border" />}
             </li>
           )
@@ -480,7 +480,7 @@ function BuiltList({ title, empty, items }: { title: string; empty: string; item
           {items.map((it) => (
             <li key={it.code} className="flex items-center gap-2 px-3 py-2">
               <span className="rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[10px] text-fg-muted">{it.code}</span>
-              <span className="min-w-0 flex-1 truncate text-sm text-fg">{it.name}</span>
+              <span className="min-w-0 flex-1 truncate text-sm text-fg" title={String(it.name ?? "")}>{it.name}</span>
               {it.meta && <span className="text-2xs text-fg-subtle">{it.meta}</span>}
             </li>
           ))}

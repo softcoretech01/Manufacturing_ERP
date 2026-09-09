@@ -152,7 +152,7 @@ export function ConditionPage() {
   /* ── columns ────────────────────────────────────────────────── */
 
   const columns: Column<ConditionTrend>[] = [
-    { key: 'asset', header: 'Asset', width: '18rem', render: (t) => (<><p className="truncate text-xs text-fg">{t.point.assetName}</p><p className="font-mono text-2xs text-fg-subtle">{t.point.assetCode}</p></>) },
+    { key: 'asset', header: 'Asset', width: '18rem', render: (t) => (<><p className="truncate text-xs text-fg" title={String(t.point.assetName ?? "")}>{t.point.assetName}</p><p className="font-mono text-2xs text-fg-subtle">{t.point.assetCode}</p></>) },
     { key: 'parameter', header: 'Parameter', width: '12rem', render: (t) => <ParameterBadge parameter={t.point.parameter} /> },
     {
       key: 'latest', header: 'Latest', width: '11rem', align: 'right',

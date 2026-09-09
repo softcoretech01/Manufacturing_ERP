@@ -173,7 +173,7 @@ export function SalesReturnsPage() {
     { key: 'docNo', header: 'Return', sortable: true, width: '11.5rem', render: (r) => (
       <div className="min-w-0">
         <p className="font-mono text-xs font-medium text-brand-600">{r.docNo}</p>
-        <p className="truncate text-2xs text-fg-subtle">{formatDate(r.requestedOn)}</p>
+        <p className="truncate text-2xs text-fg-subtle" title={String(formatDate(r.requestedOn) ?? "")}>{formatDate(r.requestedOn)}</p>
       </div>
     ) },
     { key: 'returnType', header: 'Type', sortable: true, width: '10.5rem', render: (r) => (

@@ -123,6 +123,7 @@ export function NcrPage() {
     {
       key: 'title',
       header: 'Issue',
+      width: '16rem',
       sortable: true,
       render: (n) => (
         <>
@@ -135,7 +136,7 @@ export function NcrPage() {
     { key: 'quantityAffected', header: 'Affected', align: 'right', sortable: true, width: '7.5rem', accessor: (n) => n.quantityAffected, render: (n) => `${formatQty(n.quantityAffected, 0)} ${n.uom}` },
     { key: 'costImpact', header: 'Cost', align: 'right', sortable: true, width: '8.5rem', accessor: (n) => n.costImpact, render: (n) => (n.costImpact ? `₹${formatAmount(n.costImpact)}` : <span className="text-2xs text-fg-subtle">—</span>) },
     { key: 'owner', header: 'Owner', sortable: true, width: '9rem' },
-    { key: 'dueOn', header: 'Due', sortable: true, width: '8rem', accessor: (n) => n.dueOn, render: (n) => <span className={overdueDays(n.dueOn, n.closedOn) > 0 ? 'text-danger' : ''}>{formatDate(n.dueOn)}</span> },
+    { key: 'dueOn', header: 'Due', sortable: true, width: '8.5rem', accessor: (n) => n.dueOn, render: (n) => <span className={overdueDays(n.dueOn, n.closedOn) > 0 ? 'text-danger' : ''}>{formatDate(n.dueOn)}</span> },
     { key: 'overdue', header: 'Timing', width: '8rem', accessor: (n) => overdueDays(n.dueOn, n.closedOn), render: (n) => <DueChip days={overdueDays(n.dueOn, n.closedOn)} /> },
     { key: 'capaDocNo', header: 'CAPA', width: '10rem', render: (n) => <span className="font-mono text-2xs text-fg-muted">{n.capaDocNo ?? '—'}</span> },
     { key: 'status', header: 'Status', sortable: true, width: '11rem', accessor: (n) => NCR_STATUS_LABEL[n.status], render: (n) => <NcrStatusBadge status={n.status} /> },

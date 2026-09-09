@@ -61,11 +61,11 @@ export function RequisitionsPage() {
 
   const columns: Column<MaterialRequisition>[] = [
     { key: 'docNo', header: 'Requisition', sortable: true, width: '12rem', render: (r) => <span className="font-mono text-xs font-medium text-brand-600">{r.docNo}</span> },
-    { key: 'docDate', header: 'Raised', sortable: true, width: '7rem', accessor: (r) => r.docDate, render: (r) => formatDate(r.docDate) },
+    { key: 'docDate', header: 'Raised', sortable: true, width: '8.5rem', accessor: (r) => r.docDate, render: (r) => formatDate(r.docDate) },
     { key: 'department', header: 'Department', sortable: true },
     { key: 'productionOrderNo', header: 'For order', width: '11rem', render: (r) => <span className="font-mono text-2xs">{r.productionOrderNo ?? '—'}</span> },
     { key: 'requestedBy', header: 'Asked by', sortable: true },
-    { key: 'requiredOn', header: 'Needed on', sortable: true, width: '8rem', accessor: (r) => r.requiredOn, render: (r) => formatDate(r.requiredOn) },
+    { key: 'requiredOn', header: 'Needed on', sortable: true, width: '8.5rem', accessor: (r) => r.requiredOn, render: (r) => formatDate(r.requiredOn) },
     { key: 'priority', header: 'Priority', width: '6.5rem', sortable: true, render: (r) => (
       <Badge size="sm" dot={false} tone={r.priority === 'URGENT' ? 'danger' : r.priority === 'HIGH' ? 'warning' : 'neutral'}>
         {r.priority.charAt(0) + r.priority.slice(1).toLowerCase()}

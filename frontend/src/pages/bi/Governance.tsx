@@ -73,6 +73,7 @@ export function BiGovernancePage() {
     {
       key: 'role',
       header: 'Role',
+      width: '16rem',
       render: (a) => <p className="text-xs font-medium text-fg">{a.role}</p>,
     },
     {
@@ -98,6 +99,7 @@ export function BiGovernancePage() {
     {
       key: 'maskedFields',
       header: 'Fields blanked',
+      className: 'cell-wrap',
       render: (a) =>
         a.maskedFields.length ? (
           <p className="max-w-[16rem] font-mono text-2xs leading-snug text-fg-muted">{a.maskedFields.join(', ')}</p>

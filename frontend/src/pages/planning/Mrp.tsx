@@ -1,582 +1,570 @@
 import { useMemo, useState } from 'react'
-import { AlertTriangle, Download, Play, ShoppingCart, Factory } from 'lucide-react'
-import { Button } from '@/components/ui/Button'
-import { Card, CardBody, CardHeader, EmptyState } from '@/components/ui/Card'
+import {
+  Play, AlertTriangle, AlertCircle, Info, PackageX, ShoppingCart, Factory, Clock,
+  Search, Target,
+} from 'lucide-react'
 import { Badge } from '@/components/ui/Badge'
+import { Button } from '@/components/ui/Button'
 import { DataTable, type Column } from '@/components/ui/DataTable'
-import { Drawer, Modal } from '@/components/ui/Modal'
-import { MenuItem } from '@/components/ui/Menu'
-import { Select } from '@/components/ui/Input'
 import { Alert, PageHeader } from '@/components/ui/Misc'
-import { Tabs } from '@/components/ui/Tabs'
-import { useToast } from '@/components/ui/Toast'
-import { DetailBlock, LateChip } from '@/components/planning/PlanShell'
-import { cn } from '@/lib/cn'
-import { exportRows, type ExportColumn, type ExportFormat } from '@/lib/export'
-import { formatAmount, formatDate, formatQty } from '@/lib/format'
-import { scheduleRouting } from '@/lib/planFlow'
-import { defaultRoutingFor, rollUpCost, NO_SIMULATION } from '@/lib/engFlow'
-import { newUid } from '@/store/data'
+import { Modal } from '@/components/ui/Modal'
+import { Input } from '@/components/ui/Input'
 import { usePlanningData } from './usePlanningData'
-import type { MrpException, MrpItemPlan, MrpShortage, PlannedOrder } from '@/lib/planFlow'
-import type { ProductionOrder } from '@/types/planning'
+import { MrpBuyMakeGrid, buildBuyMake } from '@/components/planning/MrpBuyMake'
+import { Tabs } from '@/components/ui/Tabs'
+import { InfoStrip } from '@/components/ui/InfoStrip'
+import { useToast } from '@/components/ui/Toast'
+import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
+import { formatDate } from '@/lib/format'
+import { ProblemError } from '@/api/client'
+import { useSession } from '@/api/session'
+import {
+  useLatestMrpRun,
+  useRunMrp,
+  useConvertToPurchaseRequisition,
+  useConvertToProductionOrder,
+} from '@/hooks/useMrp'
+import type { MrpException, MrpPlannedOrder, MrpItemPlan, MrpShortage } from '@/api/mrp'
 
 /**
- * MRP (Ch 8).
+ * Material Requirements Planning.
  *
- * The run itself is live — every screen in the portal reads the same result, so
- * there is no "last run" that quietly disagrees with the data. What this screen
- * adds is the four ways a planner needs to read it: the time-phased grid per
- * item, the orders it wants raised, the things that are already too late, and
- * the exceptions worth arguing with.
- *
- * A planned order is a suggestion until someone firms it. Firming a production
- * order here creates a real order with its components and operations attached.
+ * Reads a **stored run** from the server rather than recomputing in the browser.
+ * That is the whole point of the change: a plan now survives a refresh, two
+ * planners see the same numbers, and every run is a document that can be
+ * compared with the one before it.
  */
+
+const qty = (n: number) => new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(n)
+const money = (n: number) =>
+  new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n)
+
+const SEVERITY_ICON = {
+  ERROR: AlertCircle,
+  WARNING: AlertTriangle,
+  INFO: Info,
+} as const
+
+const SEVERITY_TONE = { ERROR: 'danger', WARNING: 'warning', INFO: 'neutral' } as const
 
 export function MrpPage() {
   const toast = useToast()
-  const { mrp, orders, ctx, products, starts } = usePlanningData()
+  const companyUid = useSession((s) => s.companyUid)
 
-  const [tab, setTab] = useState('orders')
-  const [detail, setDetail] = useState<MrpItemPlan | null>(null)
-  const [firming, setFirming] = useState<PlannedOrder | null>(null)
-  const [typeFilter, setTypeFilter] = useState('ALL')
-  const [severityFilter, setSeverityFilter] = useState('ALL')
+  const [tab, setTab] = useState('buy')
+  const [severityFilter, setSeverityFilter] = useState<'ALL' | 'ERROR' | 'WARNING' | 'INFO'>('ALL')
 
-  const plannedOrders = mrp.plannedOrders.filter((o) => (typeFilter === 'ALL' ? true : o.orderType === typeFilter))
-  const exceptions = mrp.exceptions.filter((e) => (severityFilter === 'ALL' ? true : e.severity === severityFilter))
+  const { data: run, isLoading, error } = useLatestMrpRun()
+  const runMrp = useRunMrp()
+  const toPr = useConvertToPurchaseRequisition()
+  const toPo = useConvertToProductionOrder()
+  const [selected, setSelected] = useState<string[]>([])
+  // Selection is per grid: a buyer ticking three materials must not find three
+  // production orders selected on the next tab.
+  const [buySel, setBuySel] = useState<string[]>([])
+  const [makeSel, setMakeSel] = useState<string[]>([])
+  // Run-for-one-demand picker (make-to-order).
+  const [runForOpen, setRunForOpen] = useState(false)
+  const [runForSearch, setRunForSearch] = useState('')
+  const { demand } = usePlanningData()
 
-  /** Which planned production orders have already been firmed into real ones. */
-  const firmedKeys = useMemo(
-    () => new Set(orders.rows.filter((o) => !o.deletedAt && o.plannedFinish).map((o) => `${o.productCode}|${o.plannedFinish.slice(0, 10)}`)),
-    [orders.rows],
+  /** Open demand, newest requirement first — what a scoped run can be built on. */
+  const runnableDemand = useMemo(() => {
+    const q = runForSearch.trim().toLowerCase()
+    return demand.rows
+      .filter((d) => d.status === 'OPEN' && d.qty - (d.qtyPlanned ?? 0) > 0)
+      .filter((d) =>
+        !q ||
+        [d.docNo, d.productCode, d.productName, d.customer].some((v) =>
+          (v ?? '').toLowerCase().includes(q),
+        ),
+      )
+      .sort((a, b) => a.requiredOn.localeCompare(b.requiredOn))
+  }, [demand.rows, runForSearch])
+
+  const exceptions = useMemo(
+    () => (run?.exceptions ?? []).filter((e) => severityFilter === 'ALL' || e.severity === severityFilter),
+    [run, severityFilter],
   )
 
-  const orderColumns: Column<PlannedOrder>[] = [
+  async function doRun(demandDocNo?: string) {
+    try {
+      const r = await runMrp.mutateAsync(demandDocNo ? { demand_doc_no: demandDocNo } : {})
+      toast.success(
+        'MRP complete',
+        `${r.run_no} — ${r.stats.items_planned} items, ${r.stats.purchase_orders} to buy, ` +
+          `${r.stats.production_orders} to make` +
+          (demandDocNo ? ` for ${demandDocNo}.` : '.'),
+      )
+      setRunForOpen(false)
+    } catch (e) {
+      if (e instanceof ProblemError) toast.error(e.problem.title || 'MRP failed', e.problem.detail)
+      else toast.error('MRP failed', e instanceof Error ? e.message : 'Unexpected error.')
+    }
+  }
+
+  /*
+   * One row per item, joining the proposals to the time-phased plan that
+   * explains them. Recomputed only when the run changes — a buyer switching
+   * tabs should not trigger a rebuild of both grids.
+   */
+  const buyRows = useMemo(
+    () => (run ? buildBuyMake(run.plans, run.planned_orders, 'PURCHASE') : []),
+    [run],
+  )
+  const makeRows = useMemo(
+    () => (run ? buildBuyMake(run.plans, run.planned_orders, 'PRODUCTION') : []),
+    [run],
+  )
+
+  const selectedOrders = useMemo(
+    () => (run?.planned_orders ?? []).filter((o) => selected.includes(o.uid)),
+    [run, selected],
+  )
+  // A row is an item, and an item can hold several proposals; converting the
+  // row converts every open proposal under it, which is what a buyer means by
+  // "raise this one".
+  const selectedBuys = useMemo(
+    () =>
+      buyRows
+        .filter((r) => buySel.includes(r.key))
+        .flatMap((r) => r.orders.filter((o) => !o.converted_to_doc_no)),
+    [buyRows, buySel],
+  )
+  const selectedMakes = useMemo(
+    () =>
+      makeRows
+        .filter((r) => makeSel.includes(r.key))
+        .flatMap((r) => r.orders.filter((o) => !o.converted_to_doc_no)),
+    [makeRows, makeSel],
+  )
+
+  function reportError(fallback: string, e: unknown) {
+    if (e instanceof ProblemError) toast.error(e.problem.title || fallback, e.problem.detail)
+    else toast.error(fallback, e instanceof Error ? e.message : 'Unexpected error.')
+  }
+
+  /** One requisition covering every selected buy — a buyer works a document,
+   *  not a row at a time. */
+  async function convertBuys() {
+    try {
+      const r = await toPr.mutateAsync({ planned_order_uids: selectedBuys.map((o) => o.uid) })
+      toast.success(
+        'Requisition raised',
+        `${r.document_no} — ${r.lines} line(s) sent to Procurement as a draft.`,
+      )
+      setBuySel([])
+    } catch (e) {
+      reportError('Could not raise the requisition', e)
+    }
+  }
+
+  /** Production orders are raised one at a time: each carries its own BOM and
+   *  routing snapshot, and a failure on one must not roll back the others. */
+  async function convertMakes() {
+    let made = 0
+    for (const o of selectedMakes) {
+      try {
+        const r = await toPo.mutateAsync({ planned_order_uid: o.uid })
+        made += 1
+        toast.success(
+          'Production order raised',
+          `${r.document_no} — ${r.components} components, ${r.operations} operations from ${r.bom}.`,
+        )
+      } catch (e) {
+        reportError(`Could not raise an order for ${o.item_code}`, e)
+      }
+    }
+    if (made) setMakeSel([])
+  }
+
+
+  const shortageColumns: Column<MrpShortage>[] = [
     {
-      key: 'itemCode',
-      header: 'Item',
-      sortable: true,
-      render: (o) => (
-        <>
-          <p className="text-xs font-medium text-fg">{o.itemName}</p>
-          <p className="font-mono text-2xs text-fg-subtle">{o.itemCode}</p>
-        </>
+      key: 'sno', header: 'S.No', width: '68px', align: 'center',
+      render: (_r, i) => <span className="text-[13px] tabular-nums text-fg-subtle">{i + 1}</span>,
+    },
+    {
+      key: 'item', header: 'Item', width: '280px',
+      accessor: (s) => `${s.item_name} ${s.item_code}`,
+      render: (s) => (
+        <div className="min-w-0">
+          <p className="truncate text-[14px] font-medium text-fg" title={String(s.item_name ?? "")}>{s.item_name}</p>
+          <p className="truncate font-mono text-[12px] text-fg-subtle" title={String(s.item_code ?? "")}>{s.item_code}</p>
+        </div>
       ),
     },
     {
-      key: 'orderType',
-      header: 'Type',
-      sortable: true,
-      width: '7.5rem',
-      render: (o) => (
-        <Badge tone={o.orderType === 'PRODUCTION' ? 'progress' : 'brand'} size="sm" dot={false}>
-          {o.orderType === 'PRODUCTION' ? 'Make' : 'Buy'}
-        </Badge>
+      key: 'short_qty', header: 'Short By', width: '150px', align: 'right', sortable: true,
+      accessor: (s) => s.short_qty,
+      render: (s) => (
+        <span className="text-[14px] font-semibold tabular-nums text-danger">
+          {qty(s.short_qty)} <span className="text-2xs font-normal text-fg-muted">{s.uom}</span>
+        </span>
       ),
     },
-    { key: 'llc', header: 'Level', align: 'right', width: '5rem', accessor: (o) => o.llc, render: (o) => <span className="text-2xs text-fg-subtle">L{o.llc}</span> },
-    { key: 'qty', header: 'Quantity', align: 'right', sortable: true, width: '8rem', accessor: (o) => o.qty, render: (o) => `${formatQty(o.qty, 2)} ${o.uom}` },
-    { key: 'releaseDate', header: 'Release on', sortable: true, width: '9rem', accessor: (o) => o.releaseDate, render: (o) => <span className={o.isLate ? 'text-danger' : ''}>{formatDate(o.releaseDate)}</span> },
-    { key: 'dueDate', header: 'Needed by', sortable: true, width: '9rem', accessor: (o) => o.dueDate, render: (o) => formatDate(o.dueDate) },
-    { key: 'isLate', header: 'Timing', width: '7rem', accessor: (o) => o.daysLate, render: (o) => <LateChip days={o.daysLate} /> },
-    { key: 'value', header: 'Value', align: 'right', sortable: true, width: '9rem', accessor: (o) => o.value, render: (o) => `₹${formatAmount(o.value)}` },
-    { key: 'peggedTo', header: 'Covers', width: '14rem', render: (o) => <span className="truncate text-2xs text-fg-muted">{o.peggedTo}</span> },
     {
-      key: 'firmed',
-      header: 'Firmed',
-      width: '6rem',
-      accessor: (o) => (firmedKeys.has(`${o.itemCode}|${o.dueDate}`) ? 'Yes' : 'No'),
-      render: (o) => (firmedKeys.has(`${o.itemCode}|${o.dueDate}`) ? <Badge tone="success" size="sm">Firmed</Badge> : <span className="text-2xs text-fg-subtle">—</span>),
+      key: 'required_on', header: 'Required On', width: '150px', sortable: true,
+      accessor: (s) => s.required_on,
+      render: (s) => <span className="text-[13px] tabular-nums">{formatDate(s.required_on)}</span>,
+    },
+    {
+      key: 'lead_time_days', header: 'Lead Time', width: '130px', align: 'right',
+      render: (s) => <span className="text-[13px] tabular-nums text-fg-muted">{s.lead_time_days} d</span>,
+    },
+    {
+      key: 'days_late', header: 'Days Late', width: '130px', align: 'right', sortable: true,
+      accessor: (s) => s.days_late,
+      render: (s) => <span className="text-[14px] font-semibold tabular-nums text-danger">{s.days_late}</span>,
+    },
+    {
+      key: 'value', header: 'Value at Risk', width: '150px', align: 'right', sortable: true,
+      accessor: (s) => s.value,
+      render: (s) => <span className="text-[14px] tabular-nums text-fg">{money(s.value)}</span>,
     },
   ]
 
   const planColumns: Column<MrpItemPlan>[] = [
     {
-      key: 'itemCode',
-      header: 'Item',
-      sortable: true,
+      key: 'item', header: 'Item', width: '260px', sticky: true,
+      accessor: (p) => `${p.item_name} ${p.item_code}`,
       render: (p) => (
-        <>
-          <p className="text-xs font-medium text-fg">{p.itemName}</p>
-          <p className="font-mono text-2xs text-fg-subtle">{p.itemCode}</p>
-        </>
+        <div className="min-w-0">
+          <p className="truncate text-[14px] font-medium text-fg" title={String(p.item_name ?? "")}>{p.item_name}</p>
+          <p className="truncate font-mono text-[12px] text-fg-subtle">
+            {p.item_code} · level {p.llc} · {p.is_manufactured ? 'make' : 'buy'}
+          </p>
+        </div>
       ),
     },
-    { key: 'llc', header: 'Level', align: 'right', width: '5rem', accessor: (p) => p.llc, render: (p) => <span className="text-2xs text-fg-subtle">L{p.llc}</span> },
-    { key: 'source', header: 'Source', width: '6rem', accessor: (p) => (p.isManufactured ? 'Make' : 'Buy'), render: (p) => <span className="text-2xs text-fg-muted">{p.isManufactured ? 'Make' : 'Buy'}</span> },
-    { key: 'openingStock', header: 'Free stock', align: 'right', sortable: true, width: '8rem', accessor: (p) => p.openingStock, render: (p) => formatQty(p.openingStock, 0) },
-    { key: 'safetyStock', header: 'Safety', align: 'right', width: '7rem', accessor: (p) => p.safetyStock, render: (p) => formatQty(p.safetyStock, 0) },
-    { key: 'leadTimeDays', header: 'Lead', align: 'right', width: '5.5rem', accessor: (p) => p.leadTimeDays, render: (p) => `${p.leadTimeDays}d` },
-    { key: 'totalGross', header: 'Gross req.', align: 'right', sortable: true, width: '9rem', accessor: (p) => p.totalGross, render: (p) => formatQty(p.totalGross, 0) },
-    { key: 'totalPlanned', header: 'Planned', align: 'right', sortable: true, width: '9rem', accessor: (p) => p.totalPlanned, render: (p) => <span className="font-medium">{formatQty(p.totalPlanned, 0)}</span> },
     {
-      key: 'firstLateBucket',
-      header: 'Timing',
-      width: '9rem',
-      accessor: (p) => p.firstLateBucket ?? 99,
-      render: (p) =>
-        p.firstLateBucket === null ? (
-          <span className="text-2xs text-success">Coverable</span>
-        ) : (
-          <span className="text-2xs text-danger">Late from W{p.firstLateBucket + 1}</span>
-        ),
+      key: 'opening_stock', header: 'On Hand', width: '120px', align: 'right',
+      accessor: (p) => p.opening_stock,
+      render: (p) => <span className="text-[13px] tabular-nums text-fg">{qty(p.opening_stock)}</span>,
     },
-  ]
-
-  const shortageColumns: Column<MrpShortage>[] = [
     {
-      key: 'itemCode',
-      header: 'Item',
-      sortable: true,
-      render: (s) => (
-        <>
-          <p className="text-xs font-medium text-fg">{s.itemName}</p>
-          <p className="font-mono text-2xs text-fg-subtle">{s.itemCode}</p>
-        </>
+      key: 'safety_stock', header: 'Safety', width: '110px', align: 'right',
+      render: (p) => <span className="text-[13px] tabular-nums text-fg-muted">{qty(p.safety_stock)}</span>,
+    },
+    {
+      key: 'total_gross', header: 'Gross Req', width: '130px', align: 'right', sortable: true,
+      accessor: (p) => p.total_gross,
+      render: (p) => <span className="text-[14px] tabular-nums text-fg">{qty(p.total_gross)}</span>,
+    },
+    {
+      key: 'total_planned', header: 'Planned', width: '130px', align: 'right', sortable: true,
+      accessor: (p) => p.total_planned,
+      render: (p) => (
+        <span className="text-[14px] font-semibold tabular-nums text-brand-600">{qty(p.total_planned)}</span>
       ),
     },
-    { key: 'shortQty', header: 'Short by', align: 'right', sortable: true, width: '10rem', accessor: (s) => s.shortQty, render: (s) => <span className="font-medium text-danger">{formatQty(s.shortQty, 2)} {s.uom}</span> },
-    { key: 'requiredOn', header: 'Needed by', sortable: true, width: '9rem', accessor: (s) => s.requiredOn, render: (s) => formatDate(s.requiredOn) },
-    { key: 'leadTimeDays', header: 'Lead time', align: 'right', width: '8rem', accessor: (s) => s.leadTimeDays, render: (s) => `${s.leadTimeDays} days` },
-    { key: 'daysLate', header: 'Already late by', align: 'right', sortable: true, width: '9rem', accessor: (s) => s.daysLate, render: (s) => <LateChip days={s.daysLate} /> },
-    { key: 'value', header: 'Value at risk', align: 'right', sortable: true, width: '10rem', accessor: (s) => s.value, render: (s) => `₹${formatAmount(s.value)}` },
+    {
+      key: 'lead_time_days', header: 'Lead Time', width: '120px', align: 'right',
+      render: (p) => <span className="text-[13px] tabular-nums text-fg-muted">{p.lead_time_days} d</span>,
+    },
+    {
+      key: 'first_late_bucket', header: 'First Late Week', width: '150px', align: 'center',
+      accessor: (p) => p.first_late_bucket ?? 999,
+      render: (p) => p.first_late_bucket == null
+        ? <span className="text-fg-subtle">—</span>
+        : <Badge tone="danger" size="sm">Week {p.first_late_bucket + 1}</Badge>,
+    },
   ]
 
   const exceptionColumns: Column<MrpException>[] = [
     {
-      key: 'severity',
-      header: 'Severity',
-      sortable: true,
-      width: '7rem',
+      key: 'severity', header: 'Severity', width: '130px', sortable: true,
+      accessor: (e) => e.severity,
+      render: (e) => {
+        const Icon = SEVERITY_ICON[e.severity] ?? Info
+        return (
+          <span className="inline-flex items-center gap-1.5">
+            <Icon className={`h-3.5 w-3.5 ${e.severity === 'ERROR' ? 'text-danger' : e.severity === 'WARNING' ? 'text-warning' : 'text-fg-muted'}`} aria-hidden />
+            <Badge tone={SEVERITY_TONE[e.severity] ?? 'neutral'} size="sm" dot={false}>{e.severity}</Badge>
+          </span>
+        )
+      },
+    },
+    {
+      key: 'type', header: 'Type', width: '190px', sortable: true,
+      accessor: (e) => e.type,
       render: (e) => (
-        <Badge tone={e.severity === 'ERROR' ? 'danger' : e.severity === 'WARNING' ? 'warning' : 'neutral'} size="sm">
-          {e.severity.charAt(0) + e.severity.slice(1).toLowerCase()}
-        </Badge>
+        <span className="font-mono text-[12px] text-fg-muted">{e.type.replace(/_/g, ' ')}</span>
       ),
     },
-    { key: 'itemCode', header: 'Item', sortable: true, width: '12rem', render: (e) => <span className="font-mono text-2xs text-fg-muted">{e.itemCode}</span> },
-    { key: 'type', header: 'Type', sortable: true, width: '12rem', render: (e) => <span className="text-2xs text-fg-muted">{e.type.replace(/_/g, ' ').toLowerCase()}</span> },
-    { key: 'message', header: 'What happened', render: (e) => <span className="text-xs text-fg">{e.message}</span> },
-    { key: 'action', header: 'What to do', render: (e) => <span className="text-xs text-fg-muted">{e.action}</span> },
+    {
+      key: 'item_code', header: 'Item', width: '160px',
+      accessor: (e) => e.item_code,
+      render: (e) => <span className="font-mono text-[12px] text-fg">{e.item_code || '—'}</span>,
+    },
+    {
+      key: 'message', header: 'What happened', render: (e) => (
+        <span className="text-[13px] text-fg">{e.message}</span>
+      ),
+    },
+    {
+      key: 'action', header: 'What to do', width: '280px', render: (e) => (
+        <span className="text-[13px] text-fg-muted">{e.action || '—'}</span>
+      ),
+    },
   ]
 
-  /* ── Firming a planned order into a real production order ─────────── */
-
-  function firm(o: PlannedOrder) {
-    const product = products.rows.find((p) => p.code === o.itemCode)
-    const routing = defaultRoutingFor(o.itemCode, ctx.routings)
-    const bom = ctx.boms.find((b) => b.productCode === o.itemCode && (b.status === 'ACTIVE' || b.status === 'APPROVED') && b.isDefault)
-    const roll = rollUpCost(o.itemCode, { ...ctx, tools: [], products: products.rows, items: ctx.items }, NO_SIMULATION)
-
-    const start = o.releaseDate < starts[0] ? starts[0] : o.releaseDate
-    const operations = routing ? scheduleRouting(routing, o.qty, start, 'FORWARD', ctx.calendar) : []
-
-    const components = (bom?.lines ?? []).map((l) => {
-      const required = (l.qtyPer / Math.max(1, bom!.baseQty)) * (1 + l.scrapPct / 100) * o.qty
-      const sp = ctx.stock.find((s) => s.itemCode === l.itemCode)
-      return {
-        uid: `oc-${newUid('c')}`,
-        itemCode: l.itemCode,
-        itemName: l.itemName,
-        uom: l.uom,
-        requiredQty: required,
-        reservedQty: 0,
-        issuedQty: 0,
-        availableAtPlanning: sp?.available ?? 0,
-      }
-    })
-
-    const seq = orders.rows.reduce((m, x) => Math.max(m, Number(x.docNo.slice(-4)) || 0), 0) + 1
-    const docNo = `PRD/26-27/${String(seq).padStart(4, '0')}`
-
-    orders.create({
-      uid: newUid('pro'),
-      docNo,
-      orderType: o.isLate ? 'URGENT' : 'STANDARD',
-      productCode: o.itemCode,
-      productName: o.itemName,
-      uom: o.uom,
-      qty: o.qty,
-      producedQty: 0,
-      rejectedQty: 0,
-      plant: 'Chennai — Unit 1',
-      warehouse: product?.productType === 'SEMI_FINISHED' ? 'Work in Progress Store' : 'Finished Goods Store',
-      priority: o.isLate ? 'URGENT' : 'NORMAL',
-      plannedStart: start,
-      plannedFinish: o.dueDate,
-      status: 'FIRM_PLANNED',
-      bomDocNo: bom?.docNo ?? '',
-      bomRevision: bom?.revision ?? 0,
-      routingDocNo: routing?.docNo ?? '',
-      routingRevision: routing?.revision ?? 0,
-      components,
-      operations,
-      demandRefs: o.peggedTo === '—' ? [] : o.peggedTo.split(', '),
-      estimatedUnitCost: roll.total,
-      remarks: `Firmed from the MRP suggestion for week ${o.bucket + 1}.`,
-      createdBy: 'A. Lakshmi',
-      createdAt: new Date().toISOString(),
-      version: 1,
-    } as ProductionOrder)
-
-    toast.success(
-      'Production order firmed',
-      `${docNo} for ${formatQty(o.qty, 0)} ${o.uom}${operations.length ? `, ${operations.length} operations scheduled` : ' — no routing, so no operations'}.`,
-    )
-    setFirming(null)
-  }
-
-  function exportOrders(format: ExportFormat) {
-    const columns: ExportColumn<PlannedOrder>[] = [
-      { header: 'Item', value: (o) => o.itemCode },
-      { header: 'Description', value: (o) => o.itemName },
-      { header: 'Type', value: (o) => (o.orderType === 'PRODUCTION' ? 'Make' : 'Buy') },
-      { header: 'Level', value: (o) => o.llc },
-      { header: 'Quantity', value: (o) => o.qty.toFixed(3) },
-      { header: 'UoM', value: (o) => o.uom },
-      { header: 'Release on', value: (o) => o.releaseDate },
-      { header: 'Needed by', value: (o) => o.dueDate },
-      { header: 'Days late', value: (o) => o.daysLate },
-      { header: 'Value', value: (o) => o.value.toFixed(2) },
-      { header: 'Covers', value: (o) => o.peggedTo },
-    ]
-    const n = exportRows(format, 'mrp-planned-orders', 'MRP planned orders', columns, plannedOrders)
-    toast.success('Export ready', `${n} rows written.`)
-  }
+  const s = run?.stats
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col gap-4 pb-4">
       <PageHeader
-        title="Material requirements planning"
+        title="MRP"
+        description="Material requirements, calculated on the server and stored as a run."
         breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Planning', to: '/planning' }, { label: 'MRP' }]}
         actions={
-          <>
-            <Button variant="outline" size="sm" icon={<Download className="h-3.5 w-3.5" />} onClick={() => exportOrders('xlsx')}>
-              Export
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              icon={<Target className="h-4 w-4" />}
+              disabled={runMrp.isPending}
+              onClick={() => setRunForOpen(true)}
+            >
+              Run for a demand
             </Button>
-            <Button variant="primary" size="sm" icon={<Play className="h-4 w-4" />} onClick={() => toast.success('Plan is current', 'MRP re-runs on every change, so this result is already up to date.')}>
+            <Button
+              variant="primary"
+              icon={<Play className="h-4 w-4" />}
+              loading={runMrp.isPending}
+              onClick={() => doRun()}
+            >
               Run MRP
             </Button>
-          </>
+          </div>
         }
-        tabs={
+      />
+
+      {!companyUid && <Alert tone="warning" title="Not signed in">Sign in to load the plan.</Alert>}
+      {error && (
+        <Alert tone="danger" title="Could not load the plan">
+          {error instanceof ProblemError ? error.problem.detail : 'Unable to reach the planning service.'}
+        </Alert>
+      )}
+
+      {!isLoading && !run && !error && (
+        <Alert tone="info" title="MRP has not been run yet">
+          There is no plan to show. Run MRP to calculate one — it reads demand, the master schedule,
+          bills of material, stock and open purchase orders, and stores the result as a document.
+        </Alert>
+      )}
+
+      {run && (
+        <>
+          <InfoStrip
+            lead={
+              <span className="font-mono text-[12px] font-semibold text-brand-600">{run.run_no}</span>
+            }
+            items={[
+              // Scope first: a single-order plan and a whole-order-book plan
+              // look identical otherwise, and mistaking one for the other means
+              // under-buying.
+              ...(run.demand_doc_no
+                ? [{
+                    label: 'For',
+                    value: run.demand_doc_no,
+                    icon: <Target className="h-3.5 w-3.5" aria-hidden />,
+                  }]
+                : [{ label: 'Scope', value: 'All open demand' }]),
+              { label: 'Run', value: formatDate(run.run_at) },
+              ...(run.run_by_name ? [{ label: 'by', value: run.run_by_name }] : []),
+              { label: 'Horizon', value: `${run.horizon} wk from ${formatDate(run.first_bucket_start)}` },
+              { label: 'Buy', value: s!.purchase_orders, icon: <ShoppingCart className="h-3.5 w-3.5" aria-hidden /> },
+              { label: 'Make', value: s!.production_orders, icon: <Factory className="h-3.5 w-3.5" aria-hidden /> },
+              { label: 'Late', value: s!.late_orders, icon: <Clock className="h-3.5 w-3.5" aria-hidden />, alert: s!.late_orders > 0 },
+              { label: 'Buy value', value: money(s!.purchase_value) },
+            ]}
+          />
+
           <Tabs
             active={tab}
             onChange={setTab}
             tabs={[
-              { id: 'orders', label: 'Planned orders', count: mrp.plannedOrders.length },
-              { id: 'plan', label: 'Time-phased plan', count: mrp.plans.length },
-              { id: 'shortages', label: 'Shortages', count: mrp.shortages.length },
-              { id: 'exceptions', label: 'Exceptions', count: mrp.exceptions.length },
+              { id: 'buy', label: 'What to buy', count: buyRows.length },
+              { id: 'make', label: 'What to make', count: makeRows.length },
+              { id: 'shortages', label: 'Shortages', count: run.shortages.length },
+              { id: 'exceptions', label: 'Warnings', count: run.exceptions.length },
+              { id: 'plan', label: 'Calculation details', count: run.plans.length },
             ]}
           />
-        }
-      />
 
-      <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded border border-border bg-surface-2 px-4 py-3 text-xs">
-        <span className="text-fg-muted">
-          Horizon <span className="font-semibold text-fg">{mrp.horizon} weeks</span> from {formatDate(mrp.starts[0])}
-        </span>
-        <span className="text-fg-muted">
-          Items planned <span className="font-semibold text-fg tabular">{mrp.stats.itemsPlanned}</span>
-        </span>
-        <span className="text-fg-muted">
-          Buy <span className="font-semibold text-fg tabular">{mrp.stats.purchaseOrders}</span> · make{' '}
-          <span className="font-semibold text-fg tabular">{mrp.stats.productionOrders}</span>
-        </span>
-        <span className="text-fg-muted">
-          Purchase value <span className="font-semibold text-fg tabular">₹{formatAmount(mrp.stats.purchaseValue)}</span>
-        </span>
-        <span className={cn('ml-auto', mrp.stats.lateOrders ? 'text-danger' : 'text-success')}>
-          {mrp.stats.lateOrders ? `${mrp.stats.lateOrders} orders already past their release date` : 'Every order can still be released on time'}
-        </span>
-      </div>
-
-      {tab === 'orders' && (
-        <DataTable
-          className="flex-1"
-          rows={plannedOrders}
-          columns={orderColumns}
-          rowKey={(o) => o.uid}
-          searchPlaceholder="Search item, description or peg…"
-          onExport={exportOrders}
-          rowClassName={(o) => (o.isLate ? 'bg-danger/5' : undefined)}
-          filterPanel={
-            <Select
-              sizeVariant="sm"
-              containerClassName="w-40"
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              options={[
-                { value: 'ALL', label: 'Make and buy' },
-                { value: 'PRODUCTION', label: 'Make only' },
-                { value: 'PURCHASE', label: 'Buy only' },
-              ]}
+          {tab === 'buy' && (
+            <MrpBuyMakeGrid
+              rows={buyRows}
+              type="PURCHASE"
+              selected={buySel}
+              onSelectedChange={setBuySel}
+              loading={isLoading}
+              onExported={(n) => toast.success('Export ready', `${n} rows written.`)}
+              bulkActions={
+                <Button
+                  size="sm"
+                  variant="primary"
+                  icon={<ShoppingCart className="h-3.5 w-3.5" />}
+                  disabled={selectedBuys.length === 0 || toPr.isPending}
+                  loading={toPr.isPending}
+                  onClick={convertBuys}
+                >
+                  Create purchase requisition ({selectedBuys.length})
+                </Button>
+              }
             />
-          }
-          emptyTitle="Nothing to plan"
-          emptyDescription="Stock and open orders already cover every requirement in the horizon."
-          rowActions={(o) => (
+          )}
+
+          {tab === 'make' && (
+            <MrpBuyMakeGrid
+              rows={makeRows}
+              type="PRODUCTION"
+              selected={makeSel}
+              onSelectedChange={setMakeSel}
+              loading={isLoading}
+              onExported={(n) => toast.success('Export ready', `${n} rows written.`)}
+              bulkActions={
+                <Button
+                  size="sm"
+                  variant="primary"
+                  icon={<Factory className="h-3.5 w-3.5" />}
+                  disabled={selectedMakes.length === 0 || toPo.isPending}
+                  loading={toPo.isPending}
+                  onClick={convertMakes}
+                >
+                  Create production order ({selectedMakes.length})
+                </Button>
+              }
+            />
+          )}
+
+
+          {tab === 'shortages' && (
             <>
-              <MenuItem
-                label={o.orderType === 'PRODUCTION' ? 'Firm into a production order' : 'Raise a purchase requisition'}
-                icon={o.orderType === 'PRODUCTION' ? <Factory /> : <ShoppingCart />}
-                disabled={o.orderType === 'PRODUCTION' && firmedKeys.has(`${o.itemCode}|${o.dueDate}`)}
-                onClick={() =>
-                  o.orderType === 'PRODUCTION'
-                    ? setFirming(o)
-                    : toast.success('Sent to procurement', `${o.itemCode} × ${formatQty(o.qty, 0)} ${o.uom} added to the requisition queue for ${formatDate(o.releaseDate)}.`)
-                }
-              />
-              <MenuItem
-                label="Open the item plan"
-                separatorBefore
-                onClick={() => {
-                  const p = mrp.plans.find((x) => x.itemCode === o.itemCode)
-                  if (p) {
-                    setDetail(p)
-                    setTab('plan')
-                  }
-                }}
+              {run.shortages.length > 0 && (
+                <Alert tone="danger" title={`${run.shortages.length} shortages cannot be covered in time`}>
+                  Each of these had to be released before today to arrive when it is needed. Expedite,
+                  split the lot, or move the demand date out.
+                </Alert>
+              )}
+              <DataTable
+                density="comfortable" searchable={false}
+                rows={run.shortages} columns={shortageColumns}
+                rowKey={(s2) => `${s2.item_code}-${s2.required_on}`}
+                loading={isLoading}
+                emptyTitle="No shortages"
+                emptyDescription="Every planned order can still be released in time."
               />
             </>
           )}
-        />
-      )}
 
-      {tab === 'plan' && (
-        <DataTable
-          className="flex-1"
-          rows={mrp.plans}
-          columns={planColumns}
-          rowKey={(p) => p.itemCode}
-          searchPlaceholder="Search item…"
-          onRowClick={setDetail}
-          emptyTitle="Nothing planned"
-          emptyDescription="Add demand or a master schedule to plan against."
-        />
-      )}
-
-      {tab === 'shortages' && (
-        <>
-          {mrp.shortages.length === 0 ? (
-            <Card>
-              <EmptyState title="No shortages" description="Every requirement can still be covered within its lead time." />
-            </Card>
-          ) : (
+          {tab === 'exceptions' && (
             <>
-              <Alert tone="danger" className="mb-4">
-                {mrp.shortages.length} requirement{mrp.shortages.length === 1 ? '' : 's'} cannot be covered in time — the
-                order would have had to be released before today. Expediting, splitting the lot or re-timing the demand
-                are the only three ways out.
+              <div className="flex items-center gap-2">
+                {(['ALL', 'ERROR', 'WARNING', 'INFO'] as const).map((t) => (
+                  <Button
+                    key={t} size="sm"
+                    variant={severityFilter === t ? 'primary' : 'outline'}
+                    onClick={() => setSeverityFilter(t)}
+                  >
+                    {t === 'ALL' ? 'All' : t.charAt(0) + t.slice(1).toLowerCase()}
+                  </Button>
+                ))}
+              </div>
+              <DataTable
+                density="comfortable" searchable={false}
+                rows={exceptions} columns={exceptionColumns} rowKey={(e) => e.uid}
+                loading={isLoading}
+                emptyTitle="No exceptions"
+                emptyDescription="The run completed with nothing needing a decision."
+              />
+            </>
+          )}
+
+          {tab === 'plan' && (
+            <>
+              <Alert tone="info" title="Item summary">
+                Totals across the {run.horizon}-week horizon. Level is the BOM depth — level 0 is a
+                finished product, and everything below it was raised by the level above.
               </Alert>
               <DataTable
-                className="flex-1"
-                rows={mrp.shortages}
-                columns={shortageColumns}
-                rowKey={(s) => `${s.itemCode}-${s.requiredOn}`}
-                searchPlaceholder="Search item…"
+                density="comfortable" searchable={false}
+                rows={run.plans} columns={planColumns} rowKey={(p) => p.item_code}
+                loading={isLoading}
                 onExport={(f: ExportFormat) => {
-                  const columns: ExportColumn<MrpShortage>[] = [
-                    { header: 'Item', value: (s) => s.itemCode },
-                    { header: 'Description', value: (s) => s.itemName },
-                    { header: 'Short by', value: (s) => s.shortQty.toFixed(3) },
-                    { header: 'UoM', value: (s) => s.uom },
-                    { header: 'Needed by', value: (s) => s.requiredOn },
-                    { header: 'Lead time days', value: (s) => s.leadTimeDays },
-                    { header: 'Days late', value: (s) => s.daysLate },
-                    { header: 'Value', value: (s) => s.value.toFixed(2) },
-                  ]
-                  const n = exportRows(f, 'mrp-shortages', 'MRP shortages', columns, mrp.shortages)
+                  const n = exportRows(f, 'mrp-plan', 'Time-phased plan', columnsFromTable(planColumns), run.plans)
                   toast.success('Export ready', `${n} rows written.`)
                 }}
-                emptyTitle="No shortages"
+                emptyTitle="Nothing planned"
+                emptyDescription="No item had a requirement in this horizon."
               />
             </>
           )}
         </>
       )}
 
-      {tab === 'exceptions' && (
-        <DataTable
-          className="flex-1"
-          rows={exceptions}
-          columns={exceptionColumns}
-          rowKey={(e) => e.uid}
-          searchPlaceholder="Search item or message…"
-          filterPanel={
-            <Select
-              sizeVariant="sm"
-              containerClassName="w-40"
-              value={severityFilter}
-              onChange={(e) => setSeverityFilter(e.target.value)}
-              options={[
-                { value: 'ALL', label: 'All severities' },
-                { value: 'ERROR', label: 'Errors' },
-                { value: 'WARNING', label: 'Warnings' },
-                { value: 'INFO', label: 'Information' },
-              ]}
-            />
-          }
-          emptyTitle="No exceptions"
-          emptyDescription="The run completed with nothing worth raising."
-        />
-      )}
-
-      {/* Time-phased grid for one item -------------------------------------- */}
-      <Drawer
-        open={!!detail}
-        onClose={() => setDetail(null)}
-        title={detail?.itemCode}
-        description={detail?.itemName}
-        width="max-w-5xl"
-      >
-        {detail && (
-          <div className="space-y-5">
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs">
-              <span className="text-fg-muted">
-                Level <span className="font-semibold text-fg">L{detail.llc}</span>
-              </span>
-              <span className="text-fg-muted">
-                Source <span className="font-semibold text-fg">{detail.isManufactured ? 'Made in house' : 'Bought out'}</span>
-              </span>
-              <span className="text-fg-muted">
-                Free stock <span className="font-semibold text-fg tabular">{formatQty(detail.openingStock, 0)} {detail.uom}</span>
-              </span>
-              <span className="text-fg-muted">
-                Safety <span className="font-semibold text-fg tabular">{formatQty(detail.safetyStock, 0)}</span>
-              </span>
-              <span className="text-fg-muted">
-                Lead time <span className="font-semibold text-fg">{detail.leadTimeDays} days</span>
-              </span>
-            </div>
-
-            <DetailBlock title="Time-phased plan">
-              <div className="overflow-x-auto rounded border border-border">
-                <table className="grid-table">
-                  <thead>
-                    <tr>
-                      <th style={{ minWidth: '11rem' }}>Row</th>
-                      {detail.buckets.map((b) => (
-                        <th key={b.bucket} className="text-right" style={{ minWidth: '5.5rem' }}>
-                          <span className="block">W{b.bucket + 1}</span>
-                          <span className="block text-[9px] font-normal normal-case text-fg-subtle">{formatDate(b.start).slice(0, 6)}</span>
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td className="text-xs text-fg-muted">Gross requirement</td>
-                      {detail.buckets.map((b) => (
-                        <td key={b.bucket} className="text-right tabular text-xs">{b.grossRequirement ? formatQty(b.grossRequirement, 0) : <span className="text-fg-subtle">—</span>}</td>
-                      ))}
-                    </tr>
-                    <tr>
-                      <td className="text-xs text-fg-muted">Scheduled receipts</td>
-                      {detail.buckets.map((b) => (
-                        <td key={b.bucket} className="text-right tabular text-xs">{b.scheduledReceipts ? formatQty(b.scheduledReceipts, 0) : <span className="text-fg-subtle">—</span>}</td>
-                      ))}
-                    </tr>
-                    <tr>
-                      <td className="text-xs font-medium text-fg">Projected stock</td>
-                      {detail.buckets.map((b) => (
-                        <td
-                          key={b.bucket}
-                          className={cn('text-right tabular text-xs', b.projectedOnHand < detail.safetyStock ? 'text-warning' : 'text-fg')}
-                        >
-                          {formatQty(b.projectedOnHand, 0)}
-                        </td>
-                      ))}
-                    </tr>
-                    <tr>
-                      <td className="text-xs text-fg-muted">Net requirement</td>
-                      {detail.buckets.map((b) => (
-                        <td key={b.bucket} className="text-right tabular text-xs">{b.netRequirement ? formatQty(b.netRequirement, 0) : <span className="text-fg-subtle">—</span>}</td>
-                      ))}
-                    </tr>
-                    <tr className="bg-brand-500/5">
-                      <td className="text-xs font-medium text-fg">Planned receipt</td>
-                      {detail.buckets.map((b) => (
-                        <td key={b.bucket} className="text-right tabular text-xs font-medium">{b.plannedReceipt ? formatQty(b.plannedReceipt, 0) : <span className="text-fg-subtle">—</span>}</td>
-                      ))}
-                    </tr>
-                    <tr>
-                      <td className="text-xs text-fg-muted">Release on</td>
-                      {detail.buckets.map((b) => (
-                        <td key={b.bucket} className={cn('text-right text-2xs', (b.releaseBucket ?? 0) < 0 ? 'font-medium text-danger' : 'text-fg-muted')}>
-                          {b.releaseDate ? formatDate(b.releaseDate).slice(0, 6) : '—'}
-                        </td>
-                      ))}
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <p className="mt-1.5 text-2xs text-fg-subtle">
-                Projected stock = previous week + scheduled receipts − gross requirement + planned receipt. A planned
-                receipt is raised whenever the projection would fall below the safety stock, then sized by the item's lot
-                rule and offset back by {detail.leadTimeDays} days to give the release date.
-              </p>
-            </DetailBlock>
-
-            {detail.firstLateBucket !== null && (
-              <Alert tone="danger" title="This item cannot be covered on time">
-                The first requirement that cannot be met falls in week {detail.firstLateBucket + 1}. At{' '}
-                {detail.leadTimeDays} days' lead time the order needed to go out before today.
-              </Alert>
-            )}
-          </div>
-        )}
-      </Drawer>
-
-      {/* Firm confirmation ---------------------------------------------------- */}
+      {/*
+        * Run for one demand.
+        *
+        * Deliberately a separate action from "Run MRP" rather than a filter on
+        * it: the two produce different documents answering different questions,
+        * and a planner who mistakes a single-order plan for the whole order book
+        * will under-buy. The run header records which it was.
+        */}
       <Modal
-        open={!!firming}
-        onClose={() => setFirming(null)}
-        title="Firm this into a production order?"
-        size="md"
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setFirming(null)}>
-              Cancel
-            </Button>
-            <Button variant="primary" onClick={() => firming && firm(firming)}>
-              Create the order
-            </Button>
-          </>
-        }
+        open={runForOpen}
+        onClose={() => setRunForOpen(false)}
+        size="lg"
+        title="Run MRP for one demand"
+        description="Plans this order alone. Stock and open purchase orders still net off, so what comes back is what must be bought and made on top of what you already have."
       >
-        {firming && (
-          <div className="space-y-3 text-sm text-fg-muted">
-            <p>
-              <span className="font-medium text-fg">{firming.itemCode}</span> — {formatQty(firming.qty, 0)} {firming.uom},
-              needed by {formatDate(firming.dueDate)}.
-            </p>
-            <p className="text-xs">
-              The order is created as firm planned with its component list exploded from the live BOM and its operations
-              scheduled forward across the production calendar. Nothing is reserved or issued until it is released.
-            </p>
-            {firming.isLate && (
-              <Alert tone="warning">
-                The release date was {formatDate(firming.releaseDate)}, {firming.daysLate} days ago. The order will be
-                created as urgent and will still finish late unless the lot is split or the date moves.
-              </Alert>
-            )}
-          </div>
-        )}
+        <div className="flex flex-col gap-3">
+          <Input
+            leftIcon={<Search className="h-4 w-4" />}
+            placeholder="Search document, product or customer…"
+            value={runForSearch}
+            onChange={(e) => setRunForSearch(e.target.value)}
+          />
+          {runnableDemand.length === 0 ? (
+            <Alert tone="info" title="No open demand">
+              Every demand line is closed or already satisfied. Add demand on the Demand
+              screen, then run the plan against it.
+            </Alert>
+          ) : (
+            <ul className="flex max-h-[46vh] flex-col divide-y divide-border overflow-y-auto rounded-lg border border-border">
+              {runnableDemand.map((d) => (
+                <li key={d.uid}>
+                  <button
+                    type="button"
+                    disabled={runMrp.isPending}
+                    onClick={() => doRun(d.docNo)}
+                    className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-surface-2 disabled:opacity-50"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-medium text-fg">
+                        {d.productName}
+                      </span>
+                      <span className="block truncate font-mono text-[11px] text-fg-subtle">
+                        {d.docNo} · {d.productCode} · {d.customer}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span className="block text-[13px] font-semibold tabular-nums text-fg">
+                        {(d.qty - (d.qtyPlanned ?? 0)).toLocaleString('en-IN')} {d.uom}
+                      </span>
+                      <span className="block text-[11px] text-fg-muted">
+                        by {formatDate(d.requiredOn)}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </Modal>
-
-      {mrp.stats.lateOrders > 0 && tab === 'orders' && (
-        <Alert tone="warning" className="mt-4">
-          <span className="inline-flex items-center gap-1.5">
-            <AlertTriangle className="h-3.5 w-3.5" />
-            Rows shaded red have a release date in the past. MRP still plans them — hiding a late order does not make it
-            arrive on time.
-          </span>
-        </Alert>
-      )}
     </div>
   )
 }
+
+export default MrpPage

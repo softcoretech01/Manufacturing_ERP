@@ -56,11 +56,11 @@ export function ReworkPage() {
         <p className="font-mono text-2xs text-fg-subtle">{o.sourceWorkOrderNo}</p>
       </div>
     ) },
-    { key: 'raisedOn', header: 'Raised', sortable: true, width: '7rem', accessor: (o) => o.raisedOn, render: (o) => formatDate(o.raisedOn) },
-    { key: 'itemName', header: 'Item', sortable: true, render: (o) => (
+    { key: 'raisedOn', header: 'Raised', sortable: true, width: '8.5rem', accessor: (o) => o.raisedOn, render: (o) => formatDate(o.raisedOn) },
+    { key: 'itemName', header: 'Item', width: '16rem', sortable: true, render: (o) => (
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-fg">{o.itemName}</p>
-        <p className="truncate font-mono text-2xs text-fg-subtle">{o.batchNo ?? o.itemCode}</p>
+        <p className="truncate text-xs font-medium text-fg" title={String(o.itemName ?? "")}>{o.itemName}</p>
+        <p className="truncate font-mono text-2xs text-fg-subtle" title={String(o.batchNo ?? o.itemCode ?? "")}>{o.batchNo ?? o.itemCode}</p>
       </div>
     ) },
     { key: 'defect', header: 'Defect', sortable: true, width: '11rem', render: (o) => <Badge tone="danger" size="sm" dot={false}>{SCRAP_REASON_LABEL[o.defect]}</Badge> },

@@ -142,7 +142,7 @@ export function HrmsReportsPage() {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="font-mono text-2xs text-fg-subtle">{r.id}</p>
-                  <p className="truncate text-sm font-medium text-fg">{r.name}</p>
+                  <p className="truncate text-sm font-medium text-fg" title={String(r.name ?? "")}>{r.name}</p>
                 </div>
                 <Badge tone={isLocked ? 'warning' : 'neutral'} size="sm" dot={false}>
                   {isLocked ? (r.paid ? 'pay locked' : 'rating locked') : GROUPS[r.group]}

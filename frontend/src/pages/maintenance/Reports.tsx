@@ -309,7 +309,7 @@ export function MaintenanceReportsPage() {
                   <tbody>
                     {reliability.map((r) => (
                       <tr key={r.assetCode} className={r.availabilityPct < 97 ? 'bg-danger/5' : undefined}>
-                        <td><p className="truncate text-xs text-fg">{r.assetName}</p><p className="font-mono text-2xs text-fg-subtle">{r.assetCode}</p></td>
+                        <td><p className="truncate text-xs text-fg" title={String(r.assetName ?? "")}>{r.assetName}</p><p className="font-mono text-2xs text-fg-subtle">{r.assetCode}</p></td>
                         <td><CriticalityBadge criticality={r.criticality as 'A' | 'B' | 'C'} /></td>
                         <td className="text-right text-xs tabular text-fg">{r.failures || '—'}</td>
                         <td className="text-right text-xs tabular text-fg">{r.downtimeMinutes ? duration(r.downtimeMinutes) : '—'}</td>
@@ -405,7 +405,7 @@ export function MaintenanceReportsPage() {
                         {downtime.pareto.map((r) => (
                           <tr key={r.assetCode} className={r.cumulativePct <= 80 ? 'bg-danger/5' : undefined}>
                             <td>
-                              <p className="truncate text-xs text-fg">{r.assetName}</p>
+                              <p className="truncate text-xs text-fg" title={String(r.assetName ?? "")}>{r.assetName}</p>
                               {r.cumulativePct <= 80 && <p className="text-3xs text-danger">Vital few — worth a plan change</p>}
                             </td>
                             <td><CriticalityBadge criticality={r.criticality as 'A' | 'B' | 'C'} /></td>
@@ -554,7 +554,7 @@ export function MaintenanceReportsPage() {
                         return (
                           <tr key={w.uid} className={!finished ? 'bg-danger/5' : onTime ? undefined : 'bg-warning/5'}>
                             <td className="font-mono text-2xs text-fg">{w.docNo}</td>
-                            <td><p className="truncate text-xs text-fg">{w.title}</p><p className="font-mono text-3xs text-fg-subtle">{w.sourceDocNo} · {w.assetCode}</p></td>
+                            <td><p className="truncate text-xs text-fg" title={String(w.title ?? "")}>{w.title}</p><p className="font-mono text-3xs text-fg-subtle">{w.sourceDocNo} · {w.assetCode}</p></td>
                             <td className="text-2xs tabular text-fg-muted">{formatDate(w.plannedFinish)}</td>
                             <td className="text-2xs tabular text-fg-muted">{finished ? formatDate(finished) : '—'}</td>
                             <td className={cn('text-2xs tabular', late > 0 ? 'text-danger' : 'text-success')}>{late > 0 ? `${late}` : '—'}</td>
@@ -630,7 +630,7 @@ export function MaintenanceReportsPage() {
                     {lifecycle.map((r) => (
                       <tr key={r.asset.uid} className={r.spendPctOfCost > 25 ? 'bg-warning/5' : undefined}>
                         <td>
-                          <p className="truncate text-xs text-fg">{r.asset.name}</p>
+                          <p className="truncate text-xs text-fg" title={String(r.asset.name ?? "")}>{r.asset.name}</p>
                           <p className="font-mono text-2xs text-fg-subtle">{r.asset.code} · {ASSET_CATEGORY_LABEL[r.asset.category]}</p>
                         </td>
                         <td className="text-right text-xs tabular text-fg">{inr(r.asset.purchaseCost)}</td>

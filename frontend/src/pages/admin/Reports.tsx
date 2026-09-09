@@ -56,8 +56,8 @@ export function ReportsPage() {
       width: '260px',
       render: (r) => (
         <div className="min-w-0">
-          <p className="truncate text-xs font-medium text-fg">{r.name}</p>
-          <p className="truncate font-mono text-2xs text-fg-subtle">{r.code}</p>
+          <p className="truncate text-xs font-medium text-fg" title={String(r.name ?? "")}>{r.name}</p>
+          <p className="truncate font-mono text-2xs text-fg-subtle" title={String(r.code ?? "")}>{r.code}</p>
         </div>
       ),
     },
@@ -71,7 +71,7 @@ export function ReportsPage() {
       accessor: (r) => (r.isScheduled ? 1 : 0),
       render: (r) => (r.isScheduled ? <Badge tone="success" size="sm">Scheduled</Badge> : <span className="text-2xs text-fg-subtle">On demand</span>),
     },
-    { key: 'lastRunAt', header: 'Last run', sortable: true, width: '140px', render: (r) => (r.lastRunAt ? <span title={formatDateTime(r.lastRunAt)}>{formatTimeAgo(r.lastRunAt)}</span> : <span className="text-fg-subtle">never</span>) },
+    { key: 'lastRunAt', header: 'Last run', sortable: true, width: '11rem', render: (r) => (r.lastRunAt ? <span title={formatDateTime(r.lastRunAt)}>{formatTimeAgo(r.lastRunAt)}</span> : <span className="text-fg-subtle">never</span>) },
     {
       key: 'actions',
       header: '',

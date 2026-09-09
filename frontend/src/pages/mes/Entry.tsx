@@ -69,11 +69,11 @@ export function ProductionEntryPage() {
 
   const columns: Column<ProductionEntry>[] = [
     { key: 'docNo', header: 'Entry', sortable: true, width: '11rem', render: (e) => <span className="font-mono text-xs font-medium text-brand-600">{e.docNo}</span> },
-    { key: 'entryDate', header: 'Date', sortable: true, width: '7rem', accessor: (e) => e.entryDate, render: (e) => formatDate(e.entryDate) },
+    { key: 'entryDate', header: 'Date', sortable: true, width: '8.5rem', accessor: (e) => e.entryDate, render: (e) => formatDate(e.entryDate) },
     { key: 'workOrderNo', header: 'Work order', sortable: true, width: '11rem', render: (e) => (
       <div>
         <p className="font-mono text-2xs text-fg">{e.workOrderNo}</p>
-        <p className="truncate text-2xs text-fg-subtle">{e.operationName}</p>
+        <p className="truncate text-2xs text-fg-subtle" title={String(e.operationName ?? "")}>{e.operationName}</p>
       </div>
     ) },
     { key: 'machine', header: 'Machine', sortable: true, width: '8rem', render: (e) => <span className="font-mono text-2xs">{e.machine}</span> },

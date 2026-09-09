@@ -175,7 +175,7 @@ export function ShipmentsPage() {
     { key: 'customer', header: 'Customer', sortable: true, render: (s) => <PartyCell name={s.customer} place={s.destination} /> },
     { key: 'vehicleNo', header: 'Vehicle · driver', sortable: true, render: (s) => (
       <div className="min-w-0">
-        <p className="truncate font-mono text-2xs text-fg">{s.vehicleNo}</p>
+        <p className="truncate font-mono text-2xs text-fg" title={String(s.vehicleNo ?? "")}>{s.vehicleNo}</p>
         <p className="truncate text-2xs text-fg-subtle">{s.driver} · {s.transporter}</p>
       </div>
     ) },

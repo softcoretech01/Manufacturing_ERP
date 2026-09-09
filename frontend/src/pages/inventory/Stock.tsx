@@ -73,16 +73,16 @@ export function StockEnquiryPage() {
       render: (r) => (
         <div className="min-w-[220px]">
           <p className="truncate text-[14px] font-semibold text-fg" title={r.item_name}>{r.item_name}</p>
-          <p className="truncate font-mono text-[12px] text-fg-subtle">{r.item_code}</p>
+          <p className="truncate font-mono text-[12px] text-fg-subtle" title={String(r.item_code ?? "")}>{r.item_code}</p>
         </div>
       ),
     },
     {
-      key: 'item_type', header: 'Type', width: '130px', accessor: (r) => r.category,
+      key: 'item_type', header: 'Type', width: '120px', defaultHidden: true, accessor: (r) => r.category,
       render: (r) => <Badge tone="neutral" size="sm" dot={false}>{r.category || '—'}</Badge>,
     },
     {
-      key: 'warehouse', header: 'STORE', width: '180px',
+      key: 'warehouse', header: 'Store', width: '165px',
       accessor: (r) => r.warehouse_name || '',
       render: (r) => {
         const name = r.warehouse_name ? r.warehouse_name.split(' - ').pop() : '—'
@@ -90,15 +90,31 @@ export function StockEnquiryPage() {
       },
     },
     {
-      key: 'batchNo', header: 'Batch / Lot', width: '150px', accessor: (r) => r.batch_no,
+      key: 'batchNo', header: 'Batch / Lot', width: '130px', accessor: (r) => r.batch_no,
       render: (r) => r.batch_no && r.batch_no !== '-'
         ? <span className="font-mono text-[13px] text-fg-muted">{r.batch_no}</span>
         : <span className="text-fg-subtle">—</span>,
     },
     {
-      key: 'available', header: 'Available', align: 'right', sortable: true, width: '160px',
+      key: 'available', header: 'Available', align: 'right', sortable: true, width: '130px',
       accessor: (r) => r.available_qty,
       render: (r) => <span className="text-[15px] font-semibold text-success tabular-nums">{formatQty(r.available_qty)}</span>,
+    },
+    {
+      key: 'reserved', header: 'Reserved', align: 'right', width: '120px',
+      accessor: (r) => r.reserved_qty,
+      render: (r) => r.reserved_qty > 0
+        ? <span className="text-[14px] font-medium tabular-nums text-warning" title="Committed to a production order, not yet issued">{formatQty(r.reserved_qty)}</span>
+        : <span className="text-fg-subtle">—</span>,
+    },
+    {
+      key: 'free', header: 'Free', align: 'right', width: '115px',
+      accessor: (r) => r.free_qty,
+      render: (r) => (
+        <span className="text-[14px] font-semibold tabular-nums text-fg" title="Available less reserved — what can still be committed">
+          {formatQty(r.free_qty)}
+        </span>
+      ),
     },
     {
       // UOM stays its own column, beside the figure it qualifies, rather than

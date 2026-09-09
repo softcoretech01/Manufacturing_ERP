@@ -10,7 +10,7 @@ import { useStockTxns } from '@/hooks/useStockTxn'
 interface InvTxnFormModalProps {
   isOpen: boolean
   onClose: () => void
-  txnType: 'STOCK_OUT' | 'STOCK_RETURN' | 'STOCK_TRANSFER' | 'ADJUSTMENT'
+  txnType: 'STOCK_IN' | 'STOCK_OUT' | 'STOCK_RETURN' | 'STOCK_TRANSFER' | 'ADJUSTMENT'
   initialData?: StockTxn | null
   onPost: (data: StockTxn) => Promise<void>
   loading?: boolean
@@ -388,7 +388,7 @@ export const InvTxnFormModal: React.FC<InvTxnFormModalProps> = ({
                     className="w-full h-10 px-3 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 text-sm bg-white text-gray-900"
                   >
                     <option value="">Select Stock Out</option>
-                    {stockOuts.map((so) => (
+                    {stockOuts.map((so: StockTxn) => (
                       <option key={so.uid} value={so.document_no || ''}>
                         {so.document_no} ({so.txn_date})
                       </option>

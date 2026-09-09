@@ -54,7 +54,12 @@ export interface StockBalanceRow {
   warehouse_name: string | null
   batch_no: string
   available_qty: number
+  /** Committed to a production order, not yet issued. */
   reserved_qty: number
+  /** Quarantined or blocked — on the shelf but not usable. */
+  held_qty: number
+  /** available_qty - reserved_qty. What may still be committed. */
+  free_qty: number
   total_qty: number
   unit_cost: number | null
   stock_value: number | null
@@ -65,12 +70,34 @@ export interface BatchRow {
   item_uid: string
   item_code: string
   item_name: string
+  item_type: string
   batch_no: string
-  total_inward: number
-  total_outward: number
-  current_stock: number
-  status: string
+  warehouse_uid: string | null
+  warehouse_code: string | null
+  warehouse_name: string | null
+  uom: string
+  available_qty: number
+  unit_cost: number | null
+  stock_value: number | null
+  mfg_date: string | null
+  expiry_date: string | null
+  /** Null when no expiry date is recorded; `status` is then UNKNOWN. */
+  days_to_expiry: number | null
+  status: 'EXPIRED' | 'EXPIRING_SOON' | 'VALID' | 'UNKNOWN'
   last_movement_date: string | null
+}
+
+export interface BatchQuery {
+  // Index signature so the object satisfies the query-param type api.get takes.
+  [k: string]: string | boolean | undefined
+  item_type?: string
+  search?: string
+  warehouse?: string
+  batch_no?: string
+  expiry_from?: string
+  expiry_to?: string
+  expiry_status?: string
+  hide_zero?: boolean
 }
 
 export interface LedgerRow {
@@ -90,6 +117,21 @@ export interface LedgerRow {
   batch_no: string
   stock_status: string
   posted_by_name: string | null
+  warehouse_code: string | null
+  warehouse_name: string | null
+  uom: string
+  item_code: string
+  item_name: string
+}
+
+export interface LedgerQuery {
+  [k: string]: string | undefined
+  warehouse?: string
+  batch_no?: string
+  date_from?: string
+  date_to?: string
+  movement_type?: string
+  document_no?: string
 }
 
 export interface LedgerResponse {
@@ -98,6 +140,8 @@ export interface LedgerResponse {
   totals: {
     received: number
     issued: number
+    /** Count over the whole filtered set, not just the returned page. */
+    movements: number
     closing_qty: number
     closing_rate: number
     closing_value: number
@@ -150,10 +194,10 @@ export const stock = {
     api.get<StockRow[]>('/inventory/stock', params),
   balanceEnquiry: (params: { warehouse?: string; item_type?: string; search?: string; hide_zero?: boolean } = {}) =>
     api.get<StockBalanceRow[]>('/inventory/stock-balances', params),
-  batchesEnquiry: (params: { item_type?: string; search?: string; hide_zero?: boolean } = {}) =>
+  batchesEnquiry: (params: BatchQuery = {}) =>
     api.get<BatchRow[]>('/inventory/batches', params),
-  ledger: (item: string, warehouse?: string, batch_no?: string) =>
-    api.get<LedgerResponse>('/inventory/stock/ledger', { item, warehouse, batch_no }),
+  ledger: (item: string, q: LedgerQuery = {}) =>
+    api.get<LedgerResponse>('/inventory/stock/ledger', { item, ...q }),
   receive: (body: ReceiptBody) => api.post<ReceiptResult>('/inventory/receipts', body),
 }
 

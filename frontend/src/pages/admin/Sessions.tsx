@@ -45,14 +45,14 @@ export function SessionsPage() {
         <span className="flex items-center gap-2">
           <Avatar name={s.user_name} size="sm" />
           <span className="min-w-0">
-            <span className="block truncate text-sm text-fg">{s.user_name}</span>
-            <span className="block truncate font-mono text-2xs text-fg-subtle">{s.user_login}</span>
+            <span className="block truncate text-sm text-fg" title={String(s.user_name ?? "")}>{s.user_name}</span>
+            <span className="block truncate font-mono text-2xs text-fg-subtle" title={String(s.user_login ?? "")}>{s.user_login}</span>
           </span>
         </span>
       ),
     },
     { key: 'ip_address', header: 'IP address', width: '130px', render: (s) => <span className="font-mono text-[11px]">{s.ip_address ?? '—'}</span> },
-    { key: 'issued_at', header: 'Started', sortable: true, width: '150px', render: (s) => formatDateTime(s.issued_at) },
+    { key: 'issued_at', header: 'Started', sortable: true, width: '11rem', render: (s) => formatDateTime(s.issued_at) },
     { key: 'expires_at', header: 'Expires', sortable: true, width: '130px', render: (s) => <span className="text-xs text-fg-muted">{formatTimeAgo(s.expires_at)}</span> },
     {
       key: 'status',

@@ -65,9 +65,13 @@ class PpMps(CompanyEntity):
         Index("ix_pp_mps_product", "product_code"),
         Index("ix_pp_mps_branch_id", "branch_id"),
         Index("ix_pp_mps_company_id", "company_id"),
+        Index("ix_pp_mps_demand", "company_id", "demand_doc_no"),
     )
 
     doc_no: Mapped[str] = mapped_column(String(40), nullable=False)
+    # What this bucket is being built for. NULL on an aggregate schedule that
+    # smooths all demand for a product rather than serving one order.
+    demand_doc_no: Mapped[str | None] = mapped_column(String(40), nullable=True)
     product_code: Mapped[str] = mapped_column(String(40), nullable=False)
     product_name: Mapped[str] = mapped_column(String(200), nullable=False)
     uom: Mapped[str] = mapped_column(String(10), nullable=False)

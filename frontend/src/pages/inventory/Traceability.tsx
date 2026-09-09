@@ -216,7 +216,7 @@ export function TraceabilityPage() {
                     back.map((n, i) => (
                       <div key={`${n.batch.uid}-${i}`} className="border-l-2 border-border pl-3" style={{ marginLeft: n.depth * 14 }}>
                         <p className="font-mono text-2xs text-brand-600">{n.batch.batchNo}</p>
-                        <p className="truncate text-xs text-fg">{n.batch.itemName}</p>
+                        <p className="truncate text-xs text-fg" title={String(n.batch.itemName ?? "")}>{n.batch.itemName}</p>
                         <p className="text-2xs text-fg-subtle">
                           {formatQty(n.qty)} {n.batch.uom} via {n.via}
                           {n.batch.supplierBatchNo ? ` · heat ${n.batch.supplierBatchNo}` : ''}
@@ -237,7 +237,7 @@ export function TraceabilityPage() {
                     forward.map((n, i) => (
                       <div key={`${n.batch.batchNo}-${i}`} className="border-l-2 border-border pl-3" style={{ marginLeft: n.depth * 14 }}>
                         <p className="font-mono text-2xs text-brand-600">{n.batch.batchNo}</p>
-                        <p className="truncate text-xs text-fg">{n.batch.itemName}</p>
+                        <p className="truncate text-xs text-fg" title={String(n.batch.itemName ?? "")}>{n.batch.itemName}</p>
                         <p className="text-2xs text-fg-subtle">{formatQty(n.qty)} via {n.via}</p>
                       </div>
                     ))

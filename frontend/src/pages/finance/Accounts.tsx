@@ -209,7 +209,7 @@ export function ChartOfAccountsPage() {
             <span className="w-4" />
           )}
           <span className="min-w-0">
-            <span className={cn('block truncate text-xs', n.account.isGroup ? 'font-semibold text-fg' : 'text-fg')}>{n.account.name}</span>
+            <span className={cn('block truncate text-xs', n.account.isGroup ? 'font-semibold text-fg' : 'text-fg')} title={String(n.account.name ?? "")}>{n.account.name}</span>
             <span className="font-mono text-2xs text-fg-subtle">{n.account.code}{n.account.isGroup ? ' · group' : ''}</span>
           </span>
         </div>

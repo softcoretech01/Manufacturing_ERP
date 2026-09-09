@@ -151,13 +151,13 @@ export function RecruitmentPage() {
   const columns: Column<Candidate>[] = [
     { key: 'candidateNo', header: 'Candidate', sortable: true, width: '13rem', render: (c) => (
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-fg">{c.fullName}</p>
-        <p className="truncate font-mono text-2xs text-fg-subtle">{c.candidateNo}</p>
+        <p className="truncate text-xs font-medium text-fg" title={String(c.fullName ?? "")}>{c.fullName}</p>
+        <p className="truncate font-mono text-2xs text-fg-subtle" title={String(c.candidateNo ?? "")}>{c.candidateNo}</p>
       </div>
     ) },
     { key: 'designation', header: 'Applying for', sortable: true, render: (c) => (
       <div className="min-w-0">
-        <p className="truncate text-xs text-fg">{c.designation}</p>
+        <p className="truncate text-xs text-fg" title={String(c.designation ?? "")}>{c.designation}</p>
         <p className="truncate text-2xs text-fg-subtle">{c.department} · {c.requisitionNo}</p>
       </div>
     ) },
@@ -308,7 +308,7 @@ export function RecruitmentPage() {
                     <div className="space-y-1.5">
                       {inCol.map((c) => (
                         <div key={c.uid} className="rounded border border-border bg-surface p-2">
-                          <p className="truncate text-xs font-medium text-fg">{c.fullName}</p>
+                          <p className="truncate text-xs font-medium text-fg" title={String(c.fullName ?? "")}>{c.fullName}</p>
                           <p className="truncate text-2xs text-fg-subtle">
                             {c.designation} · {c.experienceYears} yr
                           </p>

@@ -1,7 +1,13 @@
-import { useState } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { CalendarRange, Eye, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type Column } from '@/components/ui/DataTable'
+import { DemandNettingPanel } from '@/components/planning/DemandNettingPanel'
+import { NewMasterScheduleModal } from '@/components/planning/NewMasterScheduleModal'
+import { FilterBar, EMPTY_FILTERS, applyFilters, hasFilters, type FilterState } from '@/components/planning/PlanningKit'
+import { demandProgress } from '@/lib/demandProgress'
+import { DemandViewDrawer } from '@/components/planning/DemandViewDrawer'
 import { Modal } from '@/components/ui/Modal'
 import { MenuItem } from '@/components/ui/Menu'
 import { Input, Select, Switch, Textarea } from '@/components/ui/Input'
@@ -54,8 +60,39 @@ const emptyForm: FormState = {
 
 export function DemandPage() {
   const toast = useToast()
-  const { demand, products, starts } = usePlanningData()
+  const navigate = useNavigate()
+  const { demand, mps, orders, products, sellableProducts, starts } = usePlanningData()
   const { rows, create, update, remove } = demand
+
+  // Schedule wizard. `scheduleFor` pre-selects a demand when it is opened from
+  // a row rather than from the header button.
+  const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [scheduleFor, setScheduleFor] = useState<string | undefined>(undefined)
+
+  const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS)
+  // The row being viewed. Held as the row itself, not an index — an index
+  // goes stale the moment a filter or a sort changes underneath it.
+  const [viewing, setViewing] = useState<DemandLine | null>(null)
+
+  /*
+   * Planning progress per demand, computed once for the whole page.
+   *
+   * Each grid cell calling `demandProgress` directly would re-scan every MPS row
+   * and every production order for every cell on every render — six columns of
+   * O(n*m) work on a list that can run to hundreds of rows.
+   */
+  const progressByDoc = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof demandProgress>>()
+    for (const d of rows) map.set(d.docNo, demandProgress(d, mps.rows, orders.rows))
+    return map
+  }, [rows, mps.rows, orders.rows])
+
+  const progressOf = (d: DemandLine) =>
+    progressByDoc.get(d.docNo) ?? demandProgress(d, mps.rows, orders.rows)
+
+  /** How many schedule buckets exist for a demand — drives the row affordance. */
+  const scheduledBuckets = (docNo: string) =>
+    mps.rows.filter((m) => m.demandDocNo === docNo).length
 
   const [tab, setTab] = useState('open')
   const [formOpen, setFormOpen] = useState(false)
@@ -72,23 +109,33 @@ export function DemandPage() {
     all: rows.length,
   }
 
-  const filtered = rows
-    .filter((d) => {
-      if (tab === 'open') return d.status === 'OPEN'
-      if (tab === 'firm') return d.status === 'OPEN' && d.isFirm
-      if (tab === 'overdue') return d.status === 'OPEN' && isPastDue(d.requiredOn)
-      if (tab === 'closed') return d.status !== 'OPEN'
-      return true
-    })
+  const tabbed = rows.filter((d) => {
+    if (tab === 'open') return d.status === 'OPEN'
+    if (tab === 'firm') return d.status === 'OPEN' && d.isFirm
+    if (tab === 'overdue') return d.status === 'OPEN' && isPastDue(d.requiredOn)
+    if (tab === 'closed') return d.status !== 'OPEN'
+    return true
+  })
+
+  const filtered = applyFilters(tabbed, filters, (d) => ({
+    text: [d.docNo, d.productCode, d.productName, d.customer],
+    date: d.requiredOn,
+    status: d.status,
+  }))
     .sort((a, b) => DEMAND_PRIORITY[a.source] - DEMAND_PRIORITY[b.source] || a.requiredOn.localeCompare(b.requiredOn))
 
   const columns: Column<DemandLine>[] = [
-    { key: 'docNo', header: 'Document', sortable: true, width: '11rem', render: (d) => <span className="font-mono text-xs font-medium text-brand-600">{d.docNo}</span> },
+    {
+      key: 'sno', header: 'S.No', width: '4.5rem', align: 'center',
+      render: (_d, i) => <span className="text-[13px] tabular-nums text-fg-muted">{i + 1}</span>,
+    },
+    { key: 'docNo', header: 'Demand No', sortable: true, width: '11rem', render: (d) => <span className="font-mono text-xs font-medium text-brand-600">{d.docNo}</span> },
     { key: 'source', header: 'Source', sortable: true, width: '9.5rem', accessor: (d) => DEMAND_SOURCE_LABEL[d.source], render: (d) => <DemandSourceBadge source={d.source} /> },
     {
       key: 'productCode',
       header: 'Product',
       sortable: true,
+      width: '16rem',
       render: (d) => (
         <>
           <p className="text-xs font-medium text-fg">{d.productName}</p>
@@ -97,8 +144,49 @@ export function DemandPage() {
       ),
     },
     { key: 'customer', header: 'Customer', sortable: true, width: '13rem' },
-    { key: 'market', header: 'Market', width: '6rem', render: (d) => <span className="text-xs text-fg-muted">{d.market.toLowerCase()}</span> },
-    { key: 'qty', header: 'Quantity', align: 'right', sortable: true, width: '7rem', accessor: (d) => d.qty, render: (d) => d.qty.toLocaleString('en-IN') },
+    { key: 'market', header: 'Market', width: '6rem', defaultHidden: true, render: (d) => <span className="text-xs text-fg-muted">{d.market.toLowerCase()}</span> },
+    {
+      key: 'qty', header: 'Demand Qty', align: 'right', sortable: true, width: '8rem',
+      accessor: (d) => d.qty,
+      render: (d) => <span className="tabular-nums">{d.qty.toLocaleString('en-IN')}</span>,
+    },
+    { key: 'uom', header: 'UOM', width: '5rem', align: 'center', render: (d) => <span className="text-[12px] text-fg-muted">{d.uom}</span> },
+    {
+      key: 'scheduled', header: 'Scheduled', align: 'right', sortable: true, width: '8rem',
+      accessor: (d) => progressOf(d).scheduled,
+      render: (d) => {
+        const p = progressOf(d)
+        return p.scheduled > 0 ? (
+          <span className="tabular-nums text-fg">{p.scheduled.toLocaleString('en-IN')}</span>
+        ) : (
+          <span className="text-[12px] text-fg-subtle" title="No master schedule built for this demand yet">—</span>
+        )
+      },
+    },
+    {
+      key: 'produced', header: 'Produced', align: 'right', sortable: true, width: '8rem',
+      accessor: (d) => progressOf(d).produced,
+      render: (d) => {
+        const p = progressOf(d)
+        return p.produced > 0 ? (
+          <span className="tabular-nums text-success">{p.produced.toLocaleString('en-IN')}</span>
+        ) : (
+          <span className="text-[12px] text-fg-subtle" title="Nothing produced against this demand yet">—</span>
+        )
+      },
+    },
+    {
+      key: 'remaining', header: 'Remaining', align: 'right', sortable: true, width: '8rem',
+      accessor: (d) => progressOf(d).remaining,
+      render: (d) => {
+        const p = progressOf(d)
+        return p.remaining <= 0 ? (
+          <span className="text-[12px] font-medium text-success">Covered</span>
+        ) : (
+          <span className="tabular-nums font-medium text-warning">{p.remaining.toLocaleString('en-IN')}</span>
+        )
+      },
+    },
     {
       key: 'requiredOn',
       header: 'Required by',
@@ -117,6 +205,7 @@ export function DemandPage() {
       header: 'Week',
       align: 'right',
       width: '5rem',
+      defaultHidden: true,
       accessor: (d) => bucketIndex(d.requiredOn, starts),
       render: (d) => {
         const b = bucketIndex(d.requiredOn, starts)
@@ -189,7 +278,6 @@ export function DemandPage() {
     setFormOpen(false)
   }
 
-  const overdue = rows.filter((d) => d.status === 'OPEN' && isPastDue(d.requiredOn))
 
   return (
     <div className="flex h-full flex-col">
@@ -197,9 +285,22 @@ export function DemandPage() {
         title="Demand"
         breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Planning', to: '/planning' }, { label: 'Demand' }]}
         actions={
-          <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={openCreate}>
-            Add demand
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<CalendarRange className="h-4 w-4" />}
+              onClick={() => {
+                setScheduleFor(undefined)
+                setScheduleOpen(true)
+              }}
+            >
+              New master schedule
+            </Button>
+            <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={openCreate}>
+              Add demand
+            </Button>
+          </div>
         }
         tabs={
           <Tabs
@@ -216,31 +317,68 @@ export function DemandPage() {
         }
       />
 
-      {overdue.length > 0 && tab === 'open' && (
-        <Alert tone="danger" className="mb-4">
-          {overdue.length} demand line{overdue.length === 1 ? '' : 's'} passed the required-by date and {overdue.length === 1 ? 'is' : 'are'} still
-          open — {overdue.map((d) => d.docNo).join(', ')}. MRP plans them into the current week, so they show as late
-          rather than disappearing.
-        </Alert>
-      )}
+
+      {/* What MRP will actually plan. The list below shows documents; this shows
+          the netted total, which is not the same number once a firm order has
+          consumed part of a forecast. */}
+      <div className="mb-4">
+        <DemandNettingPanel />
+      </div>
+
+      <div className="mb-4">
+        <FilterBar
+          value={filters}
+          onChange={setFilters}
+          searchPlaceholder="Demand number, product or customer…"
+          dateLabel="Required"
+          statuses={[
+            { value: 'OPEN', label: 'Open' },
+            { value: 'CLOSED', label: 'Closed' },
+            { value: 'CANCELLED', label: 'Cancelled' },
+          ]}
+        />
+      </div>
 
       <DataTable
         className="flex-1"
         rows={filtered}
         columns={columns}
         rowKey={(d) => d.uid}
-        searchPlaceholder="Search document, product or customer…"
+        searchable={false}
         onExport={(f: ExportFormat) => {
           const n = exportRows(f, 'demand', 'Demand', columnsFromTable(columns), filtered)
           toast.success('Export ready', `${n} rows written.`)
         }}
-        onRowClick={openEdit}
-        emptyTitle="No demand"
-        emptyDescription="Add a sales order, a contract or a forecast line to plan against."
+        onRowClick={(d) => setViewing(d)}
+        emptyTitle={hasFilters(filters) ? 'No demand matches these filters' : 'No demand yet'}
+        emptyDescription={
+          hasFilters(filters)
+            ? 'Nothing matches the current search and date range. Clear the filters to see every demand line.'
+            : 'Add a sales order, a contract or a forecast line to plan against.'
+        }
         rowClassName={(d) => (d.status === 'OPEN' && isPastDue(d.requiredOn) ? 'bg-danger/5' : undefined)}
         rowActions={(d) => (
           <>
-            <MenuItem label="Edit" onClick={() => openEdit(d)} />
+            <MenuItem label="View" icon={<Eye />} onClick={() => setViewing(d)} />
+            {scheduledBuckets(d.docNo) > 0 ? (
+              <MenuItem
+                label={`View schedule (${scheduledBuckets(d.docNo)} weeks)`}
+                icon={<CalendarRange />}
+                separatorBefore
+                onClick={() => navigate(`/planning/mps?demand=${encodeURIComponent(d.docNo)}`)}
+              />
+            ) : (
+              <MenuItem
+                label="Build master schedule"
+                icon={<CalendarRange />}
+                separatorBefore
+                onClick={() => {
+                  setScheduleFor(d.docNo)
+                  setScheduleOpen(true)
+                }}
+              />
+            )}
+            <MenuItem label="Edit" separatorBefore onClick={() => openEdit(d)} />
             <MenuItem
               label={d.status === 'OPEN' ? 'Close as satisfied' : 'Reopen'}
               separatorBefore
@@ -292,7 +430,7 @@ export function DemandPage() {
             value={form.productCode}
             error={errors.productCode}
             onChange={(e) => setForm({ ...form, productCode: e.target.value })}
-            options={[{ value: '', label: 'Select a product…' }, ...products.rows.map((p) => ({ value: p.code, label: `${p.code} — ${p.name}` }))]}
+            options={[{ value: '', label: 'Select a product…' }, ...sellableProducts.rows.map((p) => ({ value: p.code, label: `${p.code} — ${p.name}` }))]}
           />
           <Input label="Customer or channel" required value={form.customer} error={errors.customer} onChange={(e) => setForm({ ...form, customer: e.target.value })} />
           <Select label="Market" value={form.market} onChange={(e) => setForm({ ...form, market: e.target.value as DemandLine['market'] })} options={MARKETS.map((m) => ({ value: m, label: m.toLowerCase() }))} />
@@ -340,6 +478,42 @@ export function DemandPage() {
           stays.
         </p>
       </Modal>
+
+      <DemandViewDrawer
+        demand={viewing}
+        mps={mps.rows}
+        orders={orders.rows}
+        onClose={() => setViewing(null)}
+        onEdit={(d) => {
+          setViewing(null)
+          openEdit(d)
+        }}
+        onSchedule={(d) => {
+          setViewing(null)
+          if (scheduledBuckets(d.docNo) > 0) {
+            navigate(`/planning/mps?demand=${encodeURIComponent(d.docNo)}`)
+          } else {
+            setScheduleFor(d.docNo)
+            setScheduleOpen(true)
+          }
+        }}
+        onOpenMrp={() => navigate('/planning/mrp')}
+        onOpenOrders={(d) => navigate(`/planning/orders?demand=${encodeURIComponent(d.docNo)}`)}
+      />
+
+      <NewMasterScheduleModal
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+        demand={rows}
+        starts={starts}
+        existing={mps.rows}
+        onCreate={mps.create}
+        presetDemandDocNo={scheduleFor}
+        onSaved={(docNo) => {
+          setScheduleOpen(false)
+          navigate(`/planning/mps?demand=${encodeURIComponent(docNo)}`)
+        }}
+      />
     </div>
   )
 }

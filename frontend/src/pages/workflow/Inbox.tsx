@@ -82,7 +82,7 @@ export function ApprovalInboxPage() {
 
   const columns: Column<InboxTask>[] = [
     { key: 'document_no', header: 'Document', sortable: true, width: '13rem', render: (t) => <span className="font-mono text-xs font-medium text-brand-600">{t.document_no}</span> },
-    { key: 'assigned_at', header: 'Assigned', sortable: true, width: '8rem', accessor: (t) => t.assigned_at, render: (t) => formatDate(t.assigned_at) },
+    { key: 'assigned_at', header: 'Assigned', sortable: true, width: '8.5rem', accessor: (t) => t.assigned_at, render: (t) => formatDate(t.assigned_at) },
     { key: 'level', header: 'Stage', width: '10rem', render: (t) => <span className="text-xs text-fg-muted">{t.level_name} · L{t.level_no}/{t.total_levels}</span> },
     { key: 'requester', header: 'Requested by', sortable: true, width: '11rem', accessor: (t) => t.requester ?? '', render: (t) => t.requester ?? '—' },
     { key: 'amount', header: 'Amount', align: 'right', sortable: true, width: '10rem', accessor: (t) => t.amount ?? 0, render: (t) => (t.amount == null ? <span className="text-2xs text-fg-subtle">—</span> : formatCurrency(t.amount)) },

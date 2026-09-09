@@ -160,7 +160,7 @@ export function PerformancePage() {
     ) },
     { key: 'designation', header: 'Role', sortable: true, render: (a) => (
       <div className="min-w-0">
-        <p className="truncate text-xs text-fg">{a.designation}</p>
+        <p className="truncate text-xs text-fg" title={String(a.designation ?? "")}>{a.designation}</p>
         <p className="truncate text-2xs text-fg-subtle">reviewed by {a.reviewer}</p>
       </div>
     ) },
@@ -194,7 +194,7 @@ export function PerformancePage() {
       a.promotionRecommended ? (
         <div className="min-w-0">
           <Badge tone="success" size="sm" dot={false}>recommended</Badge>
-          {a.recommendedDesignation && <p className="mt-0.5 truncate text-2xs text-fg-subtle">{a.recommendedDesignation}</p>}
+          {a.recommendedDesignation && <p className="mt-0.5 truncate text-2xs text-fg-subtle" title={String(a.recommendedDesignation ?? "")}>{a.recommendedDesignation}</p>}
         </div>
       ) : (
         <span className="text-2xs text-fg-subtle">—</span>
@@ -206,7 +206,7 @@ export function PerformancePage() {
   const kpiColumns: Column<Kpi>[] = [
     { key: 'code', header: 'KPI', sortable: true, width: '15rem', render: (k) => (
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-fg">{k.name}</p>
+        <p className="truncate text-xs font-medium text-fg" title={String(k.name ?? "")}>{k.name}</p>
         <p className="font-mono text-2xs text-fg-subtle">{k.code}</p>
       </div>
     ) },

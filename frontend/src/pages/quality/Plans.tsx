@@ -122,13 +122,13 @@ export function PlansPage() {
     { key: 'planCode', header: 'Plan', sortable: true, width: '11rem', render: (p) => <span className="font-mono text-xs font-medium text-brand-600">{p.planCode}</span> },
     { key: 'revision', header: 'Rev', align: 'right', width: '4.5rem', accessor: (p) => p.revision, render: (p) => <span className="font-mono text-2xs">R{p.revision}</span> },
     { key: 'stage', header: 'Stage', sortable: true, width: '7.5rem', accessor: (p) => STAGE_LABEL[p.stage], render: (p) => <StageBadge stage={p.stage} /> },
-    { key: 'name', header: 'Plan', sortable: true, render: (p) => (<><p className="text-xs font-medium text-fg">{p.name}</p><p className="font-mono text-2xs text-fg-subtle">{p.itemCode}{p.operationCode && ` · ${p.operationCode}`}</p></>) },
+    { key: 'name', header: 'Plan', width: '16rem', sortable: true, render: (p) => (<><p className="text-xs font-medium text-fg">{p.name}</p><p className="font-mono text-2xs text-fg-subtle">{p.itemCode}{p.operationCode && ` · ${p.operationCode}`}</p></>) },
     { key: 'characteristics', header: 'Checks', align: 'right', width: '6rem', accessor: (p) => p.characteristics.length },
     { key: 'critical', header: 'Critical', align: 'right', width: '6.5rem', accessor: (p) => p.characteristics.filter((c) => c.severity === 'CRITICAL').length },
     { key: 'samplingMethod', header: 'Sampling', sortable: true, width: '11rem', accessor: (p) => METHOD_LABEL[p.samplingMethod], render: (p) => <span className="text-xs text-fg-muted">{p.samplingMethod === 'AQL' ? `AQL ${p.aql}` : METHOD_LABEL[p.samplingMethod]}</span> },
     { key: 'frequency', header: 'Frequency', width: '12rem', render: (p) => <span className="text-2xs text-fg-muted">{p.frequency}</span> },
     { key: 'usage', header: 'Used', align: 'right', width: '5.5rem', accessor: (p) => usageOf(p.planCode), render: (p) => <span className="text-xs tabular text-fg-muted">{usageOf(p.planCode)}</span> },
-    { key: 'effectiveFrom', header: 'Effective', sortable: true, width: '8rem', accessor: (p) => p.effectiveFrom, render: (p) => formatDate(p.effectiveFrom) },
+    { key: 'effectiveFrom', header: 'Effective', sortable: true, width: '8.5rem', accessor: (p) => p.effectiveFrom, render: (p) => formatDate(p.effectiveFrom) },
     { key: 'status', header: 'Status', sortable: true, width: '8.5rem', render: (p) => <QmsStatusBadge status={p.status} /> },
   ]
 
@@ -283,7 +283,7 @@ export function PlansPage() {
             {detail.samplingMethod === 'AQL' && (
               <DetailBlock title="What this plan draws">
                 <div className="overflow-x-auto rounded border border-border">
-                  <table className="grid-table">
+                  <table className="grid-table grid-table--auto">
                     <thead><tr><th>Lot size</th><th>Code letter</th><th className="text-right">Sample</th><th className="text-right">Accept on</th><th className="text-right">Reject on</th></tr></thead>
                     <tbody>
                       {[50, 150, 500, 1200, 3200, 10000].map((lot) => {
@@ -298,7 +298,7 @@ export function PlansPage() {
 
             <DetailBlock title={`Characteristics (${detail.characteristics.length})`}>
               <div className="overflow-x-auto rounded border border-border">
-                <table className="grid-table">
+                <table className="grid-table grid-table--auto">
                   <thead><tr><th style={{ width: '3rem' }}>#</th><th>Characteristic</th><th style={{ width: '6.5rem' }}>Type</th><th style={{ width: '11rem' }}>Specification</th><th style={{ width: '7rem' }}>Instrument</th><th style={{ width: '6.5rem' }}>Severity</th><th style={{ width: '9rem' }}>Rules</th></tr></thead>
                   <tbody>
                     {detail.characteristics.map((c) => {
@@ -363,7 +363,7 @@ export function PlansPage() {
           </div>
           {errors.characteristics && <Alert tone="danger" className="mb-2">{errors.characteristics}</Alert>}
           <div className="overflow-x-auto rounded border border-border">
-            <table className="grid-table">
+            <table className="grid-table grid-table--auto">
               <thead><tr>
                 <th style={{ minWidth: '13rem' }}>Name *</th><th style={{ width: '8rem' }}>Type</th><th style={{ width: '5rem' }}>UoM</th>
                 <th className="text-right" style={{ width: '6rem' }}>Target</th><th className="text-right" style={{ width: '6rem' }}>Lower</th><th className="text-right" style={{ width: '6rem' }}>Upper</th>

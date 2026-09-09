@@ -24,7 +24,7 @@ export function AbcXyzPage() {
     { key: 'abc', header: 'ABC', width: '60px', render: (r) => <Badge tone={ABC_TONE[r.abc_class] ?? 'neutral'} size="sm">{r.abc_class}</Badge> },
     { key: 'xyz', header: 'XYZ', width: '60px', render: (r) => <Badge tone="neutral" size="sm" dot={false}>{r.xyz_class}</Badge> },
     { key: 'item', header: 'Item', sortable: true, sticky: true, width: '240px', accessor: (r) => r.item_code,
-      render: (r) => <div className="min-w-0"><p className="truncate text-xs font-medium text-fg">{r.item_name}</p><p className="truncate font-mono text-2xs text-fg-subtle">{r.item_code}</p></div> },
+      render: (r) => <div className="min-w-0"><p className="truncate text-xs font-medium text-fg" title={String(r.item_name ?? "")}>{r.item_name}</p><p className="truncate font-mono text-2xs text-fg-subtle" title={String(r.item_code ?? "")}>{r.item_code}</p></div> },
     { key: 'value', header: 'Value', align: 'right', sortable: true, width: '140px', accessor: (r) => r.value ?? 0, render: (r) => <span className="tabular text-xs">{r.value == null ? '—' : formatCurrency(r.value)}</span> },
     { key: 'cum', header: 'Cumulative', align: 'right', width: '140px', render: (r) => (
       <span className="flex items-center justify-end gap-2">

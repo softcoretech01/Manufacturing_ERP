@@ -47,6 +47,9 @@ class PpMpsBase(BaseModel):
     is_firm: bool
     status: str
     remarks: str = ""
+    # The demand this bucket is scheduled for. Null on an aggregate schedule
+    # that smooths a product's whole demand stream rather than serving one order.
+    demand_doc_no: Optional[str] = Field(default=None, max_length=40)
 
 class PpMpsCreate(PpMpsBase):
     pass

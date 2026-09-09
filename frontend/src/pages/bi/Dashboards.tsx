@@ -134,8 +134,8 @@ export function BiDashboardsPage() {
   const columns: Column<DashboardDefinition>[] = [
     { key: 'code', header: 'Dashboard', sortable: true, width: '16rem', render: (d) => (
       <button type="button" onClick={() => setViewing(d)} className="text-left">
-        <p className="truncate text-xs font-medium text-brand-600 hover:underline">{d.name}</p>
-        <p className="truncate font-mono text-2xs text-fg-subtle">{d.code}</p>
+        <p className="truncate text-xs font-medium text-brand-600 hover:underline" title={String(d.name ?? "")}>{d.name}</p>
+        <p className="truncate font-mono text-2xs text-fg-subtle" title={String(d.code ?? "")}>{d.code}</p>
       </button>
     ) },
     { key: 'role', header: 'Role', sortable: true, width: '12rem', render: (d) => (
@@ -172,7 +172,7 @@ export function BiDashboardsPage() {
     { key: 'viewCount', header: 'Opened', align: 'right', width: '8rem', sortable: true, render: (d) => (
       <span className="tabular text-xs text-fg-muted">{d.viewCount.toLocaleString('en-IN')}</span>
     ) },
-    { key: 'version', header: 'Version', align: 'center', width: '10rem', sortable: true, render: (d) => (
+    { key: 'version', header: 'Version', align: 'center', width: '13rem', sortable: true, render: (d) => (
       <div className="min-w-0">
         <p className="tabular text-2xs text-fg">v{d.version}</p>
         <p className="truncate text-2xs text-fg-subtle">{d.updatedBy}, {formatDate(d.updatedOn)}</p>
@@ -330,7 +330,7 @@ export function BiDashboardsPage() {
                   <div key={code} className="flex items-center gap-2 rounded border border-border p-2">
                     <span className="w-5 shrink-0 text-center text-2xs tabular text-fg-subtle">{i + 1}</span>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-medium text-fg">{def.name}</p>
+                      <p className="truncate text-xs font-medium text-fg" title={String(def.name ?? "")}>{def.name}</p>
                       <p className="truncate text-2xs text-fg-subtle">
                         {MODULE_LABEL[def.module]} · target {formatMetric(def.target, def.format, def.unit)}
                       </p>

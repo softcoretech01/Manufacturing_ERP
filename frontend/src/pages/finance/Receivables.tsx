@@ -57,7 +57,7 @@ export function ReceivablesPage({ side = 'CUSTOMER' }: { side?: 'CUSTOMER' | 'SU
   const overdue = money(grandTotal - totals['Not due'])
 
   const ageingColumns: Column<AgeingRow>[] = [
-    { key: 'partyName', header: isAr ? 'Customer' : 'Supplier', sortable: true, render: (r) => (<><p className="text-xs font-medium text-fg">{r.partyName}</p><p className="font-mono text-2xs text-fg-subtle">{r.partyCode} · {r.documents.length} documents</p></>) },
+    { key: 'partyName', header: isAr ? 'Customer' : 'Supplier', width: '15rem', sortable: true, render: (r) => (<><p className="text-xs font-medium text-fg">{r.partyName}</p><p className="font-mono text-2xs text-fg-subtle">{r.partyCode} · {r.documents.length} documents</p></>) },
     ...AGEING_BUCKETS.map((b) => ({
       key: b, header: b, align: 'right' as const, width: '9.5rem',
       accessor: (r: AgeingRow) => r.buckets[b],
@@ -70,9 +70,9 @@ export function ReceivablesPage({ side = 'CUSTOMER' }: { side?: 'CUSTOMER' | 'SU
   const docColumns: Column<PartyDocument>[] = [
     { key: 'docNo', header: 'Document', sortable: true, width: '12rem', render: (d) => <span className="font-mono text-xs font-medium text-brand-600">{d.docNo}</span> },
     { key: 'docType', header: 'Type', width: '8rem', accessor: (d) => d.docType, render: (d) => <Badge tone={d.docType === 'CREDIT_NOTE' || d.docType === 'DEBIT_NOTE' ? 'neutral' : 'brand'} size="sm" dot={false}>{d.docType.replace('_', ' ').toLowerCase()}</Badge> },
-    { key: 'partyName', header: isAr ? 'Customer' : 'Supplier', sortable: true, render: (d) => (<><p className="text-xs text-fg">{d.partyName}</p><p className="font-mono text-2xs text-fg-subtle">{d.partyCode}{d.sourceDocNo && ` · ${d.sourceDocNo}`}</p></>) },
-    { key: 'date', header: 'Date', sortable: true, width: '8rem', accessor: (d) => d.date, render: (d) => formatDate(d.date) },
-    { key: 'dueDate', header: 'Due', sortable: true, width: '8rem', accessor: (d) => d.dueDate, render: (d) => <span className={d.dueDate < new Date().toISOString().slice(0, 10) && d.status !== 'PAID' ? 'text-danger' : ''}>{formatDate(d.dueDate)}</span> },
+    { key: 'partyName', header: isAr ? 'Customer' : 'Supplier', width: '15rem', sortable: true, render: (d) => (<><p className="text-xs text-fg">{d.partyName}</p><p className="font-mono text-2xs text-fg-subtle">{d.partyCode}{d.sourceDocNo && ` · ${d.sourceDocNo}`}</p></>) },
+    { key: 'date', header: 'Date', sortable: true, width: '8.5rem', accessor: (d) => d.date, render: (d) => formatDate(d.date) },
+    { key: 'dueDate', header: 'Due', sortable: true, width: '8.5rem', accessor: (d) => d.dueDate, render: (d) => <span className={d.dueDate < new Date().toISOString().slice(0, 10) && d.status !== 'PAID' ? 'text-danger' : ''}>{formatDate(d.dueDate)}</span> },
     { key: 'taxableValue', header: 'Taxable', align: 'right', sortable: true, width: '11rem', accessor: (d) => d.taxableValue, render: (d) => inr(d.taxableValue) },
     { key: 'tax', header: 'Tax', align: 'right', width: '10rem', accessor: (d) => d.cgst + d.sgst + d.igst, render: (d) => (d.cgst + d.sgst + d.igst ? inr(d.cgst + d.sgst + d.igst) : <span className="text-2xs text-fg-subtle">nil</span>) },
     { key: 'grandTotal', header: 'Total', align: 'right', sortable: true, width: '11rem', accessor: (d) => d.grandTotal, render: (d) => <span className="text-xs font-medium tabular">{inr(d.grandTotal)}</span> },
@@ -82,8 +82,8 @@ export function ReceivablesPage({ side = 'CUSTOMER' }: { side?: 'CUSTOMER' | 'SU
 
   const payColumns: Column<PartyPayment>[] = [
     { key: 'docNo', header: isAr ? 'Receipt' : 'Payment', sortable: true, width: '12rem', render: (p) => <span className="font-mono text-xs font-medium text-brand-600">{p.docNo}</span> },
-    { key: 'partyName', header: 'Party', sortable: true },
-    { key: 'date', header: 'Date', sortable: true, width: '8rem', accessor: (p) => p.date, render: (p) => formatDate(p.date) },
+    { key: 'partyName', header: 'Party', width: '15rem', sortable: true },
+    { key: 'date', header: 'Date', sortable: true, width: '8.5rem', accessor: (p) => p.date, render: (p) => formatDate(p.date) },
     { key: 'mode', header: 'Mode', width: '7rem', render: (p) => <span className="text-xs text-fg-muted">{p.mode}</span> },
     { key: 'instrumentNo', header: 'Reference', width: '11rem', render: (p) => <span className="font-mono text-2xs text-fg-muted">{p.instrumentNo}</span> },
     { key: 'amount', header: 'Amount', align: 'right', sortable: true, width: '11rem', accessor: (p) => p.amount, render: (p) => inr(p.amount) },

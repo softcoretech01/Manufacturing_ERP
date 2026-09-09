@@ -136,7 +136,7 @@ export function DepartmentsPage() {
 
   const columns: Column<Department>[] = [
     { key: 'code', header: 'Code', sortable: true, width: '90px', render: (d) => <span className="font-mono text-xs font-medium">{d.code}</span> },
-    { key: 'name', header: 'Department', sortable: true, render: (d) => <span className="font-medium text-fg">{d.name}</span> },
+    { key: 'name', header: 'Department', width: '16rem', sortable: true, render: (d) => <span className="font-medium text-fg">{d.name}</span> },
     { key: 'parent_code', header: 'Parent', sortable: true, width: '160px', accessor: (d) => d.parent_code ?? '', render: (d) => d.parent_code ? <span className="text-xs text-fg-muted"><span className="font-mono">{d.parent_code}</span> · {d.parent_name}</span> : <span className="text-xs text-fg-subtle">top level</span> },
     { key: 'department_type', header: 'Type', sortable: true, width: '150px', render: (d) => <Badge tone="neutral" size="sm" dot={false}>{d.department_type.replace(/_/g, ' ').toLowerCase()}</Badge> },
     {

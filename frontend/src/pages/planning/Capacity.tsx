@@ -1,384 +1,455 @@
 import { useMemo, useState } from 'react'
-import { Download, TrendingUp } from 'lucide-react'
-import { Bar, BarChart, CartesianGrid, Cell, Legend, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { Button } from '@/components/ui/Button'
-import { Card, CardBody, CardHeader } from '@/components/ui/Card'
+import { Gauge, X, Factory, Clock, Target } from 'lucide-react'
 import { Badge } from '@/components/ui/Badge'
-import { Drawer } from '@/components/ui/Modal'
-import { Select } from '@/components/ui/Input'
+import { Button } from '@/components/ui/Button'
+import { DataTable, type Column } from '@/components/ui/DataTable'
+import { Modal } from '@/components/ui/Modal'
 import { Alert, PageHeader } from '@/components/ui/Misc'
-import { Tabs } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
-import { ChartTip, DetailBlock, LoadCell } from '@/components/planning/PlanShell'
-import { cn } from '@/lib/cn'
-import { exportRows, type ExportColumn, type ExportFormat } from '@/lib/export'
+import { columnsFromTable, exportRows } from '@/lib/export'
 import { formatDate } from '@/lib/format'
-import { bucketIndex, capacityPlan, workingDaysInBucket, type CrpRow } from '@/lib/planFlow'
-import { defaultRoutingFor } from '@/lib/engFlow'
+import { ProblemError } from '@/api/client'
+import { useSession } from '@/api/session'
+import { InfoStrip } from '@/components/ui/InfoStrip'
+import { useCapacityPlan, useCapacityDetail } from '@/hooks/useCapacity'
+import { Select } from '@/components/ui/Input'
 import { usePlanningData } from './usePlanningData'
+import type { CapacityRow } from '@/api/capacity'
 
 /**
- * Capacity requirement planning and bottleneck analysis (Ch 9 and 17).
+ * Capacity requirements planning.
  *
- * MRP will happily plan more work than the plant can do — it nets material, not
- * hours. This is the screen that catches it, before the orders are released
- * rather than after the shift has run out of time.
+ * The grid says which centres are overloaded; clicking one says because of what.
+ * A load percentage a planner cannot trace back to specific operations is a
+ * number they learn to ignore.
  *
- * Available hours are derated by each centre's OEE target, because planning
- * against nameplate hours is how a board that reads 90% turns out to be 115%.
+ * Committed and planned hours are shown apart on purpose. Committed work is
+ * going to happen and an overload means move it or add a shift; planned work is
+ * MRP's proposal and an overload means change the plan.
  */
 
-type Source = 'PLANNED' | 'FIRM' | 'BOTH'
+const hrs = (n: number) => `${n.toFixed(1)} h`
+
+/** Load bands read as text as well as colour — colour alone is not an
+ *  accessible status signal (CLAUDE.md §7). */
+function loadBadge(pct: number) {
+  if (pct >= 999) return <Badge tone="danger" size="sm">No capacity</Badge>
+  if (pct > 100) return <Badge tone="danger" size="sm">{pct.toFixed(0)}% over</Badge>
+  if (pct > 85) return <Badge tone="warning" size="sm">{pct.toFixed(0)}% tight</Badge>
+  if (pct > 0) return <Badge tone="success" size="sm">{pct.toFixed(0)}%</Badge>
+  return <Badge tone="neutral" size="sm">Idle</Badge>
+}
+
+/**
+ * The load bar.
+ *
+ * `focusPct` shades the selected demand's share *inside* the total rather than
+ * replacing it. Showing only the selected demand would make a work centre that
+ * is already full look free, which is the one mistake this screen exists to
+ * prevent.
+ */
+function LoadBar({ pct, focusPct = 0 }: { pct: number; focusPct?: number }) {
+  const capped = Math.min(pct, 150)
+  const focusCapped = Math.min(focusPct, capped)
+  const tone = pct > 100 ? 'bg-danger' : pct > 85 ? 'bg-warning' : 'bg-success'
+  return (
+    <div className="flex items-center gap-2">
+      <div className="relative h-1.5 w-16 overflow-hidden rounded-full bg-surface-3" aria-hidden>
+        <div className={`h-full ${tone} opacity-40`} style={{ width: `${(capped / 150) * 100}%` }} />
+        {focusCapped > 0 && (
+          <div
+            className={`absolute inset-y-0 left-0 ${tone}`}
+            style={{ width: `${(focusCapped / 150) * 100}%` }}
+          />
+        )}
+      </div>
+      <span className="text-[13px] tabular-nums text-fg">{pct.toFixed(0)}%</span>
+      {focusPct > 0 && (
+        <span className="text-[11px] tabular-nums text-brand-600" title="This demand's share">
+          ({focusPct.toFixed(0)}%)
+        </span>
+      )}
+    </div>
+  )
+}
 
 export function CapacityPage() {
   const toast = useToast()
-  const { mrp, orders, ctx, starts } = usePlanningData()
+  const companyUid = useSession((s) => s.companyUid)
 
-  const [tab, setTab] = useState('grid')
-  const [source, setSource] = useState<Source>('BOTH')
-  const [detail, setDetail] = useState<CrpRow | null>(null)
+  const [horizon, setHorizon] = useState(8)
+  const [includePlanned, setIncludePlanned] = useState(true)
+  const [drill, setDrill] = useState<{ code: string; bucket?: number } | null>(null)
+  // Which order to highlight. Empty means the plain factory-wide view.
+  const [demandFocus, setDemandFocus] = useState('')
 
-  /** Where the load comes from: MRP suggestions, firmed orders, or both. */
-  const demand = useMemo(() => {
-    const rows: { productCode: string; qty: number; bucket: number; ref: string }[] = []
-    if (source === 'PLANNED' || source === 'BOTH') {
-      for (const o of mrp.plannedOrders) {
-        if (o.orderType !== 'PRODUCTION') continue
-        rows.push({ productCode: o.itemCode, qty: o.qty, bucket: Math.max(0, o.releaseBucket), ref: `MRP week ${o.bucket + 1}` })
-      }
-    }
-    if (source === 'FIRM' || source === 'BOTH') {
-      for (const o of orders.rows) {
-        if (o.deletedAt || ['COMPLETED', 'CLOSED', 'CANCELLED'].includes(o.status)) continue
-        const open = Math.max(0, o.qty - o.producedQty)
-        if (open <= 0) continue
-        const b = bucketIndex(o.plannedStart, starts)
-        if (b < 0) continue
-        rows.push({ productCode: o.productCode, qty: open, bucket: b, ref: o.docNo })
-      }
-    }
-    return rows
-  }, [mrp.plannedOrders, orders.rows, source, starts])
+  const { demand } = usePlanningData()
+  const openDemand = useMemo(
+    () =>
+      demand.rows
+        .filter((d) => d.status === 'OPEN' && d.qty - (d.qtyPlanned ?? 0) > 0)
+        .sort((a, b) => a.requiredOn.localeCompare(b.requiredOn)),
+    [demand.rows],
+  )
+  const focused = openDemand.find((d) => d.docNo === demandFocus) ?? null
 
-  const crp = useMemo(() => capacityPlan(demand, ctx, starts), [demand, ctx, starts])
+  const { data, isLoading, error } = useCapacityPlan({
+    horizon,
+    include_planned: includePlanned,
+    demand_doc_no: demandFocus || undefined,
+  })
+  const detail = useCapacityDetail(drill?.code, { horizon, bucket: drill?.bucket })
 
-  const bottlenecks = crp.filter((r) => r.isBottleneck)
-  const totalRequired = crp.reduce((s, r) => s + r.totalRequired, 0)
-  const totalAvailable = crp.reduce((s, r) => s + r.totalAvailable, 0)
-  const overallLoad = totalAvailable > 0 ? (totalRequired / totalAvailable) * 100 : 0
+  const rows = data?.work_centres ?? []
+  const starts = data?.starts ?? []
 
-  /** What each work centre's peak week looks like, for the chart. */
-  const chart = crp.map((r) => ({
-    name: r.workCentreCode,
-    Peak: Number(r.peakLoadPct.toFixed(0)),
-  }))
+  const totals = useMemo(
+    () => ({
+      required: rows.reduce((s, r) => s + r.total_required_hours, 0),
+      available: rows.reduce((s, r) => s + r.total_available_hours, 0),
+      focus: rows.reduce((s, r) => s + (r.total_focus_hours ?? 0), 0),
+      // Only the centres that are short — netting a spare centre against a
+      // full one would understate the problem, because hours do not transfer.
+      overload: rows.reduce(
+        (s, r) => s + Math.max(0, r.total_required_hours - r.total_available_hours),
+        0,
+      ),
+    }),
+    [rows],
+  )
 
-  /** Which orders load a given centre, for the drawer. */
-  const contributors = useMemo(() => {
-    if (!detail) return []
-    const out: { ref: string; productCode: string; qty: number; bucket: number; hours: number }[] = []
-    for (const d of demand) {
-      const routing = defaultRoutingFor(d.productCode, ctx.routings)
-      if (!routing) continue
-      const hours = routing.operations
-        .filter((o) => o.workCentreCode === detail.workCentreCode)
-        .reduce((s, o) => s + o.setupMinutes / 60 + (d.qty * o.cycleSeconds) / 3600, 0)
-      if (hours > 0) out.push({ ...d, hours })
-    }
-    return out.sort((a, b) => b.hours - a.hours)
-  }, [detail, demand, ctx.routings])
+  const overloadHours = totals.overload
 
-  function doExport(format: ExportFormat) {
-    interface Row { centre: string; name: string; week: string; required: string; available: string; load: string }
-    const data: Row[] = crp.flatMap((r) =>
-      r.cells.map((c) => ({
-        centre: r.workCentreCode,
-        name: r.workCentreName,
-        week: `W${c.bucket + 1} (${c.start})`,
-        required: c.requiredHours.toFixed(1),
-        available: c.availableHours.toFixed(1),
-        load: c.loadPct.toFixed(0) + '%',
-      })),
-    )
-    const columns: ExportColumn<Row>[] = [
-      { header: 'Work centre', value: (r) => r.centre },
-      { header: 'Name', value: (r) => r.name },
-      { header: 'Week', value: (r) => r.week },
-      { header: 'Required hours', value: (r) => r.required },
-      { header: 'Available hours', value: (r) => r.available },
-      { header: 'Load', value: (r) => r.load },
-    ]
-    const n = exportRows(format, 'capacity-plan', 'Capacity requirement plan', columns, data)
-    toast.success('Export ready', `${n} rows written.`)
-  }
+  const columns: Column<CapacityRow>[] = [
+    {
+      key: 'sno', header: 'S.No', width: '68px', align: 'center',
+      render: (_r, i) => <span className="text-[13px] tabular-nums text-fg-subtle">{i + 1}</span>,
+    },
+    {
+      key: 'work_centre', header: 'Work Centre', width: '260px', sortable: true, sticky: true,
+      accessor: (r) => `${r.work_centre_name} ${r.work_centre_code}`,
+      render: (r) => (
+        <div className="min-w-0">
+          <p className="truncate text-[14px] font-medium text-fg" title={r.work_centre_name}>
+            {r.work_centre_name}
+          </p>
+          <p className="truncate font-mono text-[12px] text-fg-subtle">
+            {r.work_centre_code} · {r.hours_per_day} h/day @ {r.oee_target_pct}% OEE
+          </p>
+        </div>
+      ),
+    },
+    {
+      key: 'total_required_hours', header: 'Required', width: '130px', align: 'right', sortable: true,
+      accessor: (r) => r.total_required_hours,
+      render: (r) => <span className="text-[14px] tabular-nums text-fg">{hrs(r.total_required_hours)}</span>,
+    },
+    {
+      key: 'total_available_hours', header: 'Available', width: '130px', align: 'right',
+      accessor: (r) => r.total_available_hours,
+      render: (r) => (
+        <span className="text-[14px] tabular-nums text-fg-muted">{hrs(r.total_available_hours)}</span>
+      ),
+    },
+    {
+      key: 'remaining_hours', header: 'Remaining', width: '9.5rem', align: 'right', sortable: true,
+      accessor: (r) => r.total_available_hours - r.total_required_hours,
+      render: (r) => {
+        const left = r.total_available_hours - r.total_required_hours
+        return left >= 0 ? (
+          <span className="tabular-nums text-fg">{hrs(left)}</span>
+        ) : (
+          <span className="tabular-nums font-medium text-danger" title="Required hours exceed available hours over the horizon">
+            {hrs(Math.abs(left))} over
+          </span>
+        )
+      },
+    },
+    {
+      key: 'overall_load_pct', header: 'Overall Load', width: '170px', sortable: true,
+      accessor: (r) => r.overall_load_pct,
+      render: (r) => (
+        <LoadBar
+          pct={r.overall_load_pct}
+          focusPct={
+            r.total_available_hours > 0
+              ? ((r.total_focus_hours ?? 0) / r.total_available_hours) * 100
+              : 0
+          }
+        />
+      ),
+    },
+    {
+      key: 'peak_load_pct', header: 'Peak Week', width: '150px', align: 'center', sortable: true,
+      accessor: (r) => r.peak_load_pct,
+      render: (r) => loadBadge(r.peak_load_pct),
+    },
+    {
+      key: 'overloaded_buckets', header: 'Weeks Over', width: '130px', align: 'right',
+      accessor: (r) => r.overloaded_buckets,
+      render: (r) => (
+        <span className={`text-[14px] tabular-nums ${r.overloaded_buckets ? 'font-semibold text-danger' : 'text-fg-subtle'}`}>
+          {r.overloaded_buckets || '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'actions', header: 'Actions', width: '130px', align: 'center', className: 'col-flex',
+      render: (r) => (
+        <Button size="sm" variant="outline" onClick={() => setDrill({ code: r.work_centre_code })}>
+          Why?
+        </Button>
+      ),
+    },
+  ]
 
   return (
-    <div>
+    <div className="flex flex-col gap-4 pb-4">
       <PageHeader
-        title="Capacity planning"
+        title="Capacity Planning"
+        description="What the plan asks of each work centre, against the hours the calendar and its shift pattern allow."
         breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Planning', to: '/planning' }, { label: 'Capacity' }]}
-        actions={
-          <Button variant="outline" size="sm" icon={<Download className="h-3.5 w-3.5" />} onClick={() => doExport('xlsx')}>
-            Export
-          </Button>
-        }
-        tabs={
-          <Tabs
-            active={tab}
-            onChange={setTab}
-            tabs={[
-              { id: 'grid', label: 'Load by week' },
-              { id: 'bottleneck', label: 'Bottlenecks', count: bottlenecks.length },
-            ]}
-          />
-        }
       />
 
-      <Card className="mb-4">
-        <CardBody className="grid gap-3.5 sm:grid-cols-4">
-          <Select
-            label="Load from"
-            value={source}
-            onChange={(e) => setSource(e.target.value as Source)}
-            options={[
-              { value: 'BOTH', label: 'Firm orders and MRP suggestions' },
-              { value: 'FIRM', label: 'Firm orders only' },
-              { value: 'PLANNED', label: 'MRP suggestions only' },
-            ]}
+      {!companyUid && <Alert tone="warning" title="Not signed in">Sign in to load the capacity plan.</Alert>}
+      {error && (
+        <Alert tone="danger" title="Could not load capacity">
+          {error instanceof ProblemError ? error.problem.detail : 'Unable to reach the planning service.'}
+        </Alert>
+      )}
+
+      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border bg-surface p-3">
+        <div className="flex flex-col gap-1">
+          <label htmlFor="cap-horizon" className="text-2xs font-medium uppercase tracking-wider text-fg-muted">Horizon</label>
+          <select
+            id="cap-horizon" value={horizon} onChange={(e) => setHorizon(Number(e.target.value))}
+            className="h-9 rounded-xl border border-border bg-surface-2 px-3 text-xs text-fg focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/20"
+          >
+            {[4, 8, 12, 26].map((h) => <option key={h} value={h}>{h} weeks</option>)}
+          </select>
+        </div>
+        <label className="flex items-center gap-2 pb-2 text-xs text-fg">
+          <input
+            type="checkbox" checked={includePlanned}
+            onChange={(e) => setIncludePlanned(e.target.checked)}
+            className="h-4 w-4 rounded border-border text-brand-500 focus:ring-brand-500"
           />
-          <div className="flex flex-col justify-end pb-1">
-            <p className="text-2xs text-fg-subtle">Hours required</p>
-            <p className="text-sm font-semibold tabular text-fg">{totalRequired.toFixed(0)} h</p>
-          </div>
-          <div className="flex flex-col justify-end pb-1">
-            <p className="text-2xs text-fg-subtle">Hours available</p>
-            <p className="text-sm font-semibold tabular text-fg">{totalAvailable.toFixed(0)} h</p>
-          </div>
-          <div className="flex flex-col justify-end pb-1">
-            <p className="text-2xs text-fg-subtle">Overall load</p>
-            <p className={cn('text-sm font-semibold tabular', overallLoad > 100 ? 'text-danger' : overallLoad > 85 ? 'text-warning' : 'text-success')}>
-              {overallLoad.toFixed(0)}%
-            </p>
-          </div>
-        </CardBody>
-      </Card>
+          Include MRP proposals
+        </label>
+        <Select
+          label="Highlight demand"
+          containerClassName="w-64"
+          value={demandFocus}
+          onChange={(e) => setDemandFocus(e.target.value)}
+          options={[
+            { value: '', label: 'No demand highlighted' },
+            ...openDemand.map((d) => ({
+              value: d.docNo,
+              label: `${d.docNo} — ${d.productCode}`,
+            })),
+          ]}
+        />
+        <span className="pb-2 text-2xs text-fg-muted">
+          {includePlanned
+            ? 'Showing committed work plus what MRP proposes.'
+            : 'Showing only work already committed to a production order.'}
+        </span>
+        <div className="ml-auto flex items-center gap-2">
+          {data?.mrp_run_no && (
+            <span className="pb-2 font-mono text-2xs text-fg-muted">from {data.mrp_run_no}</span>
+          )}
+          <Button
+            size="sm" variant="outline"
+            onClick={() => {
+              const n = exportRows('csv', 'capacity', 'Capacity plan', columnsFromTable(columns), rows)
+              toast.success('Export ready', `${n} rows written.`)
+            }}
+          >
+            Export CSV
+          </Button>
+        </div>
+      </div>
 
-      {bottlenecks.length > 0 ? (
-        <Alert tone="danger" className="mb-4">
-          {bottlenecks.length} work centre{bottlenecks.length === 1 ? '' : 's'} go{bottlenecks.length === 1 ? 'es' : ''} over
-          100% in at least one week: {bottlenecks.map((b) => `${b.workCentreCode} (peak ${b.peakLoadPct.toFixed(0)}%)`).join(', ')}. Overall load
-          is only {overallLoad.toFixed(0)}%, so the problem is timing, not total capacity — move work into the quieter
-          weeks before adding a shift.
+      {data && data.bottlenecks.length > 0 && (
+        <Alert tone="danger" title={`${data.bottlenecks.length} work centre(s) over capacity`}>
+          {data.bottlenecks.join(', ')} exceed 100% in at least one week
+          {overloadHours > 0 ? `, by ${hrs(overloadHours)} in total` : ''}.{' '}
+          {!includePlanned
+            ? 'This is work already committed, so the options are to move it out, add a shift, or subcontract.'
+            : 'Reschedule the planned orders, add capacity, or move production out. Untick "Include MRP proposals" to see how much of this is already committed.'}
         </Alert>
-      ) : (
-        <Alert tone="info" className="mb-4">
-          No work centre exceeds its available hours in any week of the horizon. Peak load is{' '}
-          {Math.max(0, ...crp.map((r) => r.peakLoadPct)).toFixed(0)}% at {crp[0]?.workCentreCode ?? '—'}.
+      )}
+
+      {focused && totals.focus === 0 && (
+        <Alert tone="info" title={`${focused.docNo} has no load on the plan yet`}>
+          Nothing is scheduled or proposed for this demand, so no hours are attributed
+          to it. Build a master schedule for it, or run MRP for it, and the shaded share
+          will appear.
         </Alert>
       )}
 
-      {tab === 'grid' && (
-        <>
-          <Card className="mb-4">
-            <CardHeader title="Peak load by work centre" description="The busiest single week in the horizon, against available hours" />
-            <CardBody className="h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chart} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} width={34} unit="%" />
-                  <Tooltip content={<ChartTip suffix="%" />} cursor={{ fill: 'rgb(var(--surface-3))' }} />
-                  <ReferenceLine y={100} stroke="#ef4444" strokeDasharray="4 3" label={{ value: 'capacity', fontSize: 10, fill: '#ef4444', position: 'right' }} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} iconSize={8} />
-                  <Bar dataKey="Peak" name="Peak load" radius={[3, 3, 0, 0]} maxBarSize={34}>
-                    {chart.map((d) => (
-                      <Cell key={d.name} fill={d.Peak > 100 ? '#ef4444' : d.Peak > 85 ? '#f59e0b' : '#10b981'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </CardBody>
-          </Card>
-
-          <Card>
-            <CardHeader title="Load heat map" description="Percentage of each centre's available hours consumed, week by week" />
-            <CardBody className="p-0">
-              <div className="overflow-x-auto">
-                <table className="grid-table">
-                  <thead>
-                    <tr>
-                      <th style={{ minWidth: '14rem' }}>Work centre</th>
-                      {starts.map((s, b) => (
-                        <th key={s} className="text-center" style={{ minWidth: '3.5rem' }}>
-                          <span className="block">W{b + 1}</span>
-                          <span className="block text-[9px] font-normal normal-case text-fg-subtle">{workingDaysInBucket(s, ctx.calendar)}d</span>
-                        </th>
-                      ))}
-                      <th className="text-right" style={{ width: '6rem' }}>Peak</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {crp.map((r) => (
-                      <tr key={r.workCentreCode} className="cursor-pointer" onClick={() => setDetail(r)}>
-                        <td>
-                          <p className="text-xs font-medium text-fg">{r.workCentreName}</p>
-                          <p className="font-mono text-2xs text-fg-subtle">{r.workCentreCode}</p>
-                        </td>
-                        {r.cells.map((c) => (
-                          <td key={c.bucket} className="px-1 text-center" title={`${c.requiredHours.toFixed(1)} h of ${c.availableHours.toFixed(1)} h`}>
-                            <LoadCell pct={c.loadPct} compact />
-                          </td>
-                        ))}
-                        <td className="text-right">
-                          {r.isBottleneck ? (
-                            <Badge tone="danger" size="sm">{r.peakLoadPct.toFixed(0)}%</Badge>
-                          ) : (
-                            <span className="text-xs tabular text-fg-muted">{r.peakLoadPct.toFixed(0)}%</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardBody>
-          </Card>
-          <p className="mt-2 text-2xs text-fg-subtle">
-            Available hours = working days from the production calendar × the centre's shift hours × its OEE target. The
-            day count under each week already excludes holidays and the maintenance shutdown.
-          </p>
-        </>
+      {data && (
+        <InfoStrip
+          items={[
+            { label: 'Required', value: hrs(totals.required), icon: <Clock className="h-3.5 w-3.5" aria-hidden /> },
+            { label: 'Available', value: hrs(totals.available), icon: <Factory className="h-3.5 w-3.5" aria-hidden /> },
+            {
+              label: 'Overall',
+              value: `${totals.available > 0 ? ((totals.required / totals.available) * 100).toFixed(1) : '0.0'}%`,
+              icon: <Gauge className="h-3.5 w-3.5" aria-hidden />,
+              alert: totals.available > 0 && totals.required > totals.available,
+            },
+            ...(focused
+              ? [{
+                  label: `${focused.docNo} needs`,
+                  value: hrs(totals.focus),
+                  icon: <Target className="h-3.5 w-3.5" aria-hidden />,
+                }]
+              : []),
+          ]}
+        />
       )}
 
-      {tab === 'bottleneck' && (
-        <Card>
-          <CardHeader title="Bottleneck analysis" description="Where the plan exceeds capacity, and what can be done about it" />
-          <CardBody className="p-0">
-            {bottlenecks.length === 0 ? (
-              <p className="p-4 text-xs text-fg-subtle">No centre is overloaded in any week.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="grid-table">
-                  <thead>
-                    <tr>
-                      <th>Work centre</th>
-                      <th className="text-right" style={{ width: '7rem' }}>Peak load</th>
-                      <th className="text-right" style={{ width: '8rem' }}>Weeks over</th>
-                      <th className="text-right" style={{ width: '9rem' }}>Hours over</th>
-                      <th>Options</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {bottlenecks.map((r) => {
-                      const over = r.cells.filter((c) => c.loadPct > 100)
-                      const excessHours = over.reduce((s, c) => s + (c.requiredHours - c.availableHours), 0)
-                      const slackWeeks = r.cells.filter((c) => c.loadPct < 60).length
-                      return (
-                        <tr key={r.workCentreCode}>
-                          <td>
-                            <p className="text-xs font-medium text-fg">{r.workCentreName}</p>
-                            <p className="font-mono text-2xs text-fg-subtle">{r.workCentreCode}</p>
-                          </td>
-                          <td className="text-right"><Badge tone="danger" size="sm">{r.peakLoadPct.toFixed(0)}%</Badge></td>
-                          <td className="text-right text-xs tabular">
-                            {over.map((c) => `W${c.bucket + 1}`).join(', ')}
-                          </td>
-                          <td className="text-right text-xs tabular text-danger">{excessHours.toFixed(0)} h</td>
-                          <td className="text-xs text-fg-muted">
-                            {slackWeeks > 0
-                              ? `Move work into the ${slackWeeks} week${slackWeeks === 1 ? '' : 's'} under 60% load, or add ${Math.ceil(excessHours / 8)} shift${Math.ceil(excessHours / 8) === 1 ? '' : 's'}.`
-                              : `No slack week to move into — ${Math.ceil(excessHours / 8)} extra shift${Math.ceil(excessHours / 8) === 1 ? '' : 's'} or subcontracting is the only route.`}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardBody>
-        </Card>
+      <DataTable
+        density="comfortable" searchable={false}
+        rows={rows} columns={columns} rowKey={(r) => r.work_centre_code}
+        loading={isLoading}
+        emptyTitle="No work centres"
+        emptyDescription="Work centres are created in Product Engineering."
+      />
+
+      {/* ── Week grid for the whole plant ──────────────────────────────── */}
+      {rows.length > 0 && (
+        <section className="rounded-xl border border-border bg-surface">
+          <h3 className="border-b border-border px-4 py-3 text-sm font-semibold text-fg">
+            Load by week
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[820px] text-left">
+              <thead>
+                <tr className="border-b border-border bg-surface-2 text-2xs uppercase tracking-wider text-fg-muted">
+                  <th className="px-4 py-2.5 font-medium">Work Centre</th>
+                  {starts.map((s, i) => (
+                    <th key={s} className="px-2 py-2.5 text-center font-medium">
+                      W{i + 1}
+                      <span className="block font-normal normal-case text-fg-subtle">
+                        {formatDate(s).slice(0, 6)}
+                      </span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.work_centre_code} className="border-b border-border last:border-0">
+                    <td className="px-4 py-2 text-[13px] font-medium text-fg">{r.work_centre_code}</td>
+                    {r.cells.map((c) => (
+                      <td key={c.bucket} className="px-2 py-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => setDrill({ code: r.work_centre_code, bucket: c.bucket })}
+                          title={`${hrs(c.required_hours)} of ${hrs(c.available_hours)} · ${c.working_days} working days`}
+                          className={`w-full rounded px-1.5 py-1 text-[12px] tabular-nums transition-colors ${
+                            c.load_pct > 100
+                              ? 'bg-danger/15 font-semibold text-danger hover:bg-danger/25'
+                              : c.load_pct > 85
+                                ? 'bg-warning/15 text-warning hover:bg-warning/25'
+                                : c.load_pct > 0
+                                  ? 'text-fg-muted hover:bg-surface-2'
+                                  : 'text-fg-subtle hover:bg-surface-2'
+                          }`}
+                        >
+                          {c.load_pct > 0 ? `${c.load_pct.toFixed(0)}%` : '—'}
+                        </button>
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
 
-      {/* What loads this centre --------------------------------------------- */}
-      <Drawer
-        open={!!detail}
-        onClose={() => setDetail(null)}
-        title={detail ? `${detail.workCentreCode} — ${detail.workCentreName}` : ''}
-        description={detail ? `Peak ${detail.peakLoadPct.toFixed(0)}% · ${detail.totalRequired.toFixed(0)} h required of ${detail.totalAvailable.toFixed(0)} h available` : ''}
-        width="max-w-3xl"
-      >
-        {detail && (
-          <div className="space-y-5">
-            <DetailBlock title="Load by week">
-              <div className="overflow-x-auto rounded border border-border">
-                <table className="grid-table">
-                  <thead>
-                    <tr>
-                      <th style={{ width: '5rem' }}>Week</th>
-                      <th style={{ width: '8rem' }}>Starting</th>
-                      <th className="text-right" style={{ width: '8rem' }}>Required</th>
-                      <th className="text-right" style={{ width: '8rem' }}>Available</th>
-                      <th>Load</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {detail.cells.map((c) => (
-                      <tr key={c.bucket} className={c.loadPct > 100 ? 'bg-danger/5' : undefined}>
-                        <td className="text-xs tabular">W{c.bucket + 1}</td>
-                        <td className="text-2xs text-fg-muted">{formatDate(c.start)}</td>
-                        <td className="text-right tabular text-xs">{c.requiredHours.toFixed(1)} h</td>
-                        <td className="text-right tabular text-xs text-fg-muted">{c.availableHours.toFixed(1)} h</td>
-                        <td><LoadCell pct={c.loadPct} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+      {/* ── Drill-down: what makes the number ──────────────────────────── */}
+      {drill && (
+        <Modal
+          open
+          onClose={() => setDrill(null)}
+          title={
+            detail.data
+              ? `${detail.data.work_centre_code} — ${detail.data.work_centre_name}`
+              : drill.code
+          }
+          description={
+            drill.bucket != null
+              ? `Week ${drill.bucket + 1} load, operation by operation.`
+              : 'Every operation loading this work centre in the horizon.'
+          }
+          size="4xl"
+          footer={<Button variant="secondary" onClick={() => setDrill(null)}>Close</Button>}
+        >
+          {detail.isLoading && <p className="py-8 text-center text-sm text-fg-muted">Loading…</p>}
+          {detail.data && (
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-wrap gap-x-8 gap-y-2 rounded-lg bg-surface-2 p-3 text-[13px]">
+                <span className="text-fg-muted">
+                  Committed <b className="tabular-nums text-fg">{hrs(detail.data.committed_hours)}</b>
+                </span>
+                <span className="text-fg-muted">
+                  Planned <b className="tabular-nums text-brand-600">{hrs(detail.data.planned_hours)}</b>
+                </span>
+                <span className="text-fg-muted">
+                  Peak <b className="tabular-nums text-fg">{detail.data.peak_load_pct.toFixed(1)}%</b>
+                </span>
               </div>
-            </DetailBlock>
 
-            <DetailBlock title={`What is loading it (${contributors.length})`}>
-              {!contributors.length ? (
-                <p className="text-xs text-fg-subtle">Nothing in the current plan routes through this centre.</p>
+              {detail.data.operations.length === 0 ? (
+                <p className="py-6 text-center text-sm text-fg-muted">
+                  Nothing loads this work centre in the selected period.
+                </p>
               ) : (
-                <div className="overflow-x-auto rounded border border-border">
-                  <table className="grid-table">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[680px] text-left">
                     <thead>
-                      <tr>
-                        <th>Order</th>
-                        <th>Product</th>
-                        <th className="text-right" style={{ width: '7rem' }}>Quantity</th>
-                        <th className="text-right" style={{ width: '5rem' }}>Week</th>
-                        <th className="text-right" style={{ width: '7rem' }}>Hours</th>
+                      <tr className="border-b border-border bg-surface-2 text-2xs uppercase tracking-wider text-fg-muted">
+                        <th className="px-3 py-2 font-medium">Week</th>
+                        <th className="px-3 py-2 font-medium">Source</th>
+                        <th className="px-3 py-2 font-medium">Document</th>
+                        <th className="px-3 py-2 font-medium">Product</th>
+                        <th className="px-3 py-2 font-medium">Operation</th>
+                        <th className="px-3 py-2 text-right font-medium">Hours</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {contributors.map((c, i) => (
-                        <tr key={i}>
-                          <td className="font-mono text-2xs text-fg-muted">{c.ref}</td>
-                          <td className="font-mono text-2xs">{c.productCode}</td>
-                          <td className="text-right tabular text-xs">{c.qty.toLocaleString('en-IN')}</td>
-                          <td className="text-right text-xs tabular">W{c.bucket + 1}</td>
-                          <td className="text-right tabular text-xs font-medium">{c.hours.toFixed(1)}</td>
+                      {detail.data.operations.map((o, i) => (
+                        <tr key={`${o.document_no ?? 'plan'}-${o.operation}-${i}`} className="border-b border-border last:border-0">
+                          <td className="px-3 py-2 text-[13px] tabular-nums text-fg-muted">W{o.bucket + 1}</td>
+                          <td className="px-3 py-2">
+                            <Badge tone={o.source === 'COMMITTED' ? 'neutral' : 'brand'} size="sm" dot={false}>
+                              {o.source === 'COMMITTED' ? 'Committed' : 'Planned'}
+                            </Badge>
+                          </td>
+                          <td className="px-3 py-2 font-mono text-[12px] text-fg-muted">
+                            {o.document_no ?? '—'}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-[12px] text-fg">{o.product_code}</td>
+                          <td className="px-3 py-2 text-[13px] text-fg">{o.operation}</td>
+                          <td className="px-3 py-2 text-right text-[13px] font-medium tabular-nums text-fg">
+                            {o.hours.toFixed(2)}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
               )}
-            </DetailBlock>
-
-            {detail.isBottleneck && (
-              <Alert tone="warning" title="This centre is a constraint">
-                <span className="inline-flex items-center gap-1.5">
-                  <TrendingUp className="h-3.5 w-3.5" />
-                  Every hour recovered here moves the whole plan. Everywhere else, an hour saved just creates idle time.
-                </span>
-              </Alert>
-            )}
-          </div>
-        )}
-      </Drawer>
+            </div>
+          )}
+        </Modal>
+      )}
     </div>
   )
 }
+
+export default CapacityPage

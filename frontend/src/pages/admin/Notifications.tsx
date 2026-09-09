@@ -104,8 +104,8 @@ export function NotificationsPage() {
       width: '240px',
       render: (r) => (
         <div className="min-w-0">
-          <p className="truncate text-xs font-medium text-fg">{r.eventLabel}</p>
-          <p className="truncate font-mono text-2xs text-fg-subtle">{r.eventName}</p>
+          <p className="truncate text-xs font-medium text-fg" title={String(r.eventLabel ?? "")}>{r.eventLabel}</p>
+          <p className="truncate font-mono text-2xs text-fg-subtle" title={String(r.eventName ?? "")}>{r.eventName}</p>
         </div>
       ),
     },
@@ -118,7 +118,7 @@ export function NotificationsPage() {
       render: (r) => (
         <div className="min-w-0">
           <p className="truncate text-xs text-fg">{r.recipientRule.replace(/_/g, ' ').toLowerCase()}</p>
-          {r.recipientValue && <p className="truncate font-mono text-2xs text-fg-subtle">{r.recipientValue}</p>}
+          {r.recipientValue && <p className="truncate font-mono text-2xs text-fg-subtle" title={String(r.recipientValue ?? "")}>{r.recipientValue}</p>}
         </div>
       ),
     },
@@ -186,11 +186,11 @@ export function NotificationsPage() {
   ]
 
   const logColumns: Column<NotificationLog>[] = [
-    { key: 'sentAt', header: 'When', sortable: true, width: '160px', render: (l) => <span title={formatDateTime(l.sentAt)}>{formatTimeAgo(l.sentAt)}</span> },
+    { key: 'sentAt', header: 'When', sortable: true, width: '11rem', render: (l) => <span title={formatDateTime(l.sentAt)}>{formatTimeAgo(l.sentAt)}</span> },
     { key: 'eventName', header: 'Event', width: '210px', render: (l) => <span className="font-mono text-2xs">{l.eventName}</span> },
     { key: 'recipient', header: 'Recipient', width: '200px' },
     { key: 'channel', header: 'Channel', width: '110px', render: (l) => <ChannelChips channels={[l.channel]} /> },
-    { key: 'subject', header: 'Subject', render: (l) => <span className="truncate text-xs">{l.subject}</span> },
+    { key: 'subject', header: 'Subject', render: (l) => <span className="truncate text-xs" title={String(l.subject ?? "")}>{l.subject}</span> },
     { key: 'attempts', header: 'Tries', align: 'right', width: '70px' },
     {
       key: 'status',
@@ -214,7 +214,7 @@ export function NotificationsPage() {
         </Badge>
       ),
     },
-    { key: 'error', header: 'Error', render: (l) => <span className="truncate text-2xs text-danger">{l.error ?? ''}</span> },
+    { key: 'error', header: 'Error', render: (l) => <span className="truncate text-2xs text-danger" title={String(l.error ?? '')}>{l.error ?? ''}</span> },
   ]
 
   return (

@@ -135,7 +135,7 @@ export function TrainingPage() {
   const progColumns: Column<TrainingProgramme>[] = [
     { key: 'code', header: 'Programme', sortable: true, width: '17rem', render: (p) => (
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-fg">{p.title}</p>
+        <p className="truncate text-xs font-medium text-fg" title={String(p.title ?? "")}>{p.title}</p>
         <p className="truncate font-mono text-2xs text-fg-subtle">{p.code} · {p.trainer}</p>
       </div>
     ) },
@@ -151,7 +151,7 @@ export function TrainingPage() {
     { key: 'mode', header: 'Mode', sortable: true, width: '9rem', render: (p) => (
       <span className="text-2xs text-fg-muted">{MODE_LABEL[p.mode]}</span>
     ) },
-    { key: 'scheduledOn', header: 'Scheduled', sortable: true, width: '10.5rem', accessor: (p) => p.scheduledOn, render: (p) => (
+    { key: 'scheduledOn', header: 'Scheduled', sortable: true, width: '13rem', accessor: (p) => p.scheduledOn, render: (p) => (
       <div className="min-w-0">
         <p className="text-xs text-fg">{formatDate(p.scheduledOn)}</p>
         <p className="truncate text-2xs text-fg-subtle">{p.durationHours} h · {p.venue}</p>
@@ -196,7 +196,7 @@ export function TrainingPage() {
     ) },
     { key: 'programmeTitle', header: 'Programme', sortable: true, render: (r) => (
       <div className="min-w-0">
-        <p className="truncate text-xs text-fg">{r.programmeTitle}</p>
+        <p className="truncate text-xs text-fg" title={String(r.programmeTitle ?? "")}>{r.programmeTitle}</p>
         <p className="font-mono text-2xs text-fg-subtle">{r.programmeCode}</p>
       </div>
     ) },

@@ -253,7 +253,20 @@ class StockService:
                 SysWarehouse,
                 InvStockBalance.batch_no,
                 func.sum(case((InvStockBalance.stock_status == StockStatus.AVAILABLE.value, InvStockBalance.quantity), else_=0)).label("available"),
-                func.sum(case((InvStockBalance.stock_status != StockStatus.AVAILABLE.value, InvStockBalance.quantity), else_=0)).label("reserved"),
+                # Reserved is stock committed to a production order — a real
+                # column now. It used to be `sum(qty where status != AVAILABLE)`,
+                # which is quarantined and blocked material: a different concept
+                # shown under the wrong heading.
+                func.sum(InvStockBalance.reserved_qty).label("reserved"),
+                func.sum(
+                    case(
+                        (
+                            InvStockBalance.stock_status != StockStatus.AVAILABLE.value,
+                            InvStockBalance.quantity,
+                        ),
+                        else_=0,
+                    )
+                ).label("held"),
                 func.sum(InvStockBalance.quantity).label("total"),
                 func.sum(InvStockBalance.value).label("value"),
                 func.max(InvStockBalance.updated_at).label("last_movement")
@@ -275,7 +288,7 @@ class StockService:
         
         rows = (await self.session.execute(stmt)).all()
         out = []
-        for it, wh, batch_no, available, reserved, total, value, last_movement in rows:
+        for it, wh, batch_no, available, reserved, held, total, value, last_movement in rows:
             tot = float(total or 0)
             # SUM() over a DECIMAL column comes back as Decimal (or None when the
             # group is empty). Narrow it to float once, here: dividing Decimal by
@@ -296,6 +309,11 @@ class StockService:
                     "batch_no": batch_no or "-",
                     "available_qty": float(available or 0),
                     "reserved_qty": float(reserved or 0),
+                    # Quarantined or blocked — physically here, not usable.
+                    "held_qty": float(held or 0),
+                    # What a planner may actually commit: on hand less what is
+                    # already spoken for.
+                    "free_qty": max(0.0, float(available or 0) - float(reserved or 0)),
                     "total_qty": tot,
                     "unit_cost": val / tot if tot > 0 else 0.0,
                     "stock_value": val,
@@ -304,48 +322,131 @@ class StockService:
             )
         return out
         
-    # ── read: batch tracking (S-STK-05) ────────────────────────────────────
+    # ── read: batch & expiry (S-STK-05) ─────────────────────────────────────
     async def batch_enquiry(
-        self, *, item_type: str | None = None, search: str | None = None, hide_zero: bool = True,
+        self, *, item_type: str | None = None, search: str | None = None,
+        warehouse_id: int | None = None, batch_no: str | None = None,
+        expiry_from: date | None = None, expiry_to: date | None = None,
+        expiry_status: str | None = None, hide_zero: bool = True,
+        expiring_days: int = 30,
     ) -> list[dict[str, Any]]:
-        # Group by item and batch to get total inward, outward, and current stock
+        """One row per batch actually holding stock, at its warehouse.
+
+        Driven by ``inv_stock_balance`` rather than by summing the ledger. The
+        balance row is the authority on what is on hand — it is what Current
+        Stock reads and what the engine locks — so a batch view derived from it
+        can never disagree with Current Stock. It also carries the moving-average
+        rate and value, which a ledger sum cannot give without replaying it.
+
+        Manufacturing and expiry dates live in ``inv_batch_master``, keyed on
+        (item, warehouse, batch). A batch received before that table existed
+        simply has no dates, and reports its expiry state as UNKNOWN rather than
+        pretending to be valid.
+        """
+        from app.modules.inventory.infrastructure.txn_models import InvBatchMaster
+        from app.modules.organisation.infrastructure.models import SysWarehouse
+
         stmt = (
             select(
                 MstItem,
-                InvStockLedger.batch_no,
-                func.sum(case((InvStockLedger.direction == 'IN', InvStockLedger.quantity), else_=0)).label("total_inward"),
-                func.sum(case((InvStockLedger.direction == 'OUT', InvStockLedger.quantity), else_=0)).label("total_outward"),
-                func.max(InvStockLedger.posted_at).label("last_movement")
+                SysWarehouse,
+                InvStockBalance.batch_no,
+                func.sum(InvStockBalance.quantity).label("available"),
+                func.sum(InvStockBalance.value).label("value"),
+                func.max(InvStockBalance.updated_at).label("last_movement"),
+                InvBatchMaster.mfg_date,
+                InvBatchMaster.expiry_date,
             )
-            .join(InvStockLedger, InvStockLedger.item_id == MstItem.id)
-            .where(MstItem.company_id == self.ctx.company_id, MstItem.deleted_at.is_(None))
-            .where(InvStockLedger.batch_no != '')
+            .join(InvStockBalance, InvStockBalance.item_id == MstItem.id)
+            .join(
+                SysWarehouse,
+                SysWarehouse.id == InvStockBalance.warehouse_id,
+                isouter=True,
+            )
+            .join(
+                InvBatchMaster,
+                (InvBatchMaster.company_id == InvStockBalance.company_id)
+                & (InvBatchMaster.mst_item_id == InvStockBalance.item_id)
+                & (InvBatchMaster.warehouse_id == InvStockBalance.warehouse_id)
+                & (InvBatchMaster.batch_no == InvStockBalance.batch_no)
+                & (InvBatchMaster.deleted_at.is_(None)),
+                isouter=True,
+            )
+            .where(
+                MstItem.company_id == self.ctx.company_id,
+                MstItem.deleted_at.is_(None),
+                InvStockBalance.company_id == self.ctx.company_id,
+                InvStockBalance.batch_no != "",
+            )
         )
         if item_type:
             stmt = stmt.where(MstItem.item_type == item_type)
+        if warehouse_id:
+            stmt = stmt.where(InvStockBalance.warehouse_id == warehouse_id)
+        if batch_no:
+            stmt = stmt.where(InvStockBalance.batch_no.ilike(f"%{batch_no}%"))
+        if expiry_from:
+            stmt = stmt.where(InvBatchMaster.expiry_date >= expiry_from)
+        if expiry_to:
+            stmt = stmt.where(InvBatchMaster.expiry_date <= expiry_to)
         if search:
             like = f"%{search}%"
-            stmt = stmt.where((MstItem.code.ilike(like)) | (MstItem.name.ilike(like)) | (InvStockLedger.batch_no.ilike(like)))
-            
-        stmt = stmt.group_by(MstItem.id, InvStockLedger.batch_no)
-        stmt = stmt.order_by(MstItem.code, InvStockLedger.batch_no)
-        
+            stmt = stmt.where(
+                (MstItem.code.ilike(like))
+                | (MstItem.name.ilike(like))
+                | (InvStockBalance.batch_no.ilike(like))
+            )
+
+        stmt = stmt.group_by(
+            MstItem.id, SysWarehouse.id, InvStockBalance.batch_no,
+            InvBatchMaster.mfg_date, InvBatchMaster.expiry_date,
+        ).order_by(MstItem.code, InvStockBalance.batch_no)
+
         rows = (await self.session.execute(stmt)).all()
-        out = []
-        for it, batch_no, inward, outward, last_movement in rows:
-            inw = float(inward or 0)
-            outw = float(outward or 0)
-            current = inw - outw
-            if hide_zero and current <= 0:
+        today = utcnow().date()
+        out: list[dict[str, Any]] = []
+
+        for it, wh, batch, available, value, last_movement, mfg_date, expiry_date in rows:
+            qty = float(available or 0)
+            if hide_zero and qty <= 0:
                 continue
+            val = float(value or 0)
+
+            if expiry_date is None:
+                days_to_expiry = None
+                status = "UNKNOWN"
+            else:
+                days_to_expiry = (expiry_date - today).days
+                if days_to_expiry < 0:
+                    status = "EXPIRED"
+                elif days_to_expiry <= expiring_days:
+                    status = "EXPIRING_SOON"
+                else:
+                    status = "VALID"
+
+            if expiry_status and status != expiry_status:
+                continue
+
             out.append(
                 {
-                    "item_uid": it.uid, "item_code": it.code, "item_name": it.name,
-                    "batch_no": batch_no,
-                    "total_inward": inw,
-                    "total_outward": outw,
-                    "current_stock": current,
-                    "status": "ACTIVE" if current > 0 else "CONSUMED",
+                    "item_uid": it.uid,
+                    "item_code": it.code,
+                    "item_name": it.name,
+                    "item_type": it.item_type,
+                    "batch_no": batch,
+                    "warehouse_uid": wh.uid if wh else None,
+                    "warehouse_code": wh.code if wh else None,
+                    "warehouse_name": f"{wh.code} — {wh.name}" if wh else None,
+                    "uom": it.base_uom,
+                    "available_qty": qty,
+                    # Unit cost is derived from the balance the same way Current
+                    # Stock derives it, so the two screens always agree.
+                    "unit_cost": val / qty if qty > 0 else 0.0,
+                    "stock_value": val,
+                    "mfg_date": mfg_date,
+                    "expiry_date": expiry_date,
+                    "days_to_expiry": days_to_expiry,
+                    "status": status,
                     "last_movement_date": last_movement,
                 }
             )
@@ -353,32 +454,133 @@ class StockService:
 
     # ── read: bin card / ledger (S-STK-03) ───────────────────────────────────
     async def ledger(
-        self, *, item_uid: str, warehouse_id: int | None = None, batch_no: str | None = None, limit: int = 500
+        self, *, item_uid: str, warehouse_id: int | None = None,
+        batch_no: str | None = None, date_from: date | None = None,
+        date_to: date | None = None, movement_type: str | None = None,
+        document_no: str | None = None, limit: int = 500,
     ) -> dict[str, Any]:
+        """Bin card for one item: every movement, with the balance after each.
+
+        Totals are computed with their own aggregate query over the full filtered
+        set, not by summing the page of rows returned. Summing the page made the
+        header disagree with the ledger as soon as there were more movements than
+        the limit, and reported zero whenever the page was empty.
+        """
+        from app.modules.organisation.infrastructure.models import SysWarehouse
+
         item = await self._item(item_uid)
-        stmt = select(InvStockLedger).where(
-            InvStockLedger.company_id == self.ctx.company_id,
-            InvStockLedger.item_id == item.id,
-        )
-        if warehouse_id:
-            stmt = stmt.where(InvStockLedger.warehouse_id == warehouse_id)
-        if batch_no:
-            stmt = stmt.where(InvStockLedger.batch_no == batch_no)
-        stmt = stmt.order_by(InvStockLedger.posted_at.desc(), InvStockLedger.id.desc()).limit(limit)
-        rows = list((await self.session.execute(stmt)).scalars().all())
-        received = sum(Decimal(str(r.quantity)) for r in rows if r.direction == "IN")
-        issued = sum(Decimal(str(r.quantity)) for r in rows if r.direction == "OUT")
+
+        def _filtered(stmt):
+            stmt = stmt.where(
+                InvStockLedger.company_id == self.ctx.company_id,
+                InvStockLedger.item_id == item.id,
+            )
+            if warehouse_id:
+                stmt = stmt.where(InvStockLedger.warehouse_id == warehouse_id)
+            if batch_no:
+                stmt = stmt.where(InvStockLedger.batch_no == batch_no)
+            if date_from:
+                stmt = stmt.where(InvStockLedger.business_date >= date_from)
+            if date_to:
+                stmt = stmt.where(InvStockLedger.business_date <= date_to)
+            if movement_type:
+                stmt = stmt.where(
+                    InvStockLedger.movement_type.in_(movement_type.split(","))
+                )
+            if document_no:
+                stmt = stmt.where(InvStockLedger.document_no.ilike(f"%{document_no}%"))
+            return stmt
+
+        rows_stmt = _filtered(
+            select(InvStockLedger, SysWarehouse.code, SysWarehouse.name).join(
+                SysWarehouse,
+                SysWarehouse.id == InvStockLedger.warehouse_id,
+                isouter=True,
+            )
+        ).order_by(
+            InvStockLedger.posted_at.desc(), InvStockLedger.id.desc()
+        ).limit(limit)
+
+        results = (await self.session.execute(rows_stmt)).all()
+
+        rows: list[dict[str, Any]] = []
+        for led, wh_code, wh_name in results:
+            rows.append(
+                {
+                    "uid": led.uid,
+                    "posted_at": led.posted_at,
+                    "business_date": led.business_date,
+                    "movement_type": led.movement_type,
+                    "direction": led.direction,
+                    "quantity": float(led.quantity),
+                    "rate": float(led.rate),
+                    "value": float(led.value),
+                    "balance_qty_after": float(led.balance_qty_after),
+                    "balance_rate_after": float(led.balance_rate_after),
+                    "balance_value_after": float(led.balance_value_after),
+                    "document_type": led.document_type,
+                    "document_no": led.document_no,
+                    "batch_no": led.batch_no,
+                    "stock_status": led.stock_status,
+                    "posted_by_name": led.posted_by_name,
+                    "warehouse_code": wh_code,
+                    "warehouse_name": f"{wh_code} — {wh_name}" if wh_code else None,
+                    "uom": item.base_uom,
+                    "item_code": item.code,
+                    "item_name": item.name,
+                }
+            )
+
+        agg = (
+            await self.session.execute(
+                _filtered(
+                    select(
+                        func.coalesce(
+                            func.sum(
+                                case(
+                                    (
+                                        InvStockLedger.direction
+                                        == MovementDirection.IN.value,
+                                        InvStockLedger.quantity,
+                                    ),
+                                    else_=0,
+                                )
+                            ),
+                            0,
+                        ),
+                        func.coalesce(
+                            func.sum(
+                                case(
+                                    (
+                                        InvStockLedger.direction
+                                        == MovementDirection.OUT.value,
+                                        InvStockLedger.quantity,
+                                    ),
+                                    else_=0,
+                                )
+                            ),
+                            0,
+                        ),
+                        func.count(),
+                    )
+                )
+            )
+        ).one()
+        received, issued, total = float(agg[0]), float(agg[1]), int(agg[2])
+
         return {
             "item": {
-                "uid": item.uid, "code": item.code, "name": item.name, "uom": item.base_uom,
-                "valuation_method": item.valuation_method,
+                "uid": item.uid, "code": item.code, "name": item.name,
+                "uom": item.base_uom, "valuation_method": item.valuation_method,
             },
             "rows": rows,
             "totals": {
-                "received": float(received), "issued": float(issued),
-                "closing_qty": float(rows[0].balance_qty_after) if rows else 0.0,
-                "closing_rate": float(rows[0].balance_rate_after) if rows else 0.0,
-                "closing_value": float(rows[0].balance_value_after) if rows else 0.0,
+                "received": received,
+                "issued": issued,
+                "movements": total,
+                "closing_qty": rows[0]["balance_qty_after"] if rows else 0.0,
+                "closing_rate": rows[0]["balance_rate_after"] if rows else 0.0,
+                "closing_value": rows[0]["balance_value_after"] if rows else 0.0,
             },
         }
 

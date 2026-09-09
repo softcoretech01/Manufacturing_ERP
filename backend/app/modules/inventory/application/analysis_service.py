@@ -12,7 +12,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, true as sa_true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.context import TenantContext
@@ -78,41 +78,91 @@ class AnalysisService:
 
     # ── reorder (Ch 10) ──────────────────────────────────────────────────────
     async def reorder(self, *, warehouse_id: int | None = None) -> list[dict[str, Any]]:
+        """Items whose available stock has fallen below their reorder level.
+
+        Reports the business columns the Low Stock Monitor needs — category, UOM,
+        minimum stock, shortage and the date stock last came in — rather than
+        making the screen invent them. Minimum stock comes from
+        ``mst_item.min_level``, which is populated from the Item master when an
+        item is first provisioned into inventory.
+        """
         avail = StockStatus.AVAILABLE.value
+
         # Aggregate available (AVAILABLE-status) balance per item.
         stmt = (
             select(MstItem, func.coalesce(func.sum(InvStockBalance.quantity), 0))
             .join(
                 InvStockBalance,
                 (InvStockBalance.item_id == MstItem.id)
-                & (InvStockBalance.stock_status == avail),
+                & (InvStockBalance.stock_status == avail)
+                & (
+                    (InvStockBalance.warehouse_id == warehouse_id)
+                    if warehouse_id
+                    else sa_true()
+                ),
                 isouter=True,
             )
             .where(
                 MstItem.company_id == self.ctx.company_id,
                 MstItem.deleted_at.is_(None),
+                MstItem.is_active.is_(True),
                 MstItem.reorder_level.isnot(None),
+                MstItem.reorder_level > 0,
             )
         )
-        if warehouse_id:
-            stmt = stmt.where(
-                (InvStockBalance.warehouse_id == warehouse_id) | (InvStockBalance.id.is_(None))
-            )
         stmt = stmt.group_by(MstItem.id).order_by(MstItem.code)
         rows = (await self.session.execute(stmt)).all()
+        if not rows:
+            return []
+
+        # Last inward movement per item, in one query rather than one per row.
+        item_ids = [it.id for it, _ in rows]
+        last_in_stmt = (
+            select(
+                InvStockLedger.item_id,
+                func.max(InvStockLedger.business_date).label("last_in"),
+            )
+            .where(
+                InvStockLedger.company_id == self.ctx.company_id,
+                InvStockLedger.item_id.in_(item_ids),
+                InvStockLedger.direction == MovementDirection.IN.value,
+            )
+            .group_by(InvStockLedger.item_id)
+        )
+        if warehouse_id:
+            last_in_stmt = last_in_stmt.where(
+                InvStockLedger.warehouse_id == warehouse_id
+            )
+        last_in = {
+            r[0]: r[1] for r in (await self.session.execute(last_in_stmt)).all()
+        }
+
         out = []
         for it, available in rows:
-            avail_q = float(available)
+            avail_q = float(available or 0)
             reorder = float(it.reorder_level or 0)
             if avail_q >= reorder:
                 continue
+            minimum = float(it.min_level) if it.min_level is not None else None
             target = float(it.max_level) if it.max_level else reorder
-            out.append({
-                "item_code": it.code, "item_name": it.name, "uom": it.base_uom,
-                "available": avail_q, "reorder_level": reorder,
-                "shortfall": round(reorder - avail_q, 6),
-                "suggested_order": round(max(target - avail_q, 0), 6),
-            })
+            out.append(
+                {
+                    "item_uid": it.uid,
+                    "item_code": it.code,
+                    "item_name": it.name,
+                    "item_type": it.item_type,
+                    "category": it.item_type.replace("_", " ").title(),
+                    "uom": it.base_uom,
+                    "available": avail_q,
+                    "min_level": minimum,
+                    "reorder_level": reorder,
+                    # Positive by construction — the shortfall is how much is
+                    # missing, so the screen must not prefix it with a minus.
+                    "shortfall": round(reorder - avail_q, 6),
+                    "suggested_order": round(max(target - avail_q, 0), 6),
+                    "last_stock_in": last_in.get(it.id),
+                }
+            )
         return out
 
     # ── ledger walk (shared by ageing + movement) ────────────────────────────

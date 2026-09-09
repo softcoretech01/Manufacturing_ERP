@@ -30,6 +30,17 @@ from app.modules.inventory.infrastructure.models import (  # noqa: F401
     InvStockLedger,
     InvZone,
 )
+from app.modules.inventory.infrastructure.txn_models import (  # noqa: F401
+    InvBatchMaster,
+    InvStockTxn,
+    InvStockTxnLine,
+)
+from app.modules.planning.infrastructure.mrp_models import (  # noqa: F401
+    PpMrpException,
+    PpMrpPlanLine,
+    PpMrpPlannedOrder,
+    PpMrpRun,
+)
 from app.modules.masters.infrastructure.models import MstItem  # noqa: F401
 from app.modules.organisation.infrastructure.models import (  # noqa: F401
     MstCurrency,

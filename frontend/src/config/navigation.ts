@@ -228,12 +228,16 @@ const MASTERS_NAV: NavGroup[] = [
     icon: Factory,
     children: [
       { label: 'Machines', to: '/masters/machine', icon: Wrench },
-      // This route is the Plants screen. Production lines (LN-A/LN-B/…) are a
-      // separate entity with no master screen yet — only the read-only lookup
-      // that feeds the machine form.
+      { label: 'Production lines', to: '/masters/production-lines', icon: Workflow },
+      // Read-only: the work-centre record is owned by Product Engineering, and
+      // routings point at it. This screen reads it rather than keeping a copy.
+      { label: 'Work centres', to: '/masters/work-centres', icon: Layers },
+      // This route is the Plants screen.
       { label: 'Plants', to: '/admin/plants', icon: Factory },
       { label: 'Shifts', to: '/masters/shift', icon: CalendarRange },
       { label: 'Holiday calendar', to: '/masters/holiday-calendar', icon: CalendarRange },
+      // Lot-sizing and safety-stock rules MRP plans against.
+      { label: 'Planning policy', to: '/masters/planning-policy', icon: Gauge },
     ],
   },
   {
@@ -314,9 +318,11 @@ const INVENTORY_NAV: NavGroup[] = [
   { portal: 'INVENTORY', label: 'Stock Out', to: '/inventory/issues', icon: Send },
   { portal: 'INVENTORY', label: 'Stock Return', to: '/inventory/returns', icon: RotateCcw },
   { portal: 'INVENTORY', label: 'Stock Transfer', to: '/inventory/transfers', icon: Truck },
+  { portal: 'INVENTORY', label: 'Batch & Expiry', to: '/inventory/batches', icon: Boxes },
   { portal: 'INVENTORY', label: 'Low Stock Monitor', to: '/inventory/reorder', icon: Siren },
   { portal: 'INVENTORY', label: 'Stock Ledger', to: '/inventory/ledger', icon: BookOpen },
   { portal: 'INVENTORY', label: 'Category Ledger', to: '/inventory/category-ledger', icon: BookOpen },
+  { portal: 'INVENTORY', label: 'Warehouse Setup', to: '/inventory/warehouses', icon: Warehouse },
 ]
 
 /* ═══════════════ Product Engineering — BOM & Routing (Vol 6) ═════════════ */

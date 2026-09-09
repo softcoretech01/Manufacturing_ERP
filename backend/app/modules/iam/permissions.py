@@ -80,8 +80,27 @@ _MODULES: dict[str, dict[str, tuple[str, ...]]] = {
         "HOLIDAY_CALENDAR": _MASTER_CRUD,
         # Read-only lookups that feed the machine form's foreign keys.
         "MACHINE_GROUP": ("VIEW",),
-        "PRODUCTION_LINE": ("VIEW",),
+        "PRODUCTION_LINE": _MASTER_CRUD,
+        # The work-centre record itself is owned by Product Engineering — a work
+        # centre is defined by what it can make, and routings point at it. The
+        # Masters screen reads it; it does not keep a second copy.
         "WORK_CENTRE": ("VIEW",),
+        # Lot-sizing and safety-stock rules that MRP plans against.
+        "PLANNING_POLICY": _MASTER_CRUD,
+    },
+    # Production Planning (Vol 5). Running MRP and committing what it proposes
+    # are separate duties: a planner may run the plan all day, but turning a
+    # proposal into a purchase requisition or a firm order is a commitment.
+    "PLANNING": {
+        "DEMAND": ("VIEW", "CREATE", "EDIT", "DELETE"),
+        "FORECAST": ("VIEW", "CREATE", "EDIT", "DELETE"),
+        "MPS": ("VIEW", "CREATE", "EDIT", "DELETE", "FIRM"),
+        "MRP": ("VIEW", "RUN", "CONVERT"),
+        "POLICY": ("VIEW", "EDIT"),
+        "ORDER": ("VIEW", "CREATE", "EDIT", "RELEASE", "CLOSE", "CANCEL"),
+        "CAPACITY": ("VIEW", "PLAN"),
+        "CALENDAR": ("VIEW", "EDIT"),
+        "RESERVATION": ("VIEW", "CREATE", "RELEASE"),
     },
     # Procurement (Vol 3). Raising a document, approving it and receiving against
     # it are separate duties — segregation of duties depends on them being

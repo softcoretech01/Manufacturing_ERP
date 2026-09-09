@@ -1,11 +1,14 @@
 import { useState } from 'react'
-import { AlertTriangle, ShieldAlert, TrendingDown, BarChart3 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { AlertTriangle, ShieldAlert, TrendingDown, Eye, MoreHorizontal } from 'lucide-react'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { Alert, PageHeader } from '@/components/ui/Misc'
 import { Badge } from '@/components/ui/Badge'
+import { Button, IconButton } from '@/components/ui/Button'
+import { Menu, MenuItem } from '@/components/ui/Menu'
 import { useToast } from '@/components/ui/Toast'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
-import { formatQty } from '@/lib/format'
+import { formatQty, formatDate } from '@/lib/format'
 import { ProblemError } from '@/api/client'
 import { useReorder } from '@/hooks/useAnalysis'
 import { useWarehouses } from '@/hooks/useOrganisation'
@@ -23,6 +26,7 @@ function severityBadge(r: ReorderRow) {
  *  below their reorder level, with the shortfall and a suggested order quantity. */
 export function ReorderReportPage() {
   const toast = useToast()
+  const navigate = useNavigate()
   const [warehouse, setWarehouse] = useState('')
   const [search, setSearch] = useState('')
   const warehouses = useWarehouses().data?.data ?? []
@@ -42,31 +46,101 @@ export function ReorderReportPage() {
 
   const columns: Column<ReorderRow>[] = [
     {
-      key: 'item', header: 'Item', sortable: true, sticky: true, width: '260px', accessor: (r) => r.item_code,
+      key: 'sno', header: 'S.No', width: '68px', align: 'center',
+      render: (_r, i) => <span className="text-[13px] tabular-nums text-fg-subtle">{i + 1}</span>,
+    },
+    {
+      key: 'item', header: 'Item', sortable: true, width: '230px', className: 'cell-stack', accessor: (r) => `${r.item_name} ${r.item_code}`,
       render: (r) => (
         <div className="min-w-0">
-          <p className="truncate text-xs font-semibold text-fg">{r.item_name}</p>
-          <p className="truncate font-mono text-2xs text-fg-subtle">{r.item_code}</p>
+          <p className="truncate text-[14px] font-semibold text-fg" title={r.item_name}>{r.item_name}</p>
+          <p className="truncate font-mono text-[12px] text-fg-subtle" title={String(r.item_code ?? "")}>{r.item_code}</p>
         </div>
       ),
     },
     {
-      key: 'available', header: 'Available', align: 'right', sortable: true, width: '120px',
-      accessor: (r) => r.available,
-      render: (r) => (
-        <span className="tabular text-xs text-danger font-semibold">
-          {formatQty(r.available)} <span className="text-2xs text-fg-subtle">{r.uom}</span>
+      key: 'category', header: 'Category', width: '125px', accessor: (r) => r.category,
+      render: (r) => <Badge tone="neutral" size="sm" dot={false}>{r.category || '—'}</Badge>,
+    },
+    {
+      key: 'warehouse', header: 'Store', width: '160px', defaultHidden: true,
+      render: () => (
+        <span className="text-[14px] text-fg-muted">
+          {warehouse ? warehouses.find((w) => w.uid === warehouse)?.name ?? '—' : 'All stores'}
         </span>
       ),
     },
-    { key: 'reorder_level', header: 'Reorder At', align: 'right', width: '120px', render: (r) => <span className="tabular text-2xs text-fg-muted">{formatQty(r.reorder_level)}</span> },
     {
-      key: 'shortfall', header: 'Shortfall', align: 'right', sortable: true, width: '120px',
-      accessor: (r) => r.shortfall,
-      render: (r) => <span className="tabular text-xs font-semibold text-danger">−{formatQty(r.shortfall)}</span>,
+      key: 'available', header: 'Available', align: 'right', sortable: true, width: '125px',
+      accessor: (r) => r.available,
+      render: (r) => (
+        <span className={`text-[15px] font-semibold tabular-nums ${r.available <= 0 ? 'text-danger' : 'text-warning'}`}>
+          {formatQty(r.available)}
+        </span>
+      ),
     },
-    { key: 'suggested_order', header: 'Suggested Order', align: 'right', width: '150px', render: (r) => <span className="tabular text-xs font-semibold text-brand-600">{formatQty(r.suggested_order)}</span> },
-    { key: 'severity', header: 'Severity', width: '120px', align: 'center', render: (r) => severityBadge(r) },
+    {
+      key: 'uom', header: 'UOM', width: '70px', align: 'center', defaultHidden: true,
+      render: (r) => <span className="text-[13px] text-fg-muted">{r.uom}</span>,
+    },
+    {
+      key: 'min_level', header: 'Min Stock', align: 'right', width: '120px', defaultHidden: true,
+      accessor: (r) => r.min_level ?? 0,
+      render: (r) => r.min_level == null
+        ? <span className="text-fg-subtle" title="No minimum stock set on the Item master">—</span>
+        : <span className="text-[14px] tabular-nums text-fg-muted">{formatQty(r.min_level)}</span>,
+    },
+    {
+      key: 'reorder_level', header: 'Reorder At', align: 'right', width: '120px',
+      accessor: (r) => r.reorder_level,
+      render: (r) => <span className="text-[14px] tabular-nums text-fg-muted">{formatQty(r.reorder_level)}</span>,
+    },
+    {
+      key: 'shortfall', header: 'Shortage', align: 'right', sortable: true, width: '125px',
+      accessor: (r) => r.shortfall,
+      // Shortage is how much is missing. The backend already returns it as a
+      // positive number, so it is rendered as-is — it used to be prefixed with a
+      // hardcoded minus, which showed a 20,000 shortage as "-20,000".
+      render: (r) => (
+        <span className="text-[15px] font-semibold tabular-nums text-danger">{formatQty(r.shortfall)}</span>
+      ),
+    },
+    {
+      key: 'suggested_order', header: 'Suggest Order', align: 'right', width: '140px',
+      accessor: (r) => r.suggested_order,
+      render: (r) => <span className="text-[14px] font-semibold tabular-nums text-brand-600">{formatQty(r.suggested_order)}</span>,
+    },
+    {
+      key: 'last_stock_in', header: 'Last Stock In', width: '125px', defaultHidden: true,
+      accessor: (r) => r.last_stock_in ?? '',
+      render: (r) => r.last_stock_in
+        ? <span className="text-[13px] tabular-nums text-fg-muted">{formatDate(r.last_stock_in)}</span>
+        : <span className="text-fg-subtle" title="This item has never been received">Never</span>,
+    },
+    {
+      key: 'severity', header: 'Severity', width: '130px', align: 'center',
+      accessor: (r) => r.available <= 0 ? 0 : r.available,
+      render: (r) => severityBadge(r),
+    },
+    {
+      key: 'actions', header: 'Actions', width: '110px', align: 'center', className: 'col-flex',
+      render: (r) => {
+        const toLedger = `/inventory/ledger?item=${r.item_uid}${warehouse ? `&warehouse=${warehouse}` : ''}`
+        return (
+          <div className="flex items-center justify-center gap-0.5">
+            <IconButton
+              icon={Eye} variant="ghost" size="sm"
+              title="View stock ledger" aria-label={`View ledger for ${r.item_code}`}
+              onClick={() => navigate(toLedger)}
+            />
+            <Menu trigger={<IconButton icon={MoreHorizontal} variant="ghost" size="sm" title="More actions" aria-label="More actions" />}>
+              <MenuItem label="View stock ledger" onClick={() => navigate(toLedger)} />
+              <MenuItem label="View current stock" onClick={() => navigate(`/inventory/stock?search=${r.item_code}`)} />
+            </Menu>
+          </div>
+        )
+      },
+    },
   ]
 
   return (

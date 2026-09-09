@@ -82,13 +82,13 @@ export function TrackingPage() {
     { key: 'docNo', header: 'Shipment', sortable: true, width: '11.5rem', render: (s) => (
       <div className="min-w-0">
         <p className="font-mono text-xs font-medium text-brand-600">{s.docNo}</p>
-        <p className="truncate text-2xs text-fg-subtle">{s.challanNo}</p>
+        <p className="truncate text-2xs text-fg-subtle" title={String(s.challanNo ?? "")}>{s.challanNo}</p>
       </div>
     ) },
     { key: 'customer', header: 'Going to', sortable: true, render: (s) => <PartyCell name={s.customer} place={s.destination} /> },
     { key: 'lastLocation', header: 'Where it is now', sortable: true, render: (s) => (
       <div className="min-w-0">
-        <p className="truncate text-xs text-fg">{s.lastLocation ?? 'no update yet'}</p>
+        <p className="truncate text-xs text-fg" title={String(s.lastLocation ?? 'no update yet')}>{s.lastLocation ?? 'no update yet'}</p>
         <p className={cn('text-2xs', hoursSilent(s) > 12 ? 'text-warning' : 'text-fg-subtle')}>
           {s.lastUpdatedAt ? `updated ${hoursSilent(s)} h ago` : 'never updated'}
         </p>
@@ -99,7 +99,7 @@ export function TrackingPage() {
     ) },
     { key: 'vehicleNo', header: 'Vehicle · driver', sortable: true, render: (s) => (
       <div className="min-w-0">
-        <p className="truncate font-mono text-2xs text-fg">{s.vehicleNo}</p>
+        <p className="truncate font-mono text-2xs text-fg" title={String(s.vehicleNo ?? "")}>{s.vehicleNo}</p>
         <p className="truncate text-2xs text-fg-subtle">{s.driver} · {s.driverPhone}</p>
       </div>
     ) },

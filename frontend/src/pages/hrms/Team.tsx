@@ -106,7 +106,7 @@ export function TeamPage() {
     ) },
     { key: 'shiftName', header: 'Shift', sortable: true, width: '11rem', render: (a) => (
       <div className="min-w-0">
-        <p className="truncate text-xs text-fg">{a.shiftName}</p>
+        <p className="truncate text-xs text-fg" title={String(a.shiftName ?? "")}>{a.shiftName}</p>
         <p className="font-mono text-2xs text-fg-subtle">{a.shiftStart}–{a.shiftEnd}</p>
       </div>
     ) },

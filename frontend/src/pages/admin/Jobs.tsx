@@ -53,8 +53,8 @@ export function JobsPage() {
       width: '260px',
       render: (j) => (
         <div className="min-w-0">
-          <p className="truncate text-xs font-medium text-fg">{j.label}</p>
-          <p className="truncate font-mono text-2xs text-fg-subtle">{j.type}</p>
+          <p className="truncate text-xs font-medium text-fg" title={String(j.label ?? "")}>{j.label}</p>
+          <p className="truncate font-mono text-2xs text-fg-subtle" title={String(j.type ?? "")}>{j.type}</p>
         </div>
       ),
     },
@@ -89,9 +89,9 @@ export function JobsPage() {
           <span className="text-2xs text-fg-subtle">{j.status === 'SUCCESS' ? 'complete' : '—'}</span>
         ),
     },
-    { key: 'message', header: 'Message', render: (j) => <span className="truncate text-2xs text-fg-muted">{j.message}</span> },
+    { key: 'message', header: 'Message', render: (j) => <span className="truncate text-2xs text-fg-muted" title={String(j.message ?? "")}>{j.message}</span> },
     { key: 'triggeredBy', header: 'Triggered by', width: '150px' },
-    { key: 'startedAt', header: 'Started', sortable: true, width: '140px', render: (j) => <span title={formatDateTime(j.startedAt)}>{formatTimeAgo(j.startedAt)}</span> },
+    { key: 'startedAt', header: 'Started', sortable: true, width: '11rem', render: (j) => <span title={formatDateTime(j.startedAt)}>{formatTimeAgo(j.startedAt)}</span> },
     {
       key: 'durationSec',
       header: 'Duration',
@@ -216,7 +216,7 @@ export function JobsPage() {
               <CardBody className="space-y-2.5">
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-fg-muted">Queues</span>
-                  <span className="truncate font-mono text-2xs text-fg">{w.queues}</span>
+                  <span className="truncate font-mono text-2xs text-fg" title={String(w.queues ?? "")}>{w.queues}</span>
                 </div>
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-fg-muted">Slots</span>

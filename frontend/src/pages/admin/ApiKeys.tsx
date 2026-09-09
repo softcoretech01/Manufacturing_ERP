@@ -40,7 +40,7 @@ export function ApiKeysPage() {
   }
 
   const columns: Column<ApiKey>[] = [
-    { key: 'name', header: 'Integration', sortable: true, render: (k) => <span className="font-medium text-fg">{k.name}</span> },
+    { key: 'name', header: 'Integration', width: '16rem', sortable: true, render: (k) => <span className="font-medium text-fg">{k.name}</span> },
     { key: 'prefix', header: 'Key', width: '170px', render: (k) => <span className="font-mono text-[11px] text-fg-muted">{k.prefix}…</span> },
     { key: 'role_code', header: 'Permission set', width: '150px', render: (k) => k.role_code ? <span className="rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[10px] text-fg-muted">{k.role_code}</span> : <span className="text-2xs text-warning">no role</span> },
     { key: 'last_used_at', header: 'Last used', sortable: true, width: '120px', render: (k) => (k.last_used_at ? formatTimeAgo(k.last_used_at) : '—') },

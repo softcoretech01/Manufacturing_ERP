@@ -102,7 +102,7 @@ export function TechniciansPage() {
   }
 
   const columns: Column<TechnicianLoad>[] = [
-    { key: 'tech', header: 'Technician', width: '18rem', render: (l) => (<><p className="truncate text-xs text-fg">{l.technician.name}</p><p className="font-mono text-2xs text-fg-subtle">{l.technician.code} · shift {l.technician.shift}</p></>) },
+    { key: 'tech', header: 'Technician', width: '18rem', render: (l) => (<><p className="truncate text-xs text-fg" title={String(l.technician.name ?? "")}>{l.technician.name}</p><p className="font-mono text-2xs text-fg-subtle">{l.technician.code} · shift {l.technician.shift}</p></>) },
     { key: 'trade', header: 'Trade', width: '11rem', render: (l) => <Badge tone="brand" size="sm" dot={false}>{l.technician.trade.toLowerCase()}</Badge> },
     {
       key: 'skills', header: 'Skills', width: '16rem',
@@ -270,7 +270,7 @@ export function TechniciansPage() {
                     {open.map((w) => (
                       <p key={w.uid} className="flex items-baseline gap-2 text-2xs">
                         <span className="font-mono text-fg">{w.docNo}</span>
-                        <span className="truncate text-fg-muted">{w.title}</span>
+                        <span className="truncate text-fg-muted" title={String(w.title ?? "")}>{w.title}</span>
                         <span className="ml-auto shrink-0"><WoStatusBadge status={w.status} /></span>
                       </p>
                     ))}

@@ -84,8 +84,11 @@ function KpiLine({
   return (
     <div className="flex flex-wrap items-center gap-3 rounded border border-border px-3 py-1.5">
       <div className="min-w-[10rem] flex-1">
-        <p className="truncate text-xs font-medium text-fg">{item.name}</p>
-        <p className="truncate text-2xs text-fg-subtle">
+        <p className="truncate text-xs font-medium text-fg" title={String(item.name ?? "")}>{item.name}</p>
+        <p
+          className="truncate text-2xs text-fg-subtle"
+          title={`${item.ownerName} · ${item.reviewCycle}`}
+        >
           {item.ownerName} · {item.reviewCycle}
         </p>
       </div>

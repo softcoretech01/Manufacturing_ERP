@@ -20,7 +20,7 @@ export function StockAgeingPage() {
 
   const columns: Column<AgeingRow>[] = [
     { key: 'item', header: 'Item', sortable: true, sticky: true, width: '240px', accessor: (r) => r.item_code,
-      render: (r) => <div className="min-w-0"><p className="truncate text-xs font-medium text-fg">{r.item_name}</p><p className="truncate font-mono text-2xs text-fg-subtle">{r.item_code} · {r.uom}</p></div> },
+      render: (r) => <div className="min-w-0"><p className="truncate text-xs font-medium text-fg" title={String(r.item_name ?? "")}>{r.item_name}</p><p className="truncate font-mono text-2xs text-fg-subtle">{r.item_code} · {r.uom}</p></div> },
     ...labels.map((lbl, i) => ({
       key: `b${i}`, header: `${lbl} d`, align: 'right' as const, width: '100px',
       render: (r: AgeingRow) => { const q = r.buckets_qty[i]; return q ? <span className={i >= 3 ? 'tabular text-2xs font-medium text-danger' : 'tabular text-2xs'}>{formatQty(q)}</span> : <span className="text-2xs text-fg-subtle">—</span> },

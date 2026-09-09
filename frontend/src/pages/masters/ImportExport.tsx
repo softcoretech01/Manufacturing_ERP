@@ -47,8 +47,8 @@ export function ImportExportPage() {
   const columns: Column<ImportRun>[] = [
     { key: 'fileName', header: 'File', sortable: true, sticky: true, width: '270px', render: (r) => (
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-fg">{r.fileName}</p>
-        <p className="truncate text-2xs text-fg-subtle">{r.masterName}</p>
+        <p className="truncate text-xs font-medium text-fg" title={String(r.fileName ?? "")}>{r.fileName}</p>
+        <p className="truncate text-2xs text-fg-subtle" title={String(r.masterName ?? "")}>{r.masterName}</p>
       </div>
     ) },
     { key: 'rowsTotal', header: 'Rows', align: 'right', sortable: true, width: '90px', render: (r) => <span className="tabular">{r.rowsTotal}</span> },
@@ -84,7 +84,7 @@ export function ImportExportPage() {
       ),
     },
     { key: 'startedBy', header: 'Started by', width: '150px' },
-    { key: 'startedAt', header: 'When', sortable: true, width: '150px', render: (r) => <span title={formatDateTime(r.startedAt)}>{formatTimeAgo(r.startedAt)}</span> },
+    { key: 'startedAt', header: 'When', sortable: true, width: '11rem', render: (r) => <span title={formatDateTime(r.startedAt)}>{formatTimeAgo(r.startedAt)}</span> },
   ]
 
   return (
@@ -151,8 +151,8 @@ export function ImportExportPage() {
                 className="flex items-center justify-between gap-2 rounded border border-border p-2.5 text-left transition-colors hover:border-brand-500/50 hover:bg-surface-2"
               >
                 <span className="min-w-0">
-                  <span className="block truncate text-xs font-medium text-fg">{m.name}</span>
-                  <span className="block truncate font-mono text-2xs text-fg-subtle">{m.code}</span>
+                  <span className="block truncate text-xs font-medium text-fg" title={String(m.name ?? "")}>{m.name}</span>
+                  <span className="block truncate font-mono text-2xs text-fg-subtle" title={String(m.code ?? "")}>{m.code}</span>
                 </span>
                 <Download className="h-3.5 w-3.5 shrink-0 text-fg-subtle" />
               </button>

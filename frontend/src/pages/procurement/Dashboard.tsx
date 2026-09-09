@@ -274,7 +274,7 @@ export function ProcurementDashboardPage() {
                 return (
                   <li key={c.category}>
                     <div className="mb-1 flex items-baseline justify-between gap-2">
-                      <span className="truncate text-xs font-medium text-fg">{c.category}</span>
+                      <span className="truncate text-xs font-medium text-fg" title={String(c.category ?? "")}>{c.category}</span>
                       <span className="shrink-0 text-xs tabular-nums text-fg-muted">{money(v)}</span>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-surface-3">

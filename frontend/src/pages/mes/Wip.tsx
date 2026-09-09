@@ -68,16 +68,16 @@ export function WipPage() {
         <p className="font-mono text-2xs text-fg-subtle">{l.productionOrderNo}</p>
       </div>
     ) },
-    { key: 'itemName', header: 'What it is', sortable: true, render: (l) => (
+    { key: 'itemName', header: 'What it is', width: '16rem', sortable: true, render: (l) => (
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-fg">{l.itemName}</p>
+        <p className="truncate text-xs font-medium text-fg" title={String(l.itemName ?? "")}>{l.itemName}</p>
         <p className="truncate font-mono text-2xs text-fg-subtle">{l.itemCode} · batch {l.batchNo}</p>
       </div>
     ) },
     { key: 'quantity', header: 'Quantity', align: 'right', sortable: true, render: (l) => <span className="tabular">{formatQty(l.quantity)} <span className="text-2xs text-fg-subtle">{l.uom}</span></span> },
-    { key: 'currentOperation', header: 'At operation', sortable: true, render: (l) => (
+    { key: 'currentOperation', header: 'At operation', width: '13rem', sortable: true, render: (l) => (
       <div className="min-w-0">
-        <p className="truncate text-xs text-fg">{l.currentOperation}</p>
+        <p className="truncate text-xs text-fg" title={String(l.currentOperation ?? "")}>{l.currentOperation}</p>
         <p className="truncate text-2xs text-fg-subtle">{l.nextOperation ? `next: ${l.nextOperation}` : 'last operation'}</p>
       </div>
     ) },
@@ -89,7 +89,7 @@ export function WipPage() {
     { key: 'waitingMinutes', header: 'Waiting', width: '7rem', sortable: true, render: (l) => (
       l.waitingMinutes ? <span className={cn(l.waitingMinutes > 240 ? 'text-danger' : l.waitingMinutes > 60 ? 'text-warning' : '')}><Duration minutes={l.waitingMinutes} /></span> : <span className="text-2xs text-success">moving</span>
     ) },
-    { key: 'enteredAt', header: 'Since', width: '9rem', defaultHidden: true, render: (l) => formatDateTime(l.enteredAt) },
+    { key: 'enteredAt', header: 'Since', width: '11rem', defaultHidden: true, render: (l) => formatDateTime(l.enteredAt) },
     ...(canSeeValue ? [{ key: 'value', header: 'Value', align: 'right' as const, sortable: true, render: (l: WipLot) => formatCurrency(l.value) }] : []),
     { key: 'state', header: 'State', sortable: true, width: '9.5rem', render: (l) => <MesStatusBadge status={l.state} size="sm" /> },
   ]
@@ -123,7 +123,7 @@ export function WipPage() {
       <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         {byWorkCentre.map((w) => (
           <div key={w.workCentre} className="card p-3">
-            <p className="truncate text-xs font-medium text-fg">{w.workCentre}</p>
+            <p className="truncate text-xs font-medium text-fg" title={String(w.workCentre ?? "")}>{w.workCentre}</p>
             <p className="mt-1 text-lg font-semibold tabular text-fg">{formatQty(w.qty)}</p>
             <p className="mt-0.5 text-2xs text-fg-muted">
               {w.lots} lot{w.lots === 1 ? '' : 's'}{canSeeValue ? ` · ₹${formatCompact(w.value)}` : ''}

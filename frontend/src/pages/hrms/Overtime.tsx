@@ -168,8 +168,8 @@ export function OvertimePage() {
     { key: 'productionOrderNo', header: 'Charged to', sortable: true, render: (o) => (
       o.productionOrderNo ? (
         <div className="min-w-0">
-          <p className="truncate font-mono text-2xs text-fg">{o.productionOrderNo}</p>
-          <p className="truncate text-2xs text-fg-subtle">{o.workCentre}</p>
+          <p className="truncate font-mono text-2xs text-fg" title={String(o.productionOrderNo ?? "")}>{o.productionOrderNo}</p>
+          <p className="truncate text-2xs text-fg-subtle" title={String(o.workCentre ?? "")}>{o.workCentre}</p>
         </div>
       ) : (
         <span className="text-2xs text-warning">indirect</span>

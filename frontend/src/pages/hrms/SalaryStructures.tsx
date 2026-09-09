@@ -184,7 +184,7 @@ export function SalaryStructuresPage() {
   const structColumns: Column<SalaryStructure>[] = [
     { key: 'code', header: 'Structure', sortable: true, width: '14rem', render: (s) => (
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-fg">{s.name}</p>
+        <p className="truncate text-xs font-medium text-fg" title={String(s.name ?? "")}>{s.name}</p>
         <p className="font-mono text-2xs text-fg-subtle">{s.code}</p>
       </div>
     ) },
@@ -242,7 +242,7 @@ export function SalaryStructuresPage() {
     ) },
     { key: 'code', header: 'Component', sortable: true, width: '15rem', render: (c) => (
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-fg">{c.name}</p>
+        <p className="truncate text-xs font-medium text-fg" title={String(c.name ?? "")}>{c.name}</p>
         <p className="font-mono text-2xs text-fg-subtle">{c.code}</p>
       </div>
     ) },

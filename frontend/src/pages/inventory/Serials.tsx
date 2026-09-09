@@ -63,8 +63,8 @@ export function SerialsPage() {
         : <span className="text-2xs text-fg-muted">{s.customer ?? 'Out of stock'}</span>
     ) },
     { key: 'cartonNo', header: 'Carton', width: '11rem', defaultHidden: true, render: (s) => <span className="font-mono text-2xs">{s.cartonNo ?? '—'}</span> },
-    { key: 'customer', header: 'Customer', sortable: true, render: (s) => s.customer ?? '—' },
-    { key: 'dispatchedOn', header: 'Dispatched', width: '8rem', sortable: true, accessor: (s) => s.dispatchedOn ?? '', render: (s) => (s.dispatchedOn ? formatDate(s.dispatchedOn) : '—') },
+    { key: 'customer', header: 'Customer', width: '12rem', sortable: true, render: (s) => s.customer ?? '—' },
+    { key: 'dispatchedOn', header: 'Dispatched', width: '8.5rem', sortable: true, accessor: (s) => s.dispatchedOn ?? '', render: (s) => (s.dispatchedOn ? formatDate(s.dispatchedOn) : '—') },
     { key: 'warrantyTo', header: 'Warranty to', width: '9rem', accessor: (s) => s.warrantyTo ?? '', render: (s) => {
       if (!s.warrantyTo) return <span className="text-2xs text-fg-subtle">not started</span>
       const live = new Date(s.warrantyTo).getTime() > Date.now()

@@ -402,7 +402,7 @@ export function GrnPage() {
                   lookup.itemTypeOf(l.itemCode) || <span className="text-fg-subtle">—</span> },
               { key: 'category', header: 'Category', width: '140px', render: (l) =>
                   lookup.categoryOf(l.itemCode) || <span className="text-fg-subtle">—</span> },
-              { key: 'itemName', header: 'Item', render: (l) => (
+              { key: 'itemName', header: 'Item', width: '16rem', render: (l) => (
                   <div>
                     <span className="font-medium text-fg">{l.itemName}</span>
                     <span className="block text-[11px] text-fg-muted">{l.uom}</span>
@@ -495,7 +495,7 @@ export function GrnPage() {
                         lookup.itemTypeOf(l.itemCode) || <span className="text-fg-subtle">—</span> },
                     { key: 'category', header: 'Category', width: '140px', render: (l) =>
                         lookup.categoryOf(l.itemCode) || <span className="text-fg-subtle">—</span> },
-                    { key: 'itemName', header: 'Item', render: (l) => <span className="font-medium text-fg">{l.itemName}</span> },
+                    { key: 'itemName', header: 'Item', width: '16rem', render: (l) => <span className="font-medium text-fg">{l.itemName}</span> },
                     { key: 'poQty', header: 'Ordered', align: 'right', width: '90px', render: (l) => fmtQty(l.poQty) },
                     { key: 'receivedQty', header: 'Received', align: 'right', width: '95px', render: (l) => fmtQty(l.receivedQty) },
                     { key: 'acceptedQty', header: 'Accepted', align: 'right', width: '95px', render: (l) =>

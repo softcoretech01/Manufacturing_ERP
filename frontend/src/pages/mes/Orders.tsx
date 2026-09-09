@@ -82,15 +82,15 @@ export function ProductionOrdersPage() {
 
   const columns: Column<ProductionOrder>[] = [
     { key: 'docNo', header: 'Order', sortable: true, width: '11rem', render: (o) => <span className="font-mono text-xs font-medium text-brand-600">{o.docNo}</span> },
-    { key: 'itemCode', header: 'Product', sortable: true, render: (o) => (
+    { key: 'itemCode', header: 'Product', width: '16rem', sortable: true, render: (o) => (
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-fg">{o.itemName}</p>
+        <p className="truncate text-xs font-medium text-fg" title={String(o.itemName ?? "")}>{o.itemName}</p>
         <p className="truncate font-mono text-2xs text-fg-subtle">{o.itemCode} · BOM {o.bomRevision} · routing {o.routingRevision}</p>
       </div>
     ) },
     { key: 'line', header: 'Line', sortable: true, width: '6.5rem' },
     { key: 'customer', header: 'For', sortable: true, render: (o) => (
-      o.customer ? <div><p className="truncate text-xs">{o.customer}</p><p className="font-mono text-2xs text-fg-subtle">{o.salesOrderNo}</p></div> : <span className="text-2xs text-fg-subtle">Stock build</span>
+      o.customer ? <div><p className="truncate text-xs" title={String(o.customer ?? "")}>{o.customer}</p><p className="font-mono text-2xs text-fg-subtle">{o.salesOrderNo}</p></div> : <span className="text-2xs text-fg-subtle">Stock build</span>
     ) },
     { key: 'plannedQty', header: 'Quantity', align: 'right', sortable: true, render: (o) => <span className="tabular">{formatQty(o.plannedQty)} <span className="text-2xs text-fg-subtle">{o.uom}</span></span> },
     { key: 'progress', header: 'Made', width: '11rem', accessor: (o) => o.producedQty, render: (o) => <ProgressCell done={o.producedQty} total={o.plannedQty} /> },

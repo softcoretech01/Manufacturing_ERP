@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import path from 'node:path'
 
 // Backend origin the dev proxy forwards /api to. Override with BACKEND_URL.
-const BACKEND_URL = process.env.BACKEND_URL ?? 'http://localhost:8000'
+const BACKEND_URL = process.env.BACKEND_URL ?? 'http://localhost:8001'
 
 export default defineConfig({
   plugins: [react()],

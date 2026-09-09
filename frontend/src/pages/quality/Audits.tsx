@@ -257,10 +257,10 @@ export function AuditsPage() {
   const columns: Column<QualityAudit>[] = [
     {
       key: 'doc', header: 'Audit', width: '22rem',
-      render: (a) => (<><p className="truncate text-xs text-fg">{a.title}</p><p className="font-mono text-2xs text-fg-subtle">{a.docNo}</p></>),
+      render: (a) => (<><p className="truncate text-xs text-fg" title={String(a.title ?? "")}>{a.title}</p><p className="font-mono text-2xs text-fg-subtle">{a.docNo}</p></>),
     },
     { key: 'type', header: 'Type', width: '10rem', render: (a) => <Badge tone={a.auditType === 'ISO' ? 'brand' : a.auditType === 'SUPPLIER' ? 'warning' : 'neutral'} size="sm" dot={false}>{TYPE_LABEL[a.auditType]}</Badge> },
-    { key: 'auditee', header: 'Auditee', width: '16rem', render: (a) => <p className="truncate text-2xs text-fg-muted">{a.auditee}</p> },
+    { key: 'auditee', header: 'Auditee', width: '16rem', render: (a) => <p className="truncate text-2xs text-fg-muted" title={String(a.auditee ?? "")}>{a.auditee}</p> },
     { key: 'auditor', header: 'Auditor', width: '13rem', render: (a) => <p className="truncate text-2xs text-fg-muted">{a.auditor || '—'}</p> },
     {
       key: 'when', header: 'Date', width: '9rem',

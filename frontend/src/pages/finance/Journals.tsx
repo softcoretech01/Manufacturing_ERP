@@ -78,9 +78,9 @@ export function JournalsPage() {
   const columns: Column<Journal>[] = [
     { key: 'voucherNo', header: 'Voucher', sortable: true, width: '12rem', render: (j) => <span className="font-mono text-xs font-medium text-brand-600">{j.voucherNo}</span> },
     { key: 'voucherType', header: 'Type', sortable: true, width: '8rem', accessor: (j) => VOUCHER_LABEL[j.voucherType], render: (j) => <VoucherBadge type={j.voucherType} /> },
-    { key: 'date', header: 'Date', sortable: true, width: '8rem', accessor: (j) => j.date, render: (j) => formatDate(j.date) },
+    { key: 'date', header: 'Date', sortable: true, width: '8.5rem', accessor: (j) => j.date, render: (j) => formatDate(j.date) },
     { key: 'period', header: 'Period', width: '6.5rem', render: (j) => <span className="font-mono text-2xs text-fg-muted">{j.period}</span> },
-    { key: 'narration', header: 'Narration', render: (j) => (<><p className="max-w-[24rem] truncate text-xs text-fg">{j.narration}</p>{j.sourceDocNo && <p className="font-mono text-2xs text-fg-subtle">{j.sourceDocNo}</p>}</>) },
+    { key: 'narration', header: 'Narration', render: (j) => (<><p className="max-w-[24rem] truncate text-xs text-fg" title={String(j.narration ?? "")}>{j.narration}</p>{j.sourceDocNo && <p className="font-mono text-2xs text-fg-subtle">{j.sourceDocNo}</p>}</>) },
     { key: 'lineCount', header: 'Lines', align: 'right', width: '5rem', accessor: (j) => j.lines.length },
     { key: 'amount', header: 'Amount', align: 'right', sortable: true, width: '11rem', accessor: (j) => totalOf(j), render: (j) => inr(totalOf(j)) },
     { key: 'isAuto', header: 'Origin', width: '7rem', accessor: (j) => (j.isAuto ? 'Automatic' : 'Manual'), render: (j) => <span className="text-2xs text-fg-muted">{j.isAuto ? 'Automatic' : 'Manual'}</span> },
@@ -265,7 +265,7 @@ export function JournalsPage() {
 
             <DetailBlock title={`Entries (${live.lines.length})`}>
               <div className="overflow-x-auto rounded border border-border">
-                <table className="grid-table">
+                <table className="grid-table grid-table--auto">
                   <thead>
                     <tr>
                       <th style={{ width: '6rem' }}>Code</th>
@@ -322,7 +322,7 @@ export function JournalsPage() {
               </span>
             </div>
             <div className="overflow-x-auto rounded border border-border">
-              <table className="grid-table">
+              <table className="grid-table grid-table--auto">
                 <thead>
                   <tr>
                     <th style={{ width: '8rem' }}>Date</th>
@@ -384,7 +384,7 @@ export function JournalsPage() {
             <Button size="sm" variant="outline" icon={<Plus className="h-4 w-4" />} onClick={addLine}>Add line</Button>
           </div>
           <div className="overflow-x-auto rounded border border-border">
-            <table className="grid-table">
+            <table className="grid-table grid-table--auto">
               <thead>
                 <tr>
                   <th style={{ minWidth: '16rem' }}>Account *</th>

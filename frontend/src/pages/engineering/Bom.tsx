@@ -161,6 +161,7 @@ export function BomPage() {
     {
       key: 'productCode',
       header: 'Product',
+      width: '16rem',
       sortable: true,
       render: (b) => (
         <>
@@ -173,7 +174,7 @@ export function BomPage() {
     { key: 'lineCount', header: 'Lines', align: 'right', width: '5rem', accessor: (b) => b.lines.length },
     { key: 'baseQty', header: 'Per', align: 'right', width: '5rem', accessor: (b) => b.baseQty, render: (b) => `${b.baseQty} ${b.uom}` },
     { key: 'isDefault', header: 'Default', width: '6rem', accessor: (b) => (b.isDefault ? 'Yes' : 'No'), render: (b) => (b.isDefault ? <Badge tone="brand" size="sm">Default</Badge> : <span className="text-2xs text-fg-subtle">alternate</span>) },
-    { key: 'effectiveFrom', header: 'Effective', sortable: true, width: '7.5rem', accessor: (b) => b.effectiveFrom, render: (b) => formatDate(b.effectiveFrom) },
+    { key: 'effectiveFrom', header: 'Effective', sortable: true, width: '8.5rem', accessor: (b) => b.effectiveFrom, render: (b) => formatDate(b.effectiveFrom) },
     { key: 'status', header: 'Status', sortable: true, width: '9rem', render: (b) => <EngStatusBadge status={b.status} size="sm" /> },
   ]
 
@@ -579,7 +580,7 @@ export function BomPage() {
 
             <DetailBlock title={`Components (${detail.lines.length})`}>
               <div className="overflow-x-auto rounded border border-border">
-                <table className="grid-table">
+                <table className="grid-table grid-table--auto">
                   <thead>
                     <tr>
                       <th style={{ width: '3rem' }}>#</th>
@@ -785,7 +786,7 @@ export function BomPage() {
           {errors.lines && <Alert tone="danger" className="mb-2">{errors.lines}</Alert>}
 
           <div className="overflow-x-auto rounded border border-border">
-            <table className="grid-table">
+            <table className="grid-table grid-table--auto">
               <thead>
                 <tr>
                   <th style={{ minWidth: '15rem' }}>Component *</th>

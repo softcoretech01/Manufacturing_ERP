@@ -294,7 +294,7 @@ function PortalChooser({ active, onPick }: { active: PortalCode; onPick: (c: Por
               </span>
               <span className="min-w-0 flex-1">
                 {/* Small index badge */}
-                <span className="block truncate text-[13px] font-semibold text-fg leading-snug">{p.name}</span>
+                <span className="block truncate text-[13px] font-semibold text-fg leading-snug" title={String(p.name ?? "")}>{p.name}</span>
                 <span className="block text-[11px] font-medium text-fg-subtle mt-0.5">#{i + 1}</span>
               </span>
             </button>
@@ -723,8 +723,8 @@ function DemoUsers({ onPick }: { onPick: (uid: string) => void }) {
               >
                 <Avatar name={u.fullName} size="sm" />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[11px] font-medium text-white/90">{u.fullName}</span>
-                  <span className="block truncate text-[10px] text-white/40">{u.designation}</span>
+                  <span className="block truncate text-[11px] font-medium text-white/90" title={String(u.fullName ?? "")}>{u.fullName}</span>
+                  <span className="block truncate text-[10px] text-white/40" title={String(u.designation ?? "")}>{u.designation}</span>
                 </span>
               </button>
             )

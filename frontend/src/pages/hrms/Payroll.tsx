@@ -206,7 +206,7 @@ export function PayrollPage() {
     { key: 'approvedBy', header: 'Approved by', sortable: true, render: (r) => (
       r.approvedBy ? (
         <div className="min-w-0">
-          <p className="truncate text-xs text-fg">{r.approvedBy}</p>
+          <p className="truncate text-xs text-fg" title={String(r.approvedBy ?? "")}>{r.approvedBy}</p>
           <p className="text-2xs text-fg-subtle">{r.approvedOn ? formatDate(r.approvedOn) : ''}</p>
         </div>
       ) : (

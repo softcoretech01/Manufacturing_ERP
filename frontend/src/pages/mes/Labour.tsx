@@ -64,7 +64,7 @@ export function LabourPage() {
       <div className="flex items-center gap-2">
         <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', o.present ? 'bg-success' : 'bg-fg-subtle')} />
         <div className="min-w-0">
-          <p className="truncate text-xs font-medium text-fg">{o.name}</p>
+          <p className="truncate text-xs font-medium text-fg" title={String(o.name ?? "")}>{o.name}</p>
           <p className="font-mono text-2xs text-fg-subtle">{o.employeeCode}</p>
         </div>
       </div>

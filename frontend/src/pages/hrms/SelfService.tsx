@@ -164,7 +164,7 @@ export function SelfServicePage() {
                     {employee.fullName.split(' ').map((w) => w[0]).slice(0, 2).join('')}
                   </span>
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-fg">{employee.fullName}</p>
+                    <p className="truncate text-sm font-semibold text-fg" title={String(employee.fullName ?? "")}>{employee.fullName}</p>
                     <p className="truncate text-2xs text-fg-muted">{employee.designation} · {employee.department}</p>
                   </div>
                 </div>
@@ -275,7 +275,7 @@ export function SelfServicePage() {
                 <div key={r.uid} className="rounded border border-border p-2.5">
                   <p className="text-xs font-medium text-fg">{formatDate(r.rosterDate)}</p>
                   <p className="mt-0.5 font-mono text-2xs text-fg-muted">{r.shiftCode}</p>
-                  <p className="truncate text-2xs text-fg-subtle">{r.workCentre ?? 'off floor'}</p>
+                  <p className="truncate text-2xs text-fg-subtle" title={String(r.workCentre ?? 'off floor')}>{r.workCentre ?? 'off floor'}</p>
                   <div className="mt-1.5"><HrStatusBadge status={r.status} size="sm" /></div>
                 </div>
               ))}
@@ -439,7 +439,7 @@ export function SelfServicePage() {
               {myTraining.map((t) => (
                 <div key={t.uid} className="rounded border border-border p-2.5">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="truncate text-xs font-medium text-fg">{t.programmeTitle}</p>
+                    <p className="truncate text-xs font-medium text-fg" title={String(t.programmeTitle ?? "")}>{t.programmeTitle}</p>
                     <HrStatusBadge status={t.status} size="sm" />
                   </div>
                   <p className="mt-0.5 text-2xs text-fg-muted">

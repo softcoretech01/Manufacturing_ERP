@@ -184,7 +184,7 @@ export function SchedulePage() {
           />
           <CardBody className="p-0">
             <div className="overflow-x-auto">
-              <table className="grid-table">
+              <table className="grid-table grid-table--auto">
                 <thead>
                   <tr>
                     <th className="sticky left-0 z-20 bg-surface-2" style={{ minWidth: '12rem' }}>Work centre</th>
@@ -258,7 +258,7 @@ export function SchedulePage() {
               <EmptyState title="Nothing open" description="Firm an MRP suggestion or raise an order to schedule it." />
             ) : (
               <div className="overflow-x-auto">
-                <table className="grid-table">
+                <table className="grid-table grid-table--auto">
                   <thead>
                     <tr>
                       <th>Order</th>

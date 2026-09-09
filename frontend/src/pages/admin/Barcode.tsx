@@ -98,7 +98,7 @@ export function BarcodePage() {
       ),
     },
     { key: 'size', header: 'Size', width: '130px', accessor: (t) => t.widthMm * t.heightMm, render: (t) => <span className="text-2xs text-fg-muted tabular">{t.widthMm} × {t.heightMm} mm @ {t.dpi} dpi</span> },
-    { key: 'payloadFormat', header: 'Payload format', render: (t) => <span className="truncate font-mono text-2xs text-fg-muted">{t.payloadFormat}</span> },
+    { key: 'payloadFormat', header: 'Payload format', render: (t) => <span className="truncate font-mono text-2xs text-fg-muted" title={String(t.payloadFormat ?? "")}>{t.payloadFormat}</span> },
     {
       key: 'isDefault',
       header: '',

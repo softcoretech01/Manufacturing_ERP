@@ -105,7 +105,7 @@ export function MachinesPage() {
         <MachineDot state={m.state} />
         <div className="min-w-0">
           <p className="font-mono text-xs font-medium text-brand-600">{m.code}</p>
-          <p className="truncate text-2xs text-fg-subtle">{m.name}</p>
+          <p className="truncate text-2xs text-fg-subtle" title={String(m.name ?? "")}>{m.name}</p>
         </div>
       </div>
     ) },
@@ -182,7 +182,7 @@ export function MachinesPage() {
                     <p className="flex items-center gap-1.5 font-mono text-xs font-medium text-fg">
                       <MachineDot state={m.state} /> {m.code}
                     </p>
-                    <p className="mt-0.5 truncate text-2xs text-fg-subtle">{m.name}</p>
+                    <p className="mt-0.5 truncate text-2xs text-fg-subtle" title={String(m.name ?? "")}>{m.name}</p>
                   </div>
                   <MesStatusBadge status={m.state} size="sm" />
                 </div>
@@ -289,7 +289,7 @@ export function MachinesPage() {
                     <div key={d.uid} className="flex items-start justify-between gap-3 rounded border border-border p-2.5">
                       <div className="min-w-0">
                         <p className="text-xs font-medium text-fg">{DOWNTIME_REASON_LABEL[d.reason]}</p>
-                        <p className="truncate text-2xs text-fg-muted">{d.correctiveAction ?? 'No corrective action recorded yet'}</p>
+                        <p className="truncate text-2xs text-fg-muted" title={String(d.correctiveAction ?? 'No corrective action recorded yet')}>{d.correctiveAction ?? 'No corrective action recorded yet'}</p>
                       </div>
                       <div className="shrink-0 text-right">
                         <Duration minutes={d.minutes} />

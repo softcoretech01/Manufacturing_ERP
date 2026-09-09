@@ -232,6 +232,7 @@ export function RoutingPage() {
     {
       key: 'productCode',
       header: 'Product',
+      width: '16rem',
       sortable: true,
       render: (r) => (
         <>
@@ -621,7 +622,7 @@ export function RoutingPage() {
 
             <DetailBlock title={`Operations (${detail.operations.length})`}>
               <div className="overflow-x-auto rounded border border-border">
-                <table className="grid-table">
+                <table className="grid-table grid-table--auto">
                   <thead>
                     <tr>
                       <th style={{ width: '3.5rem' }}>Seq</th>
@@ -755,7 +756,7 @@ export function RoutingPage() {
           {errors.ops && <Alert tone="danger" className="mb-2">{errors.ops}</Alert>}
 
           <div className="overflow-x-auto rounded border border-border">
-            <table className="grid-table">
+            <table className="grid-table grid-table--auto">
               <thead>
                 <tr>
                   <th style={{ width: '4.5rem' }}>Seq</th>

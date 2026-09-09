@@ -94,7 +94,7 @@ export function CartonsPage() {
     { key: 'cartonNo', header: 'Carton', sortable: true, width: '11.5rem', render: (c) => (
       <button type="button" onClick={() => setViewing(c)} className="text-left">
         <p className="font-mono text-xs font-medium text-brand-600 hover:underline">{c.cartonNo}</p>
-        <p className="truncate text-2xs text-fg-subtle">{c.packingOrderNo}</p>
+        <p className="truncate text-2xs text-fg-subtle" title={String(c.packingOrderNo ?? "")}>{c.packingOrderNo}</p>
       </button>
     ) },
     { key: 'itemName', header: 'Contents', sortable: true, render: (c) => (
@@ -119,7 +119,7 @@ export function CartonsPage() {
     { key: 'dims', header: 'L × W × H (mm)', width: '10rem', render: (c) => <DimensionCell l={c.lengthMm} w={c.widthMm} h={c.heightMm} /> },
     { key: 'operator', header: 'Packed by', sortable: true, width: '9rem', render: (c) => (
       <div className="min-w-0">
-        <p className="truncate text-xs text-fg">{c.operator}</p>
+        <p className="truncate text-xs text-fg" title={String(c.operator ?? "")}>{c.operator}</p>
         <p className="text-2xs text-fg-subtle">{formatDateTime(c.packedOn)}</p>
       </div>
     ) },

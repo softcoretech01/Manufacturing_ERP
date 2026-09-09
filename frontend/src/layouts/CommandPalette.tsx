@@ -257,7 +257,7 @@ export function CommandPalette() {
                     className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-surface-3"
                   >
                     <Package className="h-3.5 w-3.5 shrink-0 text-fg-subtle" />
-                    <span className="min-w-0 flex-1 truncate font-mono text-fg-muted">{s.q}</span>
+                    <span className="min-w-0 flex-1 truncate font-mono text-fg-muted" title={String(s.q ?? "")}>{s.q}</span>
                     <span className="shrink-0 text-[10px] text-fg-subtle">{s.hint}</span>
                   </button>
                 ))}
@@ -292,7 +292,7 @@ export function CommandPalette() {
                         <span className={cn('block truncate text-sm', active ? 'text-brand-600' : 'text-fg')}>
                           {r.label}
                         </span>
-                        {r.sub && <span className="block truncate text-2xs text-fg-subtle">{r.sub}</span>}
+                        {r.sub && <span className="block truncate text-2xs text-fg-subtle" title={String(r.sub ?? "")}>{r.sub}</span>}
                       </span>
                       {active ? (
                         <CornerDownLeft className="h-3.5 w-3.5 shrink-0 text-brand-600" />

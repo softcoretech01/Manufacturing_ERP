@@ -80,13 +80,13 @@ export function AuditPage() {
   }
 
   const columns: Column<AuditEntry>[] = [
-    { key: 'occurred_at', header: 'When', sortable: true, width: '150px', sticky: true, render: (a) => <span title={formatDateTime(a.occurred_at)}>{formatTimeAgo(a.occurred_at)}</span> },
+    { key: 'occurred_at', header: 'When', sortable: true, width: '11rem', sticky: true, render: (a) => <span title={formatDateTime(a.occurred_at)}>{formatTimeAgo(a.occurred_at)}</span> },
     {
       key: 'actor_name', header: 'Who', sortable: true, width: '180px',
       render: (a) => (
         <div className="flex min-w-0 items-center gap-1.5">
           <Avatar name={a.actor_name} size="xs" />
-          <span className="truncate text-xs text-fg">{a.actor_name}</span>
+          <span className="truncate text-xs text-fg" title={String(a.actor_name ?? "")}>{a.actor_name}</span>
         </div>
       ),
     },
@@ -95,7 +95,7 @@ export function AuditPage() {
       key: 'entity', header: 'On what', width: '240px', accessor: (a) => a.document_no ?? a.entity_type,
       render: (a) => (
         <div className="min-w-0">
-          <p className="truncate text-xs text-fg">{a.document_no ?? a.entity_type}</p>
+          <p className="truncate text-xs text-fg" title={String(a.document_no ?? a.entity_type ?? "")}>{a.document_no ?? a.entity_type}</p>
           <p className="truncate font-mono text-2xs text-fg-subtle">{a.entity_type}{a.entity_uid ? ` · ${a.entity_uid.slice(0, 8)}` : ''}</p>
         </div>
       ),

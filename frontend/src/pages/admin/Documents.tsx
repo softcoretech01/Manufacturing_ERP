@@ -208,7 +208,7 @@ export function DocumentsPage() {
               </button>
             ) : <span className="w-4" />}
             <FolderOpen className="h-3 w-3 shrink-0 text-fg-subtle" />
-            <span className="min-w-0 flex-1 truncate">{n.name}</span>
+            <span className="min-w-0 flex-1 truncate" title={String(n.name ?? "")}>{n.name}</span>
             <span className="shrink-0 text-2xs tabular text-fg-subtle">{totalBeneath}</span>
           </div>
           {isOpen && n.children.length > 0 && renderTree(n.children)}

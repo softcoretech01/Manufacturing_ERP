@@ -124,16 +124,71 @@
    */
   .grid-table {
     @apply w-full border-collapse;
-    table-layout: fixed;
+    /*
+     * Auto layout is the default, deliberately.
+     *
+     * This used to be `fixed`, which divides the available width evenly and
+     * ignores `min-width`. On a ten-column grid that gave a 240px "Description"
+     * exactly as much room as a 60px "Qty", so the description ellipsised while
+     * the quantity column sat two-thirds empty — the "columns are not showing
+     * correctly" defect, on every hand-built grid in the app at once.
+     *
+     * Auto sizes each column to its content and honours min-width. Every
+     * `.grid-table` in the app is wrapped in `overflow-x-auto`, so a grid too
+     * wide for its container scrolls instead of clipping. DataTable, which has
+     * its own per-column width system, opts back in with `xl:table-fixed`.
+     */
+    table-layout: auto;
     font-size: 13px;
     font-family: inherit;
+  }
+
+  /*
+   * Explicit statement of the default. Kept for the grids that were fixed by
+   * hand before auto became the default — the class documents that the grid
+   * needs content-sized columns, so nobody reintroduces `fixed` on it.
+   */
+  .grid-table--auto {
+    table-layout: auto;
+  }
+
+  /*
+   * Opt back in to even, content-blind columns. Only DataTable wants this, and
+   * only where it has room for its declared widths.
+   */
+  .grid-table--fixed {
+    table-layout: fixed;
+  }
+
+  /*
+   * A row-label cell in a matrix grid. It names the row, so it must never be
+   * clipped — and it is the one place wrapping is preferable to a wider table.
+   */
+  .grid-table td.cell-label,
+  .grid-table th.cell-label {
+    white-space: normal;
+    overflow: visible;
+    word-break: normal;
   }
   .grid-table thead th {
     @apply sticky top-0 z-10 border-b border-border bg-[#F7F9FD]
            px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-fg-muted;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    /*
+     * Headers wrap rather than clip.
+     *
+     * They used to be `nowrap` + ellipsis, so a header a few pixels wider than
+     * its column silently became "Planned producti…" — and a column whose name
+     * is cut is a column the reader has to guess at. The header row is 54px in
+     * the comfortable grid, which is two comfortable lines of 11-12px text, so
+     * wrapping costs nothing and never hides a word.
+     *
+     * Body cells keep their ellipsis: a truncated value is recoverable from the
+     * row, a truncated column name is not.
+     */
+    white-space: normal;
+    line-height: 1.25;
+    vertical-align: bottom;
+    overflow-wrap: break-word;
   }
   .grid-table thead th.col-center { text-align: center; }
   .grid-table thead th.col-right  { text-align: right; }
@@ -147,6 +202,36 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /*
+   * Cap how wide one column may grow.
+   *
+   * Auto layout sizes a column to its widest cell, and body cells are `nowrap`
+   * — so a single long remark would stretch that column to its full text width
+   * and push the grid to 2000px. `max-width` is honoured under auto layout (it
+   * is not under fixed), so a column grows to fit its content and then starts
+   * ellipsising at 320px. Short columns stay narrow, long ones stay bounded,
+   * and the truncated value is still readable from the cell's title tooltip.
+   */
+  .grid-table tbody td {
+    max-width: 320px;
+  }
+
+  /*
+   * A spanning cell is never a data cell.
+   *
+   * `colspan` marks the row-wide cells: the empty state, a group heading, a
+   * subtotal note. They carry a sentence, not a field, so the nowrap-ellipsis
+   * and the 320px cap above are both wrong for them — the Stock ledger's
+   * "This item has no ledger entries under these filters. Try clearing them."
+   * was being cut five pixels short of its full stop.
+   */
+  .grid-table tbody td[colspan] {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    max-width: none;
+  }
+
   /* Allow wrapping only inside cells that opt-in */
   .grid-table tbody td.cell-wrap {
     white-space: normal;

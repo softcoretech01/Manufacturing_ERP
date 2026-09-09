@@ -76,7 +76,7 @@ export const InvLineItemAdder: React.FC<InvLineItemAdderProps> = ({ onAdd, disab
       quantity: qty,
       unit_price: price,
       tax_rate: matchedItem.taxRate || 0,
-      item_category: matchedItem.category // Needed for grid display, we can cast it if needed or just use useItemLookup
+      category: matchedItem.category,
     })
 
     // Reset fields for quick entry

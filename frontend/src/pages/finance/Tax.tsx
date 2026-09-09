@@ -64,7 +64,7 @@ export function TaxPage() {
 
   const registerColumns = (isOutward: boolean): Column<PartyDocument>[] => [
     { key: 'docNo', header: isOutward ? 'Invoice' : 'Bill', sortable: true, width: '12rem', render: (d) => <span className="font-mono text-xs font-medium text-brand-600">{d.docNo}</span> },
-    { key: 'date', header: 'Date', sortable: true, width: '8rem', accessor: (d) => d.date, render: (d) => formatDate(d.date) },
+    { key: 'date', header: 'Date', sortable: true, width: '8.5rem', accessor: (d) => d.date, render: (d) => formatDate(d.date) },
     { key: 'partyName', header: isOutward ? 'Customer' : 'Supplier', sortable: true, render: (d) => (<><p className="text-xs text-fg">{d.partyName}</p><p className="font-mono text-2xs text-fg-subtle">{d.partyCode} · state {d.partyStateCode}</p></>) },
     { key: 'hsn', header: 'HSN', width: '8rem', accessor: (d) => d.hsnSummary[0]?.hsn ?? '', render: (d) => <span className="font-mono text-2xs text-fg-muted">{d.hsnSummary[0]?.hsn ?? '—'}</span> },
     { key: 'supply', header: 'Supply', width: '8rem', accessor: (d) => (d.igst > 0 ? 'Inter-state' : d.partyStateCode === '99' ? 'Export' : 'Intra-state'), render: (d) => <Badge tone={d.igst > 0 ? 'progress' : d.partyStateCode === '99' ? 'brand' : 'neutral'} size="sm" dot={false}>{d.partyStateCode === '99' ? 'Export' : d.igst > 0 ? 'Inter-state' : 'Intra-state'}</Badge> },

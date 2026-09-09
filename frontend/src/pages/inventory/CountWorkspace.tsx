@@ -64,8 +64,13 @@ export function CountWorkspace({ config }: { config: CountConfig }) {
                 className={cn('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors',
                   c.uid === selectedUid ? 'bg-brand-500/10' : 'hover:bg-surface-3')}>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-mono text-xs text-brand-600">{c.document_no}</span>
-                  <span className="block truncate text-2xs text-fg-subtle">{c.warehouse_code} · {formatDate(c.count_date)} · {c.counted_by_name}</span>
+                  <span className="block truncate font-mono text-xs text-brand-600" title={String(c.document_no ?? "")}>{c.document_no}</span>
+                  <span
+                    className="block truncate text-2xs text-fg-subtle"
+                    title={`${c.warehouse_code} · ${formatDate(c.count_date)} · ${c.counted_by_name}`}
+                  >
+                    {c.warehouse_code} · {formatDate(c.count_date)} · {c.counted_by_name}
+                  </span>
                 </span>
                 <Badge tone={STATUS_TONE[c.status] ?? 'neutral'} size="sm">{c.status.toLowerCase()}</Badge>
               </button>
@@ -162,7 +167,7 @@ function CountDetail({ uid, mode, onGone }: { uid: string; mode: 'count' | 'vari
               const val = entered[l.uid] !== undefined ? entered[l.uid] : (l.counted_qty != null ? String(l.counted_qty) : '')
               return (
                 <tr key={l.uid}>
-                  <td><div className="min-w-0"><p className="truncate text-xs text-fg">{l.item_name}</p><p className="truncate font-mono text-2xs text-fg-subtle">{l.item_code}</p></div></td>
+                  <td><div className="min-w-0"><p className="truncate text-xs text-fg" title={String(l.item_name ?? "")}>{l.item_name}</p><p className="truncate font-mono text-2xs text-fg-subtle" title={String(l.item_code ?? "")}>{l.item_code}</p></div></td>
                   <td className="text-2xs text-fg-muted">{l.batch_no || '—'}</td>
                   <td className="text-center text-2xs text-fg-muted">{l.uom}</td>
                   {!blind && <td className="text-right tabular text-xs">{l.system_qty != null ? formatQty(l.system_qty) : '—'}</td>}

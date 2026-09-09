@@ -214,7 +214,7 @@ export function EngineeringDashboardPage() {
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block text-lg font-semibold leading-none text-fg tabular">{a.count}</span>
-                <span className="mt-1 block truncate text-xs text-fg-muted">{a.label}</span>
+                <span className="mt-1 block truncate text-xs text-fg-muted" title={String(a.label ?? "")}>{a.label}</span>
               </span>
               <ArrowRight className="h-3.5 w-3.5 shrink-0 text-fg-subtle" />
             </Link>
@@ -327,7 +327,7 @@ export function EngineeringDashboardPage() {
                   <Link key={product.uid} to="/masters/product-items" className="block border-b border-border pb-2.5 last:border-0 last:pb-0">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="truncate font-mono text-2xs font-medium text-brand-600">{product.code}</p>
+                        <p className="truncate font-mono text-2xs font-medium text-brand-600" title={String(product.code ?? "")}>{product.code}</p>
                         <p className="mt-0.5 text-2xs text-fg-muted">{blockers[0]}</p>
                         {blockers.length > 1 && <p className="text-2xs text-fg-subtle">and {blockers.length - 1} more</p>}
                       </div>
@@ -352,7 +352,7 @@ export function EngineeringDashboardPage() {
                   .map((t) => (
                     <Link key={t.uid} to="/engineering/tools" className="flex items-center justify-between gap-3 border-b border-border pb-2.5 last:border-0 last:pb-0">
                       <div className="min-w-0">
-                        <p className="truncate text-xs font-medium text-fg">{t.name}</p>
+                        <p className="truncate text-xs font-medium text-fg" title={String(t.name ?? "")}>{t.name}</p>
                         <p className="font-mono text-2xs text-fg-subtle">{t.code}</p>
                       </div>
                       <ToolLifeBar tool={t} />
@@ -371,7 +371,7 @@ export function EngineeringDashboardPage() {
                 return (
                   <div key={w.uid}>
                     <div className="mb-1 flex items-center justify-between gap-2 text-xs">
-                      <span className="truncate font-mono text-2xs text-fg">{w.code}</span>
+                      <span className="truncate font-mono text-2xs text-fg" title={String(w.code ?? "")}>{w.code}</span>
                       <span className="tabular text-2xs text-fg-muted">₹{formatAmount(loaded, 0)}/h</span>
                     </div>
                     <ProgressBar value={max > 0 ? (loaded / max) * 100 : 0} tone={loaded > max * 0.75 ? 'warning' : 'brand'} />

@@ -81,7 +81,7 @@ export function CalibrationPage() {
 
   const columns: Column<Instrument>[] = [
     { key: 'code', header: 'Instrument', sortable: true, width: '8rem', render: (i) => <span className="font-mono text-xs font-medium text-brand-600">{i.code}</span> },
-    { key: 'name', header: 'Name', sortable: true, render: (i) => (<><p className="text-xs font-medium text-fg">{i.name}</p><p className="text-2xs text-fg-subtle">{i.make} · {i.serialNo}</p></>) },
+    { key: 'name', header: 'Name', width: '16rem', sortable: true, render: (i) => (<><p className="text-xs font-medium text-fg">{i.name}</p><p className="text-2xs text-fg-subtle">{i.make} · {i.serialNo}</p></>) },
     { key: 'instrumentType', header: 'Type', sortable: true, width: '10rem', render: (i) => <span className="text-xs text-fg-muted">{i.instrumentType}</span> },
     { key: 'range', header: 'Range', width: '11rem', render: (i) => <span className="text-2xs text-fg-muted">{i.range} · {i.leastCount}</span> },
     { key: 'location', header: 'Location', sortable: true, width: '11rem' },

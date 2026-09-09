@@ -128,7 +128,7 @@ export function FinanceDashboardPage() {
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block text-lg font-semibold leading-none text-fg tabular">{a.count}</span>
-                <span className="mt-1 block truncate text-xs text-fg-muted">{a.label}</span>
+                <span className="mt-1 block truncate text-xs text-fg-muted" title={String(a.label ?? "")}>{a.label}</span>
               </span>
               <ArrowRight className="h-3.5 w-3.5 shrink-0 text-fg-subtle" />
             </Link>
@@ -185,7 +185,7 @@ export function FinanceDashboardPage() {
                     .sort((a, b) => b.r.total - a.r.total).slice(0, 8)
                     .map(({ r, side }) => (
                       <tr key={`${side}-${r.partyCode}`} className={r.oldestDays > 60 ? 'bg-danger/5' : undefined}>
-                        <td><p className="max-w-[16rem] truncate text-xs text-fg">{r.partyName}</p><p className="font-mono text-2xs text-fg-subtle">{r.partyCode}</p></td>
+                        <td><p className="max-w-[16rem] truncate text-xs text-fg" title={String(r.partyName ?? "")}>{r.partyName}</p><p className="font-mono text-2xs text-fg-subtle">{r.partyCode}</p></td>
                         <td><Badge tone={side === 'Receivable' ? 'success' : 'warning'} size="sm" dot={false}>{side}</Badge></td>
                         <td className="text-right text-xs tabular text-fg-muted">{inr(r.buckets['Not due'], { blankZero: true })}</td>
                         <td className="text-right text-xs tabular">{inr(r.total - r.buckets['Not due'], { blankZero: true })}</td>
@@ -221,7 +221,7 @@ export function FinanceDashboardPage() {
               <div className="mt-2 space-y-1.5">
                 {k.variances.slice(0, 3).map((x) => (
                   <div key={x.actual.uid} className="flex items-center justify-between gap-2 text-2xs">
-                    <span className="truncate font-mono text-fg-muted">{x.actual.productionOrderNo}</span>
+                    <span className="truncate font-mono text-fg-muted" title={String(x.actual.productionOrderNo ?? "")}>{x.actual.productionOrderNo}</span>
                     <VarianceChip value={x.v.totalVariance} />
                   </div>
                 ))}

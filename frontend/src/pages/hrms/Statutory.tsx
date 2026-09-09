@@ -116,14 +116,14 @@ export function StatutoryPage() {
   const columns: Column<StatutoryReturn>[] = [
     { key: 'code', header: 'Return', sortable: true, width: '16rem', render: (r) => (
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-fg">{r.name}</p>
+        <p className="truncate text-xs font-medium text-fg" title={String(r.name ?? "")}>{r.name}</p>
         <p className="truncate font-mono text-2xs text-fg-subtle">{r.code} · {r.period}</p>
       </div>
     ) },
     { key: 'act', header: 'Under', sortable: true, render: (r) => (
       <div className="min-w-0">
-        <p className="truncate text-xs text-fg">{r.act}</p>
-        <p className="truncate text-2xs text-fg-subtle">{r.authority}</p>
+        <p className="truncate text-xs text-fg" title={String(r.act ?? "")}>{r.act}</p>
+        <p className="truncate text-2xs text-fg-subtle" title={String(r.authority ?? "")}>{r.authority}</p>
       </div>
     ) },
     { key: 'frequency', header: 'Frequency', sortable: true, width: '9rem', render: (r) => (
@@ -151,7 +151,7 @@ export function StatutoryPage() {
     { key: 'challanNo', header: 'Challan', sortable: true, width: '12rem', render: (r) => (
       r.challanNo ? (
         <div className="min-w-0">
-          <p className="truncate font-mono text-2xs text-fg">{r.challanNo}</p>
+          <p className="truncate font-mono text-2xs text-fg" title={String(r.challanNo ?? "")}>{r.challanNo}</p>
           {r.paidOn && <p className="text-2xs text-fg-subtle">paid {formatDate(r.paidOn)}</p>}
         </div>
       ) : (
@@ -161,7 +161,7 @@ export function StatutoryPage() {
     { key: 'acknowledgementNo', header: 'Acknowledgement', sortable: true, width: '13rem', render: (r) => (
       r.acknowledgementNo ? (
         <div className="min-w-0">
-          <p className="truncate font-mono text-2xs text-fg">{r.acknowledgementNo}</p>
+          <p className="truncate font-mono text-2xs text-fg" title={String(r.acknowledgementNo ?? "")}>{r.acknowledgementNo}</p>
           {r.filedOn && <p className="text-2xs text-fg-subtle">filed {formatDate(r.filedOn)}</p>}
         </div>
       ) : (

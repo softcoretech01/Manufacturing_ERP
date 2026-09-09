@@ -1,8 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text
 from app.core.context import TenantContext
 from app.core.errors import AppError
-from app.modules.masters.infrastructure.models import MstItem
 from app.repositories.engineering_bom_repository import EngineeringBomRepository
 from app.repositories.engineering_routing_repository import EngineeringRoutingRepository
 from app.repositories.engineering_workcentre_repository import EngineeringWorkCentreRepository
@@ -44,13 +43,36 @@ class PlanningService:
         self.wc_repo = EngineeringWorkCentreRepository(session)
 
     async def _validate_item(self, item_code: str):
-        stmt = select(MstItem).where(MstItem.code == item_code, MstItem.company_id == self.ctx.company_id)
-        result = await self.session.execute(stmt)
-        item = result.scalar_one_or_none()
-        if not item:
+        """The product must exist in the master planning actually plans from.
+
+        This checked `admin_erp.mst_item`, which is a different, much smaller
+        item master — seven rows, none of them finished goods. Everything else
+        in planning (MRP's `_items`, the BOMs in `ERP_Product.EngineeringBom`,
+        the `/items` endpoint the product pickers read) uses `ERP_Master.Item`.
+
+        The result was that demand and schedules could not be created for any
+        product that had a bill of material: `FG-SS-750-BLK` exists in the
+        catalogue, is on live BOMs, and appears in every picker, but saving a
+        schedule for it failed with "Item FG-SS-750-BLK does not exist".
+
+        Validating against the master the rest of the module plans from is the
+        only version of this check that can be right — a product this rejects
+        would explode into nothing anyway.
+        """
+        row = (
+            await self.session.execute(
+                text(
+                    "SELECT IFNULL(Status, 'ACTIVE') FROM ERP_Master.Item "
+                    " WHERE Code = :code AND IFNULL(IsDeleted, 0) = 0 "
+                    " LIMIT 1"
+                ),
+                {"code": item_code},
+            )
+        ).first()
+        if row is None:
             raise AppError(f"Item {item_code} does not exist")
-        if not item.is_active:
-            raise AppError(f"Item {item_code} is inactive")
+        if str(row[0]).upper() in {"INACTIVE", "BLOCKED", "OBSOLETE"}:
+            raise AppError(f"Item {item_code} is {str(row[0]).lower()}")
 
     async def _validate_bom(self, bom_doc_no: str):
         boms = await self.bom_repo.get_all_boms()

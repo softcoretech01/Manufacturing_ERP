@@ -430,7 +430,7 @@ export function RfqPage() {
                       lookup.itemTypeOf(l.itemCode) || <span className="text-fg-subtle">—</span> },
                   { key: 'category', header: 'Category', width: '160px', render: (l) =>
                       lookup.categoryOf(l.itemCode) || <span className="text-fg-subtle">—</span> },
-                  { key: 'itemName', header: 'Item', render: (l) => <span className="font-medium text-fg">{l.itemName}</span> },
+                  { key: 'itemName', header: 'Item', width: '16rem', render: (l) => <span className="font-medium text-fg">{l.itemName}</span> },
                   { key: 'qty', header: 'Quantity', align: 'right', width: '110px', render: (l) => fmtQty(l.qty) },
                   { key: 'uom', header: 'UOM', align: 'center', width: '80px' },
                   { key: 'requiredBy', header: 'Required Date', width: '140px', render: (l) =>

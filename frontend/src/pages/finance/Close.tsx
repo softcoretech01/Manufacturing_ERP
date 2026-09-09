@@ -249,7 +249,7 @@ export function PeriodClosePage() {
                         <tr key={j.uid}>
                           <td className="font-mono text-2xs text-fg">{j.voucherNo}</td>
                           <td className="text-2xs tabular text-fg-muted">{formatDate(j.date)}</td>
-                          <td><p className="truncate text-xs text-fg-muted">{j.narration}</p></td>
+                          <td><p className="truncate text-xs text-fg-muted" title={String(j.narration ?? "")}>{j.narration}</p></td>
                           <td><FinStatusBadge status={j.status} /></td>
                           <td className="text-right"><Amount value={money(j.lines.reduce((s, l) => s + (l.debit || 0), 0))} className="text-xs" /></td>
                         </tr>

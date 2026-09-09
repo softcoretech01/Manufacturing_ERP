@@ -166,7 +166,7 @@ export function PlantsPage() {
 
   const columns: Column<Plant>[] = [
     { key: 'code', header: 'Code', sortable: true, width: '90px', render: (p) => <span className="font-mono text-xs font-medium">{p.code}</span> },
-    { key: 'name', header: 'Plant', sortable: true, render: (p) => <span className="font-medium text-fg">{p.name}</span> },
+    { key: 'name', header: 'Plant', width: '16rem', sortable: true, render: (p) => <span className="font-medium text-fg">{p.name}</span> },
     { key: 'branch_code', header: 'Branch', sortable: true, width: '160px', accessor: (p) => p.branch_code ?? '', render: (p) => p.branch_code ? <span className="text-xs text-fg-muted"><span className="font-mono">{p.branch_code}</span> · {p.branch_name}</span> : <span className="text-xs text-fg-subtle">—</span> },
     { key: 'factory_licence_no', header: 'Factory licence', render: (p) => p.factory_licence_no ? <span className="font-mono text-[11px]">{p.factory_licence_no}</span> : <span className="text-xs text-fg-subtle">—</span> },
     { key: 'installed_capacity_per_day', header: 'Capacity/day', align: 'right', width: '120px', render: (p) => p.installed_capacity_per_day != null ? <span className="tabular">{Number(p.installed_capacity_per_day).toLocaleString('en-IN')}</span> : <span className="text-fg-subtle">—</span> },

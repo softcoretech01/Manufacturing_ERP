@@ -132,7 +132,7 @@ export function DataImportPage() {
   const runColumns: Column<ImportRun>[] = [
     { key: 'doc', header: 'Run', width: '14rem', render: (r) => (<><p className="font-mono text-2xs text-fg">{r.docNo}</p><p className="text-3xs text-fg-subtle">{formatDateTime(r.uploadedAt)}</p></>) },
     { key: 'spec', header: 'Import', width: '14rem', render: (r) => (<><p className="text-xs text-fg">{r.specName}</p><p className="font-mono text-3xs text-fg-subtle">{r.specCode}</p></>) },
-    { key: 'file', header: 'File', width: '16rem', render: (r) => <span className="truncate font-mono text-2xs text-fg-muted">{r.fileName}</span> },
+    { key: 'file', header: 'File', width: '16rem', render: (r) => <span className="truncate font-mono text-2xs text-fg-muted" title={String(r.fileName ?? "")}>{r.fileName}</span> },
     { key: 'by', header: 'By', width: '11rem', render: (r) => <span className="text-2xs text-fg-muted">{r.uploadedBy}</span> },
     { key: 'rows', header: 'Rows', width: '9rem', align: 'right', render: (r) => <span className="text-xs tabular text-fg">{r.rowCount}</span> },
     {
@@ -240,7 +240,7 @@ export function DataImportPage() {
                 />
                 <CardBody className="p-0">
                   <div className="max-h-96 overflow-auto">
-                    <table className="grid-table">
+                    <table className="grid-table grid-table--auto">
                       <thead>
                         <tr>
                           <th style={{ width: '4rem' }}>Row</th>
@@ -350,7 +350,7 @@ export function DataImportPage() {
 
             <div>
               <p className="mb-2 text-2xs font-semibold uppercase tracking-wider text-fg-subtle">Columns</p>
-              <table className="grid-table">
+              <table className="grid-table grid-table--auto">
                 <thead><tr><th>Column</th><th style={{ width: '9rem' }}>Type</th><th style={{ width: '6rem' }}>Required</th><th>Rules</th></tr></thead>
                 <tbody>
                   {openSpec.fields.map((f) => (
@@ -421,7 +421,7 @@ export function DataImportPage() {
             {openRun.issues.length > 0 && (
               <div>
                 <p className="mb-2 text-2xs font-semibold uppercase tracking-wider text-fg-subtle">Issues ({openRun.issues.length})</p>
-                <table className="grid-table">
+                <table className="grid-table grid-table--auto">
                   <thead><tr><th style={{ width: '5rem' }}>Row</th><th style={{ width: '8rem' }}>Column</th><th style={{ width: '7rem' }}>Severity</th><th>Message</th></tr></thead>
                   <tbody>
                     {openRun.issues.map((i, idx) => (

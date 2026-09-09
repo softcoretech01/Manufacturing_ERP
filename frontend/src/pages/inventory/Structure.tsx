@@ -122,7 +122,7 @@ export function WarehouseStructurePage() {
 
   const zoneColumns: Column<Zone>[] = [
     { key: 'code', header: 'Zone', sortable: true, width: '8rem', render: (z) => <span className="font-mono text-xs font-medium text-brand-600">{z.code}</span> },
-    { key: 'name', header: 'Name', sortable: true, render: (z) => <span className="font-medium text-fg">{z.name}</span> },
+    { key: 'name', header: 'Name', width: '16rem', sortable: true, render: (z) => <span className="font-medium text-fg">{z.name}</span> },
     { key: 'zone_type', header: 'Type', width: '10rem', render: (z) => z.zone_type ?? <span className="text-fg-subtle">—</span> },
     { key: 'pick_sequence', header: 'Pick seq', align: 'right', width: '7rem' },
     { key: 'is_active', header: 'Status', width: '7rem', accessor: (z) => (z.is_active ? 'Active' : 'Inactive'), render: (z) => <Badge tone={z.is_active ? 'success' : 'neutral'} size="sm">{z.is_active ? 'Active' : 'Inactive'}</Badge> },

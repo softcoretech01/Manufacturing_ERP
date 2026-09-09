@@ -123,7 +123,7 @@ export function PickListsPage() {
     { key: 'docNo', header: 'Pick list', sortable: true, width: '11.5rem', render: (p) => (
       <div className="min-w-0">
         <p className="font-mono text-xs font-medium text-brand-600">{p.docNo}</p>
-        <p className="truncate font-mono text-2xs text-fg-subtle">{p.dispatchPlanNo}</p>
+        <p className="truncate font-mono text-2xs text-fg-subtle" title={String(p.dispatchPlanNo ?? "")}>{p.dispatchPlanNo}</p>
       </div>
     ) },
     { key: 'method', header: 'Method', sortable: true, width: '8rem', render: (p) => (

@@ -170,7 +170,7 @@ export function MenuItem({ label, icon, onClick, danger, disabled, shortcut }: M
       <span className={cn('shrink-0 [&>svg]:h-4 [&>svg]:w-4', TONE_CLASS[tone])}>
         {icon ?? (Fallback ? <Fallback /> : <span className="block h-4 w-4" />)}
       </span>
-      <span className="flex-1 truncate">{label}</span>
+      <span className="flex-1 truncate" title={String(label ?? "")}>{label}</span>
       {shortcut && <span className="kbd">{shortcut}</span>}
     </button>
   )

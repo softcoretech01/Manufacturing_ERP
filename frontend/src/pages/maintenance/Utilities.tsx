@@ -108,7 +108,7 @@ export function UtilitiesPage() {
   }
 
   const columns: Column<UtilityEfficiency>[] = [
-    { key: 'asset', header: 'Utility', width: '20rem', render: (e) => (<><p className="truncate text-xs text-fg">{e.assetName}</p><p className="font-mono text-2xs text-fg-subtle">{e.assetCode}</p></>) },
+    { key: 'asset', header: 'Utility', width: '20rem', render: (e) => (<><p className="truncate text-xs text-fg" title={String(e.assetName ?? "")}>{e.assetName}</p><p className="font-mono text-2xs text-fg-subtle">{e.assetCode}</p></>) },
     { key: 'hours', header: 'Running hours', width: '12rem', align: 'right', render: (e) => <span className="text-xs tabular text-fg">{e.runningHours.toLocaleString('en-IN')}</span> },
     {
       key: 'load', header: 'Load factor', width: '12rem',
@@ -137,7 +137,7 @@ export function UtilitiesPage() {
 
   const logColumns: Column<UtilityLog>[] = [
     { key: 'date', header: 'Date', width: '9rem', render: (l) => <span className="text-2xs tabular text-fg-muted">{formatDate(l.logDate)}</span> },
-    { key: 'asset', header: 'Utility', width: '18rem', render: (l) => (<><p className="truncate text-xs text-fg">{l.assetName}</p><p className="font-mono text-2xs text-fg-subtle">{l.assetCode}</p></>) },
+    { key: 'asset', header: 'Utility', width: '18rem', render: (l) => (<><p className="truncate text-xs text-fg" title={String(l.assetName ?? "")}>{l.assetName}</p><p className="font-mono text-2xs text-fg-subtle">{l.assetCode}</p></>) },
     { key: 'hours', header: 'Hours', width: '8rem', align: 'right', render: (l) => <span className="text-xs tabular text-fg">{l.runningHours}</span> },
     { key: 'energy', header: 'kWh', width: '9rem', align: 'right', render: (l) => <span className="text-xs tabular text-fg-muted">{l.energyKwh || '—'}</span> },
     { key: 'fuel', header: 'Litres', width: '8rem', align: 'right', render: (l) => <span className="text-xs tabular text-fg-muted">{l.fuelLitres || '—'}</span> },

@@ -76,13 +76,13 @@ export function PayslipsPage() {
   const columns: Column<Payslip>[] = [
     { key: 'employeeCode', header: 'Employee', sortable: true, width: '15rem', render: (p) => (
       <button type="button" onClick={() => setViewing(p)} className="text-left">
-        <p className="truncate text-xs font-medium text-brand-600 hover:underline">{p.employeeName}</p>
+        <p className="truncate text-xs font-medium text-brand-600 hover:underline" title={String(p.employeeName ?? "")}>{p.employeeName}</p>
         <p className="truncate font-mono text-2xs text-fg-subtle">{p.employeeCode} · {p.department}</p>
       </button>
     ) },
     { key: 'designation', header: 'Role', sortable: true, render: (p) => (
       <div className="min-w-0">
-        <p className="truncate text-xs text-fg">{p.designation}</p>
+        <p className="truncate text-xs text-fg" title={String(p.designation ?? "")}>{p.designation}</p>
         <p className="text-2xs text-fg-subtle">grade {p.grade}</p>
       </div>
     ) },

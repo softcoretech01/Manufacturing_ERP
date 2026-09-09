@@ -50,7 +50,7 @@ export function JobWorkPage() {
 
   const columns: Column<JobworkChallan>[] = [
     { key: 'docNo', header: 'Challan', sortable: true, width: '12rem', render: (c) => <span className="font-mono text-xs font-medium text-brand-600">{c.docNo}</span> },
-    { key: 'docDate', header: 'Issued', sortable: true, width: '7rem', accessor: (c) => c.docDate, render: (c) => formatDate(c.docDate) },
+    { key: 'docDate', header: 'Issued', sortable: true, width: '8.5rem', accessor: (c) => c.docDate, render: (c) => formatDate(c.docDate) },
     { key: 'vendor', header: 'Job worker', sortable: true },
     { key: 'process', header: 'Process', sortable: true },
     { key: 'itemCode', header: 'Item', render: (c) => <ItemCell code={c.itemCode} name={c.itemName} sub={c.batchNo ?? undefined} /> },

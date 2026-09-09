@@ -125,7 +125,7 @@ export function IncentivesPage() {
     ) },
     { key: 'schemeName', header: 'Scheme', sortable: true, render: (e) => (
       <div className="min-w-0">
-        <p className="truncate text-xs text-fg">{e.schemeName}</p>
+        <p className="truncate text-xs text-fg" title={String(e.schemeName ?? "")}>{e.schemeName}</p>
         <p className="text-2xs text-fg-subtle">{INCENTIVE_MODEL_LABEL[e.model]}</p>
       </div>
     ) },
@@ -191,7 +191,7 @@ export function IncentivesPage() {
   const schemeColumns: Column<IncentiveScheme>[] = [
     { key: 'code', header: 'Scheme', sortable: true, width: '16rem', render: (s) => (
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-fg">{s.name}</p>
+        <p className="truncate text-xs font-medium text-fg" title={String(s.name ?? "")}>{s.name}</p>
         <p className="font-mono text-2xs text-fg-subtle">{s.code}</p>
       </div>
     ) },

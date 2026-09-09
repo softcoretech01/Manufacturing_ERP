@@ -162,7 +162,7 @@ export const InvTxnViewModal: React.FC<InvTxnViewModalProps> = ({
                           </td>
                           <td className="px-4 text-right font-bold text-gray-800">{l.quantity}</td>
                           <td className="px-4 text-right font-semibold text-gray-600">{formatPrice(l.unit_price)}</td>
-                          <td className="px-4 text-right font-bold text-gray-900">{formatPrice(l.line_total)}</td>
+                          <td className="px-4 text-right font-bold text-gray-900">{formatPrice(l.line_total ?? 0)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -175,15 +175,15 @@ export const InvTxnViewModal: React.FC<InvTxnViewModalProps> = ({
                 <div className="w-full max-w-[320px] bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-2.5 text-sm">
                   <div className="flex justify-between font-medium text-gray-500">
                     <span>Subtotal</span>
-                    <span>{formatPrice(txn.subtotal)}</span>
+                    <span>{formatPrice(txn.subtotal ?? 0)}</span>
                   </div>
                   <div className="flex justify-between font-medium text-gray-500 border-b pb-2">
                     <span>Tax Total</span>
-                    <span>{formatPrice(txn.tax_total)}</span>
+                    <span>{formatPrice(txn.tax_total ?? 0)}</span>
                   </div>
                   <div className="flex justify-between font-bold text-gray-900 text-base pt-1">
                     <span>Grand Total</span>
-                    <span>{formatPrice(txn.grand_total)}</span>
+                    <span>{formatPrice(txn.grand_total ?? 0)}</span>
                   </div>
                 </div>
               </div>

@@ -23,7 +23,7 @@ export function StockMovementPage() {
   const columns: Column<MovementRow>[] = [
     { key: 'class', header: 'Class', width: '80px', render: (r) => <Badge tone={CLASS_TONE[r.movement_class] ?? 'neutral'} size="sm">{r.movement_class.toLowerCase()}</Badge> },
     { key: 'item', header: 'Item', sortable: true, sticky: true, width: '260px', accessor: (r) => r.item_code,
-      render: (r) => <div className="min-w-0"><p className="truncate text-xs font-medium text-fg">{r.item_name}</p><p className="truncate font-mono text-2xs text-fg-subtle">{r.item_code}</p></div> },
+      render: (r) => <div className="min-w-0"><p className="truncate text-xs font-medium text-fg" title={String(r.item_name ?? "")}>{r.item_name}</p><p className="truncate font-mono text-2xs text-fg-subtle" title={String(r.item_code ?? "")}>{r.item_code}</p></div> },
     { key: 'on_hand', header: 'On hand', align: 'right', sortable: true, width: '120px', accessor: (r) => r.on_hand, render: (r) => <span className="tabular text-xs">{formatQty(r.on_hand)} <span className="text-2xs text-fg-subtle">{r.uom}</span></span> },
     { key: 'value', header: 'Value', align: 'right', sortable: true, width: '140px', accessor: (r) => r.value ?? 0, render: (r) => <span className="tabular text-xs">{r.value == null ? '—' : formatCurrency(r.value)}</span> },
     { key: 'last', header: 'Last issued', align: 'right', sortable: true, width: '130px', accessor: (r) => r.last_issue_days ?? 99999, render: (r) => <span className={r.last_issue_days == null || r.last_issue_days > 180 ? 'tabular text-2xs text-danger' : 'tabular text-2xs text-fg-muted'}>{r.last_issue_days == null ? 'never' : `${r.last_issue_days} d ago`}</span> },

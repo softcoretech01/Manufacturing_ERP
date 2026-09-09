@@ -205,7 +205,7 @@ export function DashboardPage() {
                       L{t.levelNo} of {t.totalLevels} · {t.levelName}
                     </span>
                   </div>
-                  <p className="mt-0.5 truncate text-xs text-fg-muted">{t.subject}</p>
+                  <p className="mt-0.5 truncate text-xs text-fg-muted" title={String(t.subject ?? "")}>{t.subject}</p>
                   {t.warnings.length > 0 && (
                     <p className="mt-1 flex items-center gap-1 text-2xs text-warning">
                       <AlertTriangle className="h-3 w-3 shrink-0" />
@@ -237,7 +237,7 @@ export function DashboardPage() {
                 <div key={r.uid} className="flex items-center gap-3 px-4 py-2">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-xs font-medium text-fg">{r.type.replace(/_/g, ' ')}</p>
-                    <p className="truncate font-mono text-[10px] text-fg-subtle">{r.number}</p>
+                    <p className="truncate font-mono text-[10px] text-fg-subtle" title={String(r.number ?? "")}>{r.number}</p>
                   </div>
                   <Badge tone={r.days <= 7 ? 'danger' : r.days <= 30 ? 'warning' : 'pending'} size="sm">
                     {r.days}d

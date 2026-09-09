@@ -164,7 +164,7 @@ export function DispatchPlanningPage() {
     ) },
     { key: 'route', header: 'Route', sortable: true, render: (p) => (
       <div className="min-w-0">
-        <p className="truncate text-xs text-fg">{p.route}</p>
+        <p className="truncate text-xs text-fg" title={String(p.route ?? "")}>{p.route}</p>
         <p className="text-2xs text-fg-subtle">{p.region}</p>
       </div>
     ) },
@@ -191,7 +191,7 @@ export function DispatchPlanningPage() {
       p.vehicleNo ? (
         <div className="min-w-0">
           <p className="font-mono text-2xs text-fg">{p.vehicleNo}</p>
-          <p className="truncate text-2xs text-fg-subtle">{p.transporter}</p>
+          <p className="truncate text-2xs text-fg-subtle" title={String(p.transporter ?? "")}>{p.transporter}</p>
         </div>
       ) : (
         <span className="text-2xs text-warning">not allocated</span>

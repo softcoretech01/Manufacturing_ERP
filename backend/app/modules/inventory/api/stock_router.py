@@ -3,6 +3,7 @@ Every endpoint declares its permission (CLAUDE.md §5.4). `get_session` commits.
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
@@ -108,12 +109,27 @@ async def batch_enquiry(
     session: SessionDep,
     item_type: str | None = None,
     search: str | None = None,
+    warehouse: str | None = None,
+    batch_no: str | None = None,
+    expiry_from: date | None = None,
+    expiry_to: date | None = None,
+    expiry_status: str | None = None,
     hide_zero: bool = True,
     ctx: TenantContext = Depends(require("INVENTORY.STOCK.VIEW")),
 ) -> Any:
-    return await StockService(session, ctx).batch_enquiry(
-        item_type=item_type, search=search, hide_zero=hide_zero
+    """Batch & Expiry. Value columns are masked without INVENTORY.STOCK.VALUE,
+    the same rule Current Stock applies (V4-STK §2.11)."""
+    wid = await _wh_id(session, ctx, warehouse)
+    rows = await StockService(session, ctx).batch_enquiry(
+        item_type=item_type, search=search, warehouse_id=wid, batch_no=batch_no,
+        expiry_from=expiry_from, expiry_to=expiry_to, expiry_status=expiry_status,
+        hide_zero=hide_zero,
     )
+    if not ctx.has("INVENTORY.STOCK.VALUE"):
+        for r in rows:
+            r["unit_cost"] = None
+            r["stock_value"] = None
+    return rows
 
 
 @router.get("/inventory/stock/ledger", response_model=s.LedgerResponse)
@@ -122,10 +138,18 @@ async def stock_ledger(
     item: str,
     warehouse: str | None = None,
     batch_no: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    movement_type: str | None = None,
+    document_no: str | None = None,
     ctx: TenantContext = Depends(require("INVENTORY.STOCK.VIEW")),
 ) -> Any:
     wid = await _wh_id(session, ctx, warehouse)
-    return await StockService(session, ctx).ledger(item_uid=item, warehouse_id=wid, batch_no=batch_no)
+    return await StockService(session, ctx).ledger(
+        item_uid=item, warehouse_id=wid, batch_no=batch_no,
+        date_from=date_from, date_to=date_to,
+        movement_type=movement_type, document_no=document_no,
+    )
 
 
 @router.get("/inventory/bin-occupancy")

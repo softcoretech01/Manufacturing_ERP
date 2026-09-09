@@ -54,7 +54,7 @@ export function OeePage() {
         <MachineDot state={m.state} />
         <div className="min-w-0">
           <p className="font-mono text-xs font-medium text-fg">{m.code}</p>
-          <p className="truncate text-2xs text-fg-subtle">{m.name}</p>
+          <p className="truncate text-2xs text-fg-subtle" title={String(m.name ?? "")}>{m.name}</p>
         </div>
       </div>
     ) },
@@ -163,7 +163,7 @@ export function OeePage() {
                 <p className="flex items-center gap-1.5 font-mono text-xs font-medium text-fg">
                   <MachineDot state={m.state} /> {m.code}
                 </p>
-                <p className="mt-1 truncate text-2xs text-fg-subtle">{m.name}</p>
+                <p className="mt-1 truncate text-2xs text-fg-subtle" title={String(m.name ?? "")}>{m.name}</p>
                 <p className={cn('mt-2 text-xl font-semibold tabular', o.oee >= 70 ? 'text-warning' : 'text-danger')}>{o.oee.toFixed(1)}%</p>
                 <p className="mt-1 text-2xs text-fg-muted">
                   Weakest factor: <span className="font-medium text-fg">{weakest}</span>

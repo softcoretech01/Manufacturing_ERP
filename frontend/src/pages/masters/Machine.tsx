@@ -555,7 +555,7 @@ export function MachineMasterPage() {
       accessor: (m) => m.name,
       render: (m) => (
         <div className="min-w-0">
-          <p className="truncate text-xs font-medium text-fg">{m.name}</p>
+          <p className="truncate text-xs font-medium text-fg" title={String(m.name ?? "")}>{m.name}</p>
           <p className="truncate font-mono text-2xs text-fg-subtle">{m.code} · {m.assetCode}</p>
         </div>
       ),
