@@ -183,7 +183,7 @@ export function FreightPage() {
     { key: 'docNo', header: 'Charge', sortable: true, width: '11.5rem', render: (f) => (
       <div className="min-w-0">
         <p className="font-mono text-xs font-medium text-brand-600">{f.docNo}</p>
-        <p className="truncate font-mono text-2xs text-fg-subtle">{f.shipmentNo}</p>
+        <p className="truncate font-mono text-2xs text-fg-subtle" title={String(f.shipmentNo ?? "")}>{f.shipmentNo}</p>
       </div>
     ) },
     { key: 'chargeType', header: 'Charge type', sortable: true, width: '11rem', render: (f) => (
@@ -193,8 +193,8 @@ export function FreightPage() {
     ) },
     { key: 'customer', header: 'Customer', sortable: true, render: (f) => (
       <div className="min-w-0">
-        <p className="truncate text-xs text-fg">{f.customer}</p>
-        <p className="truncate text-2xs text-fg-subtle">{f.route}</p>
+        <p className="truncate text-xs text-fg" title={String(f.customer ?? "")}>{f.customer}</p>
+        <p className="truncate text-2xs text-fg-subtle" title={String(f.route ?? "")}>{f.route}</p>
       </div>
     ) },
     { key: 'transporter', header: 'Billed by', sortable: true, width: '12rem' },
@@ -218,7 +218,7 @@ export function FreightPage() {
     { key: 'billNo', header: 'Bill', sortable: true, width: '11rem', render: (f) => (
       f.billNo ? (
         <div className="min-w-0">
-          <p className="truncate font-mono text-2xs text-fg">{f.billNo}</p>
+          <p className="truncate font-mono text-2xs text-fg" title={String(f.billNo ?? "")}>{f.billNo}</p>
           {f.billDate && <p className="text-2xs text-fg-subtle">{formatDate(f.billDate)}</p>}
         </div>
       ) : (

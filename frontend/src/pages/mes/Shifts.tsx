@@ -43,7 +43,7 @@ export function ShiftsPage() {
   const utilisation = (l: ShiftLog) => (l.runMinutes + l.downMinutes ? (l.runMinutes / (l.runMinutes + l.downMinutes)) * 100 : 0)
 
   const columns: Column<ShiftLog>[] = [
-    { key: 'logDate', header: 'Date', sortable: true, width: '8rem', accessor: (l) => l.logDate, render: (l) => formatDate(l.logDate) },
+    { key: 'logDate', header: 'Date', sortable: true, width: '8.5rem', accessor: (l) => l.logDate, render: (l) => formatDate(l.logDate) },
     { key: 'shift', header: 'Shift', width: '9rem', sortable: true, render: (l) => <Badge tone="neutral" size="sm" dot={false}>{SHIFT_NAME[l.shift]}</Badge> },
     { key: 'line', header: 'Line', sortable: true, width: '7rem' },
     { key: 'supervisor', header: 'Supervisor', sortable: true },

@@ -154,8 +154,8 @@ export function CollaborationPage() {
                         >
                           <Avatar name={u.fullName} size="xs" />
                           <span className="min-w-0">
-                            <span className="block truncate text-xs text-fg">{u.fullName}</span>
-                            <span className="block truncate text-2xs text-fg-subtle">{u.designation}</span>
+                            <span className="block truncate text-xs text-fg" title={String(u.fullName ?? "")}>{u.fullName}</span>
+                            <span className="block truncate text-2xs text-fg-subtle" title={String(u.designation ?? "")}>{u.designation}</span>
                           </span>
                         </button>
                       ))}

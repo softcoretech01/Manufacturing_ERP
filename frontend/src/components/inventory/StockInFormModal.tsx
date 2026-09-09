@@ -45,7 +45,7 @@ export const StockInFormModal: React.FC<StockInFormModalProps> = ({
   // Query Eligible GRNs
   const { data: eligibleGrns = [], isLoading: isLoadingGrns } = useQuery({
     queryKey: ['eligibleGrns'],
-    queryFn: () => stockTxn.getEligibleGrns().then(res => res.data),
+    queryFn: () => stockTxn.getEligibleGrns(),
     enabled: referenceType === 'GRN'
   })
 
@@ -87,7 +87,7 @@ export const StockInFormModal: React.FC<StockInFormModalProps> = ({
   // Populate from GRN details
   useEffect(() => {
     if (grnDetails && !initialData) {
-      const selectedGrn = eligibleGrns.find(g => g.doc_no === referenceNo)
+      const selectedGrn = eligibleGrns.find((g: any) => g.doc_no === referenceNo)
       if (selectedGrn && selectedGrn.warehouse) {
         const wh = warehouses.find(w => w.name === selectedGrn.warehouse || w.code === selectedGrn.warehouse)
         if (wh) setDstWarehouse(wh.uid)

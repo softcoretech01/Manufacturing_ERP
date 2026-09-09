@@ -271,7 +271,7 @@ export function BomExplorerPage() {
                 />
                 <CardBody className="p-0">
                   <div className="overflow-x-auto">
-                    <table className="grid-table">
+                    <table className="grid-table grid-table--auto">
                       <thead>
                         <tr>
                           <th style={{ width: '4rem' }}>Level</th>
@@ -333,7 +333,7 @@ export function BomExplorerPage() {
                 />
                 <CardBody className="p-0">
                   <div className="overflow-x-auto">
-                    <table className="grid-table">
+                    <table className="grid-table grid-table--auto">
                       <thead>
                         <tr>
                           <th>Item</th>
@@ -430,7 +430,7 @@ export function BomExplorerPage() {
                 <CardHeader title="Used on" description="Level 1 is a direct parent; higher levels are reached through it" />
                 <CardBody className="p-0">
                   <div className="overflow-x-auto">
-                    <table className="grid-table">
+                    <table className="grid-table grid-table--auto">
                       <thead>
                         <tr>
                           <th style={{ width: '4rem' }}>Level</th>
@@ -449,7 +449,7 @@ export function BomExplorerPage() {
                             <td>
                               <LevelIndent level={u.level}>
                                 <span className="min-w-0">
-                                  <span className="block truncate text-xs font-medium text-fg">{u.parentName}</span>
+                                  <span className="block truncate text-xs font-medium text-fg" title={String(u.parentName ?? "")}>{u.parentName}</span>
                                   <span className="block font-mono text-2xs text-fg-subtle">{u.parentCode}</span>
                                 </span>
                               </LevelIndent>

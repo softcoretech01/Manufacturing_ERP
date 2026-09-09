@@ -215,6 +215,7 @@ export function BiForecastsPage() {
     {
       key: 'machineCode',
       header: 'Machine',
+      width: '16rem',
       render: (r) => (
         <div>
           <p className="font-medium text-fg">{r.machineCode}</p>

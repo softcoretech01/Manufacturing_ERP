@@ -29,7 +29,7 @@ export function LoginActivityPage() {
   const rows = action ? events.filter((e) => e.action === action) : events
 
   const columns: Column<LoginEvent>[] = [
-    { key: 'occurred_at', header: 'Time', sortable: true, width: '170px', render: (e) => formatDateTime(e.occurred_at) },
+    { key: 'occurred_at', header: 'Time', sortable: true, width: '11rem', render: (e) => formatDateTime(e.occurred_at) },
     {
       key: 'actor_name',
       header: 'User',

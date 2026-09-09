@@ -168,6 +168,7 @@ export function ChangesPage() {
     {
       key: 'title',
       header: 'Title',
+      width: '16rem',
       sortable: true,
       render: (c) => (
         <>
@@ -179,9 +180,9 @@ export function ChangesPage() {
     { key: 'category', header: 'Category', sortable: true, width: '10rem', accessor: (c) => CHANGE_CATEGORY_LABEL[c.category], render: (c) => <span className="text-xs text-fg-muted">{CHANGE_CATEGORY_LABEL[c.category]}</span> },
     { key: 'priority', header: 'Priority', width: '6rem', render: (c) => <PriorityBadge priority={c.priority} /> },
     { key: 'requestedBy', header: 'Raised by', sortable: true, width: '9rem' },
-    { key: 'requestedOn', header: 'Raised', sortable: true, width: '7.5rem', accessor: (c) => c.requestedOn, render: (c) => formatDate(c.requestedOn) },
+    { key: 'requestedOn', header: 'Raised', sortable: true, width: '8.5rem', accessor: (c) => c.requestedOn, render: (c) => formatDate(c.requestedOn) },
     { key: 'lineCount', header: 'Changes', align: 'right', width: '6rem', accessor: (c) => c.changeLines.length },
-    { key: 'effectiveFrom', header: 'Effective', sortable: true, width: '7.5rem', accessor: (c) => c.effectiveFrom, render: (c) => formatDate(c.effectiveFrom) },
+    { key: 'effectiveFrom', header: 'Effective', sortable: true, width: '8.5rem', accessor: (c) => c.effectiveFrom, render: (c) => formatDate(c.effectiveFrom) },
     { key: 'status', header: 'Status', sortable: true, width: '9rem', render: (c) => <EngStatusBadge status={c.status} size="sm" /> },
   ]
 
@@ -627,7 +628,7 @@ export function ChangesPage() {
                 </Alert>
               ) : (
                 <div className="overflow-x-auto rounded border border-border">
-                  <table className="grid-table">
+                  <table className="grid-table grid-table--auto">
                     <thead>
                       <tr>
                         <th style={{ width: '10rem' }}>BOM</th>
@@ -805,7 +806,7 @@ export function ChangesPage() {
           {errors.lines && <Alert tone="danger" className="mb-2">{errors.lines}</Alert>}
 
           <div className="overflow-x-auto rounded border border-border">
-            <table className="grid-table">
+            <table className="grid-table grid-table--auto">
               <thead>
                 <tr>
                   <th style={{ minWidth: '11rem' }}>BOM *</th>

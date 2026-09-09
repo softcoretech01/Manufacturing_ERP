@@ -68,7 +68,7 @@ export function CostingPage() {
 
   const varianceColumns: Column<(typeof variances)[number]>[] = [
     { key: 'order', header: 'Production order', sortable: true, width: '12rem', accessor: (v) => v.actual.productionOrderNo, render: (v) => <span className="font-mono text-xs font-medium text-brand-600">{v.actual.productionOrderNo}</span> },
-    { key: 'product', header: 'Product', sortable: true, accessor: (v) => v.actual.productCode, render: (v) => (<><p className="text-xs font-medium text-fg">{v.actual.productName}</p><p className="font-mono text-2xs text-fg-subtle">{v.actual.productCode} · {v.actual.batchNo}</p></>) },
+    { key: 'product', header: 'Product', width: '16rem', sortable: true, accessor: (v) => v.actual.productCode, render: (v) => (<><p className="text-xs font-medium text-fg">{v.actual.productName}</p><p className="font-mono text-2xs text-fg-subtle">{v.actual.productCode} · {v.actual.batchNo}</p></>) },
     { key: 'output', header: 'Output', align: 'right', sortable: true, width: '7rem', accessor: (v) => v.actual.outputQty, render: (v) => v.actual.outputQty.toLocaleString('en-IN') },
     { key: 'scrap', header: 'Scrap', align: 'right', width: '6rem', accessor: (v) => v.actual.scrapQty, render: (v) => (v.actual.scrapQty ? <span className="text-danger">{v.actual.scrapQty}</span> : <span className="text-2xs text-fg-subtle">—</span>) },
     { key: 'standard', header: 'Standard', align: 'right', sortable: true, width: '11rem', accessor: (v) => v.variance.standardCost, render: (v) => inr(v.variance.standardCost) },
@@ -81,8 +81,8 @@ export function CostingPage() {
   ]
 
   const cardColumns: Column<StandardCostCard>[] = [
-    { key: 'productCode', header: 'Product', sortable: true, render: (c) => (<><p className="text-xs font-medium text-fg">{c.productName}</p><p className="font-mono text-2xs text-fg-subtle">{c.productCode}</p></>) },
-    { key: 'effectiveFrom', header: 'Effective', width: '8rem', accessor: (c) => c.effectiveFrom, render: (c) => formatDate(c.effectiveFrom) },
+    { key: 'productCode', header: 'Product', width: '16rem', sortable: true, render: (c) => (<><p className="text-xs font-medium text-fg">{c.productName}</p><p className="font-mono text-2xs text-fg-subtle">{c.productCode}</p></>) },
+    { key: 'effectiveFrom', header: 'Effective', width: '8.5rem', accessor: (c) => c.effectiveFrom, render: (c) => formatDate(c.effectiveFrom) },
     { key: 'material', header: 'Material', align: 'right', width: '9rem', accessor: (c) => c.material, render: (c) => inr(c.material) },
     { key: 'labour', header: 'Labour', align: 'right', width: '8rem', accessor: (c) => c.labour, render: (c) => inr(c.labour) },
     { key: 'machine', header: 'Machine', align: 'right', width: '8rem', accessor: (c) => c.machine, render: (c) => inr(c.machine) },

@@ -52,7 +52,7 @@ export function BiProductionPage() {
     { key: 'machine', header: 'Machine', sortable: true, width: '13rem', render: (m) => (
       <div className="min-w-0">
         <p className="font-mono text-xs font-medium text-fg">{m.machine}</p>
-        <p className="truncate text-2xs text-fg-subtle">{m.name}</p>
+        <p className="truncate text-2xs text-fg-subtle" title={String(m.name ?? "")}>{m.name}</p>
       </div>
     ) },
     { key: 'line', header: 'Line', sortable: true, width: '8rem' },
@@ -226,7 +226,7 @@ export function BiProductionPage() {
                       <tr key={m.machine} className="border-b border-border/70 hover:bg-surface-2">
                         <td className="px-2 py-1.5">
                           <p className="font-mono text-xs font-medium text-fg">{m.machine}</p>
-                          <p className="truncate text-2xs text-fg-subtle">{m.line}</p>
+                          <p className="truncate text-2xs text-fg-subtle" title={String(m.line ?? "")}>{m.line}</p>
                         </td>
                         <td className="px-2 py-1.5 text-center"><HeatCell value={m.availability} status={statusFor(m.availability, 90)} label={`${m.machine} availability`} /></td>
                         <td className="px-2 py-1.5 text-center"><HeatCell value={m.performance} status={statusFor(m.performance, 90)} label={`${m.machine} performance`} /></td>

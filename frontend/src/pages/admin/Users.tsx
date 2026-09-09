@@ -81,7 +81,7 @@ export function UsersPage() {
         </div>
       ),
     },
-    { key: 'full_name', header: 'Name', sortable: true, render: (u) => <span className="font-medium text-fg">{u.full_name}</span> },
+    { key: 'full_name', header: 'Name', width: '16rem', sortable: true, render: (u) => <span className="font-medium text-fg">{u.full_name}</span> },
     { key: 'email', header: 'Email', sortable: true, render: (u) => <span className="text-xs text-fg-muted">{u.email}</span> },
     {
       key: 'user_type',

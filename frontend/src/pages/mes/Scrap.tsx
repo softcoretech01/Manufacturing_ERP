@@ -59,17 +59,17 @@ export function ScrapPage() {
 
   const columns: Column<ScrapRecord>[] = [
     { key: 'docNo', header: 'Record', sortable: true, width: '11rem', render: (r) => <span className="font-mono text-xs font-medium text-brand-600">{r.docNo}</span> },
-    { key: 'entryDate', header: 'Date', sortable: true, width: '7rem', accessor: (r) => r.entryDate, render: (r) => formatDate(r.entryDate) },
-    { key: 'operationName', header: 'Where it happened', sortable: true, render: (r) => (
+    { key: 'entryDate', header: 'Date', sortable: true, width: '8.5rem', accessor: (r) => r.entryDate, render: (r) => formatDate(r.entryDate) },
+    { key: 'operationName', header: 'Where it happened', width: '16rem', sortable: true, render: (r) => (
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-fg">{r.operationName}</p>
+        <p className="truncate text-xs font-medium text-fg" title={String(r.operationName ?? "")}>{r.operationName}</p>
         <p className="truncate font-mono text-2xs text-fg-subtle">{r.workOrderNo} · {r.machine}</p>
       </div>
     ) },
     { key: 'itemName', header: 'Item', sortable: true, render: (r) => (
       <div className="min-w-0">
-        <p className="truncate text-xs text-fg">{r.itemName}</p>
-        <p className="truncate font-mono text-2xs text-fg-subtle">{r.batchNo ?? r.itemCode}</p>
+        <p className="truncate text-xs text-fg" title={String(r.itemName ?? "")}>{r.itemName}</p>
+        <p className="truncate font-mono text-2xs text-fg-subtle" title={String(r.batchNo ?? r.itemCode ?? "")}>{r.batchNo ?? r.itemCode}</p>
       </div>
     ) },
     { key: 'quantity', header: 'Pieces', align: 'right', sortable: true, render: (r) => <span className="tabular font-medium text-danger">{formatQty(r.quantity)}</span> },

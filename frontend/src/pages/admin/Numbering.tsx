@@ -62,7 +62,7 @@ export function NumberingPage() {
       key: 'document_label', header: 'Document type', sortable: true, sticky: true, width: '220px',
       render: (s) => (
         <div className="min-w-0">
-          <p className="truncate text-xs font-medium text-fg">{s.document_label}</p>
+          <p className="truncate text-xs font-medium text-fg" title={String(s.document_label ?? "")}>{s.document_label}</p>
           <p className="truncate font-mono text-2xs text-fg-subtle">{s.document_type}{s.sub_type && ` · ${s.sub_type}`}</p>
         </div>
       ),
@@ -166,7 +166,7 @@ function AllocationLog({ uid }: { uid: string | null }) {
     { key: 'status', header: 'Status', width: '120px', render: (a) => <Badge tone={a.status === 'CONSUMED' ? 'success' : a.status === 'ALLOCATED' ? 'pending' : 'danger'} size="sm">{a.status.toLowerCase()}</Badge> },
     { key: 'reason', header: 'Reason', render: (a) => <span className="text-2xs text-fg-muted">{a.reason ?? '—'}</span> },
     { key: 'allocated_by_name', header: 'By', width: '140px', render: (a) => a.allocated_by_name ?? '—' },
-    { key: 'allocated_at', header: 'When', sortable: true, width: '160px', render: (a) => formatDateTime(a.allocated_at) },
+    { key: 'allocated_at', header: 'When', sortable: true, width: '11rem', render: (a) => formatDateTime(a.allocated_at) },
   ]
   return (
     <>

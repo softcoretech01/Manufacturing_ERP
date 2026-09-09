@@ -180,7 +180,7 @@ export function ShutdownsPage() {
   /* ── columns ────────────────────────────────────────────────── */
 
   const columns: Column<Shutdown>[] = [
-    { key: 'doc', header: 'Shutdown', width: '20rem', render: (s) => (<><p className="truncate text-xs text-fg">{s.title}</p><p className="font-mono text-2xs text-fg-subtle">{s.docNo}</p></>) },
+    { key: 'doc', header: 'Shutdown', width: '20rem', render: (s) => (<><p className="truncate text-xs text-fg" title={String(s.title ?? "")}>{s.title}</p><p className="font-mono text-2xs text-fg-subtle">{s.docNo}</p></>) },
     { key: 'type', header: 'Type', width: '11rem', render: (s) => <Badge tone={s.shutdownType === 'ANNUAL' ? 'danger' : s.shutdownType === 'EMERGENCY' ? 'danger' : 'brand'} size="sm" dot={false}>{TYPE_LABEL[s.shutdownType]}</Badge> },
     { key: 'window', header: 'Window', width: '15rem', render: (s) => <span className="text-2xs tabular text-fg-muted">{formatDate(s.plannedStart)} → {formatDate(s.plannedEnd)}</span> },
     {

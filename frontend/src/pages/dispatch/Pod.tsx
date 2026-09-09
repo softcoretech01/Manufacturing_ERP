@@ -142,7 +142,7 @@ export function PodPage() {
     { key: 'docNo', header: 'POD', sortable: true, width: '11.5rem', render: (p) => (
       <div className="min-w-0">
         <p className="font-mono text-xs font-medium text-brand-600">{p.docNo}</p>
-        <p className="truncate font-mono text-2xs text-fg-subtle">{p.shipmentNo}</p>
+        <p className="truncate font-mono text-2xs text-fg-subtle" title={String(p.shipmentNo ?? "")}>{p.shipmentNo}</p>
       </div>
     ) },
     { key: 'customer', header: 'Customer', sortable: true, render: (p) => <PartyCell name={p.customer} place={p.destination} /> },
@@ -159,7 +159,7 @@ export function PodPage() {
     { key: 'receiverName', header: 'Received by', sortable: true, render: (p) => (
       p.receiverName ? (
         <div className="min-w-0">
-          <p className="truncate text-xs text-fg">{p.receiverName}</p>
+          <p className="truncate text-xs text-fg" title={String(p.receiverName ?? "")}>{p.receiverName}</p>
           <p className="truncate text-2xs text-fg-subtle">{p.receiverDesignation ?? '—'}</p>
         </div>
       ) : (
@@ -191,7 +191,7 @@ export function PodPage() {
       p.capturedVia ? (
         <div className="min-w-0">
           <p className="text-2xs text-fg">{p.capturedVia === 'MOBILE' ? 'Mobile app' : p.capturedVia === 'COURIER_API' ? 'Courier API' : 'Web'}</p>
-          <p className="truncate text-2xs text-fg-subtle">{p.capturedBy}</p>
+          <p className="truncate text-2xs text-fg-subtle" title={String(p.capturedBy ?? "")}>{p.capturedBy}</p>
         </div>
       ) : (
         <span className="text-2xs text-fg-subtle">—</span>

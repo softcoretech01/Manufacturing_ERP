@@ -107,6 +107,15 @@ class InvStockBalance(CompanyEntity):
     )
 
     quantity: Mapped[float] = mapped_column(DECIMAL(18, 6), nullable=False, default=0)
+    # Stock committed to a production order but not yet issued. Held apart from
+    # `quantity` on purpose: the material is still physically here and still
+    # counts as on hand, it is simply spoken for. Free stock is
+    # `quantity - reserved_qty`, and that is what planning may plan against.
+    #
+    # Reservation is deliberately *soft*: `post_movement` still issues against
+    # `quantity`, so an urgent issue is never blocked by a reservation held for
+    # another order. Making it hard is a policy change, not a schema one.
+    reserved_qty: Mapped[float] = mapped_column(DECIMAL(18, 6), nullable=False, default=0)
     avg_rate: Mapped[float] = mapped_column(DECIMAL(18, 6), nullable=False, default=0)
     value: Mapped[float] = mapped_column(DECIMAL(18, 2), nullable=False, default=0)
 

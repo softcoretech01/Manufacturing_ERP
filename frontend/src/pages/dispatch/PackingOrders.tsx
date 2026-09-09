@@ -111,7 +111,7 @@ export function PackingOrdersPage() {
       </div>
     ) },
     { key: 'supervisor', header: 'Supervisor', sortable: true, width: '9rem' },
-    { key: 'packingDate', header: 'Packing date', sortable: true, width: '8rem', accessor: (o) => o.packingDate, render: (o) => formatDate(o.packingDate) },
+    { key: 'packingDate', header: 'Packing date', sortable: true, width: '8.5rem', accessor: (o) => o.packingDate, render: (o) => formatDate(o.packingDate) },
     { key: 'priority', header: 'Priority', align: 'center', width: '7rem', sortable: true, render: (o) => (
       <Badge tone={o.priority === 'URGENT' ? 'danger' : o.priority === 'HIGH' ? 'warning' : 'neutral'} size="sm" dot={o.priority === 'URGENT'}>
         {o.priority.toLowerCase()}

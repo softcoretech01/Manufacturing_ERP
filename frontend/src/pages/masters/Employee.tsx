@@ -179,7 +179,7 @@ function EmployeeDetail({ e, onClose, onEdit, onAddSkill }: { e: Employee; onClo
               {e.skills.map((s, i) => (
                 <div key={i} className="flex items-center justify-between gap-3 rounded border border-border p-3">
                   <div className="min-w-0">
-                    <p className="truncate text-xs font-medium text-fg">{s.skill}</p>
+                    <p className="truncate text-xs font-medium text-fg" title={String(s.skill ?? "")}>{s.skill}</p>
                     <p className="text-2xs text-fg-subtle">
                       {s.certifiedOn ? `Certified ${formatDate(s.certifiedOn)}` : 'Not certified'}
                     </p>
@@ -331,6 +331,7 @@ export function EmployeeMasterPage() {
     {
       key: 'employeeCode',
       header: 'Employee',
+      width: '16rem',
       sortable: true,
       sticky: true,
       accessor: (e) => e.name,
@@ -338,8 +339,8 @@ export function EmployeeMasterPage() {
         <div className="flex min-w-0 items-center gap-2">
           <Avatar name={e.name} size="xs" />
           <div className="min-w-0">
-            <p className="truncate text-xs font-medium text-fg">{e.name}</p>
-            <p className="truncate font-mono text-2xs text-fg-subtle">{e.employeeCode}</p>
+            <p className="truncate text-xs font-medium text-fg" title={String(e.name ?? "")}>{e.name}</p>
+            <p className="truncate font-mono text-2xs text-fg-subtle" title={String(e.employeeCode ?? "")}>{e.employeeCode}</p>
           </div>
         </div>
       ),

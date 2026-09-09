@@ -200,7 +200,7 @@ export function QualityDashboardPage() {
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block text-lg font-semibold leading-none text-fg tabular">{a.count}</span>
-                <span className="mt-1 block truncate text-xs text-fg-muted">{a.label}</span>
+                <span className="mt-1 block truncate text-xs text-fg-muted" title={String(a.label ?? "")}>{a.label}</span>
               </span>
               <ArrowRight className="h-3.5 w-3.5 shrink-0 text-fg-subtle" />
             </Link>
@@ -264,7 +264,7 @@ export function QualityDashboardPage() {
                     {kpis.openNcrs.map((n) => (
                       <tr key={n.docNo} className={overdueDays(n.dueOn, n.closedOn) > 0 ? 'bg-danger/5' : undefined}>
                         <td className="font-mono text-2xs font-medium text-brand-600">{n.docNo}</td>
-                        <td><p className="max-w-[18rem] truncate text-xs text-fg">{n.title}</p><p className="font-mono text-2xs text-fg-subtle">{n.itemCode}</p></td>
+                        <td><p className="max-w-[18rem] truncate text-xs text-fg" title={String(n.title ?? "")}>{n.title}</p><p className="font-mono text-2xs text-fg-subtle">{n.itemCode}</p></td>
                         <td><SeverityBadge severity={n.severity} /></td>
                         <td className="text-right tabular text-xs">{n.costImpact ? `₹${formatAmount(n.costImpact)}` : '—'}</td>
                         <td className={cn('text-2xs', overdueDays(n.dueOn, n.closedOn) > 0 ? 'text-danger' : 'text-fg-muted')}>{formatDate(n.dueOn)}</td>
@@ -285,7 +285,7 @@ export function QualityDashboardPage() {
               {!kpis.dueInstruments.length ? (<p className="text-xs text-fg-subtle">Every instrument is inside its calibration interval.</p>) : (
                 kpis.dueInstruments.slice(0, 5).map((i) => (
                   <Link key={i.code} to="/quality/calibration" className="flex items-center justify-between gap-3 border-b border-border pb-2.5 last:border-0 last:pb-0">
-                    <div className="min-w-0"><p className="truncate text-xs font-medium text-fg">{i.name}</p><p className="font-mono text-2xs text-fg-subtle">{i.code} · due {formatDate(i.nextDueOn)}</p></div>
+                    <div className="min-w-0"><p className="truncate text-xs font-medium text-fg" title={String(i.name ?? "")}>{i.name}</p><p className="font-mono text-2xs text-fg-subtle">{i.code} · due {formatDate(i.nextDueOn)}</p></div>
                     <Badge tone={instrumentStatus(i) === 'OVERDUE' ? 'danger' : 'warning'} size="sm">{instrumentStatus(i) === 'OVERDUE' ? 'Overdue' : 'Due'}</Badge>
                   </Link>
                 ))
@@ -299,7 +299,7 @@ export function QualityDashboardPage() {
               {kpis.suppliers.slice(0, 4).map((s: any) => (
                 <Link key={s.supplierCode} to="/quality/suppliers" className="block border-b border-border pb-2.5 last:border-0 last:pb-0">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0"><p className="truncate text-xs font-medium text-fg">{s.supplierName}</p><p className="font-mono text-2xs text-fg-subtle">{s.supplierCode} · {Math.round(s.ppm).toLocaleString('en-IN')} PPM</p></div>
+                    <div className="min-w-0"><p className="truncate text-xs font-medium text-fg" title={String(s.supplierName ?? "")}>{s.supplierName}</p><p className="font-mono text-2xs text-fg-subtle">{s.supplierCode} · {Math.round(s.ppm).toLocaleString('en-IN')} PPM</p></div>
                     <GradeBadge grade={s.grade} />
                   </div>
                   <ProgressBar className="mt-1.5" value={s.score} tone={s.score >= 90 ? 'success' : s.score >= 75 ? 'brand' : s.score >= 60 ? 'warning' : 'danger'} showLabel />

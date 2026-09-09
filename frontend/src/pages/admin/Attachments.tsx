@@ -32,6 +32,36 @@ function fileIcon(type: string) {
   return FileText
 }
 
+/**
+ * A file type a person can read.
+ *
+ * The stored value is the MIME type, and
+ * "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" is 409px
+ * of text that told the reader nothing before it was cut off at "…formats-o".
+ * The extension is the part anyone actually uses; the full type stays available
+ * in the cell's tooltip.
+ */
+function fileTypeLabel(type: string) {
+  const t = type.toLowerCase()
+  const known: [RegExp, string][] = [
+    [/spreadsheetml|ms-excel|xls/, 'XLSX'],
+    [/wordprocessingml|msword|doc/, 'DOCX'],
+    [/presentationml|powerpoint|ppt/, 'PPTX'],
+    [/pdf/, 'PDF'],
+    [/csv/, 'CSV'],
+    [/zip|compressed/, 'ZIP'],
+    [/png/, 'PNG'],
+    [/jpe?g/, 'JPG'],
+    [/dwg/, 'DWG'],
+    [/step|stp/, 'STEP'],
+    [/plain|txt/, 'TXT'],
+  ]
+  for (const [re, label] of known) if (re.test(t)) return label
+  // Unknown type: the subtype is still more useful than the whole string.
+  const sub = t.split('/').pop() ?? t
+  return sub.split(/[.+;]/).pop()!.toUpperCase().slice(0, 8) || 'FILE'
+}
+
 function formatBytes(b: number) {
   if (b < 1024) return `${b} B`
   if (b < 1024 * 1024) return `${(b / 1024).toFixed(0)} KB`
@@ -84,8 +114,10 @@ export function AttachmentsPage() {
           <div className="flex min-w-0 items-center gap-2">
             <Icon className="h-4 w-4 shrink-0 text-fg-subtle" />
             <div className="min-w-0">
-              <p className="truncate text-xs font-medium text-fg">{a.fileName}</p>
-              <p className="truncate text-2xs text-fg-subtle">{a.fileType} · {formatBytes(a.sizeBytes)}</p>
+              <p className="truncate text-xs font-medium text-fg" title={String(a.fileName ?? "")}>{a.fileName}</p>
+              <p className="truncate text-2xs text-fg-subtle" title={a.fileType}>
+                {fileTypeLabel(a.fileType)} · {formatBytes(a.sizeBytes)}
+              </p>
             </div>
           </div>
         )
@@ -98,15 +130,15 @@ export function AttachmentsPage() {
       accessor: (a) => a.entityType,
       render: (a) => (
         <div className="min-w-0">
-          <p className="truncate text-xs text-fg">{a.entityType}</p>
-          <p className="truncate font-mono text-2xs text-fg-subtle">{a.entityUid}</p>
+          <p className="truncate text-xs text-fg" title={String(a.entityType ?? "")}>{a.entityType}</p>
+          <p className="truncate font-mono text-2xs text-fg-subtle" title={String(a.entityUid ?? "")}>{a.entityUid}</p>
         </div>
       ),
     },
     { key: 'category', header: 'Category', sortable: true, width: '150px', render: (a) => <Badge tone="neutral" size="sm" dot={false}>{a.category.toLowerCase()}</Badge> },
     { key: 'version', header: 'Ver', align: 'right', width: '60px', render: (a) => <span className="tabular">v{a.version}</span> },
     { key: 'uploadedBy', header: 'Uploaded by', width: '150px' },
-    { key: 'uploadedAt', header: 'When', sortable: true, width: '160px', render: (a) => formatDateTime(a.uploadedAt) },
+    { key: 'uploadedAt', header: 'When', sortable: true, width: '11rem', render: (a) => formatDateTime(a.uploadedAt) },
     {
       key: 'status',
       header: 'Status',

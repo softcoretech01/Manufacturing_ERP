@@ -260,6 +260,7 @@ export function BiAlertsPage() {
     {
       key: 'message',
       header: 'What happened',
+      className: 'cell-wrap',
       render: (e) => (
         <div>
           <p className="max-w-[26rem] text-xs leading-snug text-fg">{e.message}</p>
@@ -278,6 +279,7 @@ export function BiAlertsPage() {
     {
       key: 'status',
       header: 'Status',
+      className: 'cell-wrap',
       render: (e) => (
         <div>
           <Badge

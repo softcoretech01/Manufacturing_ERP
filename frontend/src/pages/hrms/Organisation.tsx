@@ -106,8 +106,8 @@ export function OrganisationPage() {
   const columns: Column<OrgNode>[] = [
     { key: 'code', header: 'Unit', sortable: true, width: '15rem', render: (n) => (
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-fg">{n.name}</p>
-        <p className="truncate font-mono text-2xs text-fg-subtle">{n.code}</p>
+        <p className="truncate text-xs font-medium text-fg" title={String(n.name ?? "")}>{n.name}</p>
+        <p className="truncate font-mono text-2xs text-fg-subtle" title={String(n.code ?? "")}>{n.code}</p>
       </div>
     ) },
     { key: 'level', header: 'Level', sortable: true, width: '9rem', render: (n) => (
@@ -119,7 +119,7 @@ export function OrganisationPage() {
     { key: 'headName', header: 'Head', sortable: true, render: (n) => (
       n.headEmployeeCode ? (
         <div className="min-w-0">
-          <p className="truncate text-xs text-fg">{n.headName}</p>
+          <p className="truncate text-xs text-fg" title={String(n.headName ?? "")}>{n.headName}</p>
           <p className="font-mono text-2xs text-fg-subtle">{n.headEmployeeCode}</p>
         </div>
       ) : (
@@ -189,7 +189,7 @@ export function OrganisationPage() {
             {ORG_LEVEL_LABEL[node.level].slice(0, 2)}
           </span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-medium text-fg">{node.name}</p>
+            <p className="truncate text-xs font-medium text-fg" title={String(node.name ?? "")}>{node.name}</p>
             <p className="truncate text-2xs text-fg-subtle">
               <span className="font-mono">{node.code}</span> · {node.costCentre} ·{' '}
               {node.headEmployeeCode ? node.headName : <span className="text-warning">head vacant</span>}

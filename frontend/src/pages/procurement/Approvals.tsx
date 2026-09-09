@@ -141,7 +141,7 @@ function DocumentPreview({ task }: { task: any }) {
                 lookup.itemTypeOf(l.itemCode) || <span className="text-fg-subtle">&mdash;</span> },
             { key: 'category', header: 'Category', width: '150px', render: (l: any) =>
                 lookup.categoryOf(l.itemCode) || <span className="text-fg-subtle">&mdash;</span> },
-            { key: 'itemName', header: 'Item', render: (l: any) =>
+            { key: 'itemName', header: 'Item', width: '16rem', render: (l: any) =>
                 <span className="font-medium text-fg">{l.itemName || l.itemCode}</span> },
             { key: 'qty', header: 'Qty', align: 'right' as const, width: '90px', render: (l: any) => fmtQty(l.qty) },
             { key: 'uom', header: 'UOM', align: 'center' as const, width: '70px' },

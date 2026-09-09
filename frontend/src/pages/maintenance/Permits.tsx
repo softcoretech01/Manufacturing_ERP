@@ -141,7 +141,7 @@ export function PermitsPage() {
   const columns: Column<MaintPermit>[] = [
     { key: 'doc', header: 'Permit', width: '13rem', render: (p) => (<><p className="font-mono text-2xs text-fg">{p.docNo}</p><p className="text-3xs text-fg-subtle">{p.requestedBy}</p></>) },
     { key: 'type', header: 'Type', width: '13rem', render: (p) => <PermitTypeBadge permitType={p.permitType} /> },
-    { key: 'asset', header: 'Asset', width: '17rem', render: (p) => (<><p className="truncate text-xs text-fg">{p.assetName}</p><p className="font-mono text-2xs text-fg-subtle">{p.assetCode}</p></>) },
+    { key: 'asset', header: 'Asset', width: '17rem', render: (p) => (<><p className="truncate text-xs text-fg" title={String(p.assetName ?? "")}>{p.assetName}</p><p className="font-mono text-2xs text-fg-subtle">{p.assetCode}</p></>) },
     { key: 'wo', header: 'Work order', width: '12rem', render: (p) => (p.workOrderNo ? <span className="font-mono text-2xs text-fg-muted">{p.workOrderNo}</span> : <span className="text-2xs text-fg-subtle">—</span>) },
     { key: 'workers', header: 'Covers', width: '11rem', render: (p) => <span className="text-2xs text-fg-muted">{p.workers.length ? `${p.workers.length} worker${p.workers.length === 1 ? '' : 's'}` : 'Nobody named'}</span> },
     {
@@ -291,7 +291,7 @@ export function PermitsPage() {
                           {x.locked && <Check className="h-3 w-3" />}
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-xs text-fg">{x.point}</span>
+                          <span className="block truncate text-xs text-fg" title={String(x.point ?? "")}>{x.point}</span>
                           {x.tagNo && <span className="block font-mono text-3xs text-fg-subtle">tag {x.tagNo}</span>}
                         </span>
                         <span className={cn('shrink-0 text-2xs', x.locked ? 'text-success' : 'text-danger')}>{x.locked ? 'Locked' : 'Not locked'}</span>

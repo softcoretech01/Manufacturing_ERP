@@ -117,6 +117,7 @@ export function BiKpiLibraryPage() {
     {
       key: 'code',
       header: 'KPI',
+      className: 'cell-wrap',
       render: (k) => (
         <div>
           <p className={cn('font-medium', k.isActive ? 'text-fg' : 'text-fg-subtle line-through')}>{k.name}</p>
@@ -128,6 +129,7 @@ export function BiKpiLibraryPage() {
     {
       key: 'formula',
       header: 'How it is calculated',
+      className: 'cell-wrap',
       render: (k) => <p className="max-w-[20rem] text-2xs leading-snug text-fg-muted">{k.formula}</p>,
     },
     {
@@ -157,6 +159,7 @@ export function BiKpiLibraryPage() {
     {
       key: 'ownerName',
       header: 'Accountable',
+      className: 'cell-wrap',
       render: (k) => (
         <div>
           <p className="text-xs text-fg">{k.ownerName || <span className="text-danger">Unassigned</span>}</p>

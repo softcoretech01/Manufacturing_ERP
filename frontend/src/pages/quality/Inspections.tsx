@@ -127,6 +127,7 @@ export function InspectionsPage() {
     {
       key: 'itemCode',
       header: 'Item',
+      width: '16rem',
       sortable: true,
       render: (r) => (
         <>
@@ -179,7 +180,7 @@ export function InspectionsPage() {
     },
     { key: 'disposition', header: 'Disposition', sortable: true, width: '11rem', accessor: (r) => DISPOSITION_LABEL[r.disposition], render: (r) => <DispositionBadge disposition={r.disposition} /> },
     { key: 'inspector', header: 'Inspector', sortable: true, width: '9rem' },
-    { key: 'inspectedAt', header: 'Inspected', sortable: true, width: '8rem', accessor: (r) => r.inspectedAt ?? '', render: (r) => (r.inspectedAt ? formatDate(r.inspectedAt) : <span className="text-2xs text-fg-subtle">—</span>) },
+    { key: 'inspectedAt', header: 'Inspected', sortable: true, width: '8.5rem', accessor: (r) => r.inspectedAt ?? '', render: (r) => (r.inspectedAt ? formatDate(r.inspectedAt) : <span className="text-2xs text-fg-subtle">—</span>) },
     { key: 'status', header: 'Status', sortable: true, width: '9rem', render: (r) => <QmsStatusBadge status={r.status} /> },
   ]
 
@@ -518,7 +519,7 @@ export function InspectionsPage() {
             {/* Readings ------------------------------------------------------ */}
             <DetailBlock title={`Characteristics (${liveEval.completed} of ${liveEval.totalChecks} checked)`}>
               <div className="overflow-x-auto rounded border border-border">
-                <table className="grid-table">
+                <table className="grid-table grid-table--auto">
                   <thead>
                     <tr>
                       <th style={{ width: '3rem' }}>#</th>
@@ -638,7 +639,7 @@ export function InspectionsPage() {
                 <p className="text-xs text-fg-subtle">No defects recorded in the sample.</p>
               ) : (
                 <div className="overflow-x-auto rounded border border-border">
-                  <table className="grid-table">
+                  <table className="grid-table grid-table--auto">
                     <thead>
                       <tr>
                         <th style={{ width: '7rem' }}>Code</th>

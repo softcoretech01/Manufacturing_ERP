@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   cloneElement,
+  type MouseEvent,
   type ReactElement,
   type ReactNode,
 } from 'react'
@@ -168,6 +169,15 @@ export interface DataTableProps<T> {
   selectable?: boolean
   selected?: string[]
   onSelectedChange?: (ids: string[]) => void
+  /**
+   * Which rows may be ticked. Rows that fail it render a disabled box with a
+   * reason on hover rather than no box at all — an absent checkbox looks like a
+   * rendering fault, a disabled one explains itself. Used where acting twice on
+   * the same row would duplicate a document.
+   */
+  isRowSelectable?: (row: T) => boolean
+  /** Tooltip on a locked checkbox, saying why it cannot be ticked. */
+  rowNotSelectableReason?: (row: T) => string
   bulkActions?: ReactNode
 
   /** Applied filter chips — always visible so nothing is silently filtered (V0-UIR-005) */
@@ -206,6 +216,35 @@ export interface DataTableProps<T> {
   maxHeight?: string
 }
 
+/**
+ * Make a clipped cell readable on hover.
+ *
+ * Every body cell is `nowrap` + ellipsis, so any value wider than its column is
+ * cut — and a column rendered by a custom `render` cannot have its title
+ * precomputed, because its content is JSX, not a value. So the tooltip is
+ * resolved lazily, on the first hover: walk the cell for the element that is
+ * actually overflowing and label it with its own text.
+ *
+ * Lazy on purpose. Measuring every cell on render would force a layout pass per
+ * row; measuring one cell when the pointer arrives costs nothing and happens
+ * exactly when the user is trying to read it. The title is set once and then
+ * left alone, so re-hovering is free.
+ */
+function revealOnHover(e: MouseEvent<HTMLTableCellElement>) {
+  const td = e.currentTarget
+  if (td.dataset.titled) return
+  td.dataset.titled = '1'
+  const overflowing = (el: Element) => el.scrollWidth > el.clientWidth + 1
+  const target = overflowing(td)
+    ? td
+    : ([...td.querySelectorAll('*')].find((el) => !el.children.length && overflowing(el)) ?? null)
+  if (!target) return
+  // A two-line cell's innerText comes back with a blank line between the lines;
+  // collapse it so the tooltip reads as one label, not a paragraph.
+  const text = (target as HTMLElement).innerText?.replace(/\s*\n\s*/g, '\n').trim()
+  if (text && !(target as HTMLElement).title) (target as HTMLElement).title = text
+}
+
 export function DataTable<T>({
   rows,
   columns,
@@ -218,6 +257,8 @@ export function DataTable<T>({
   selectable,
   selected = [],
   onSelectedChange,
+  isRowSelectable,
+  rowNotSelectableReason,
   bulkActions,
   filterChips = [],
   onClearFilters,
@@ -258,6 +299,50 @@ export function DataTable<T>({
   const setPage = onPageChange ?? setInnerPage
 
   const visibleColumns = useMemo(() => columns.filter((c) => !hidden.has(c.key)), [columns, hidden])
+
+  /**
+   * Does any visible column want to grow?
+   *
+   * A column with no declared `width` is asking for the leftover space. If one
+   * exists, the trailing `w-full` spacer must not be rendered — the spacer
+   * would claim 100% of the table and starve that column to nothing.
+   */
+  const hasFlexColumn = useMemo(() => visibleColumns.some((c) => !c.width), [visibleColumns])
+
+  /**
+   * The width below which the grid stops shrinking and starts scrolling.
+   *
+   * Sum of the declared widths, plus a floor for each column that declared
+   * none, plus the checkbox and action gutters. Widths are authored in `rem`
+   * or `px`; anything else (a percentage) contributes only the floor, since a
+   * percentage of an unknown width cannot be added up.
+   */
+  const naturalMinWidth = useMemo(() => {
+    /*
+     * A column that declared no width is asking for a sensible default, and the
+     * sensible default depends on what it holds. A right- or centre-aligned
+     * column is a number, a date or a chip — 8rem covers all three. A
+     * left-aligned column is prose: a product name, a supplier, an operation.
+     * Giving those the numeric floor is what produced
+     * "Perfect Polymers Private Li…" and "next: Vacuum creation & se…".
+     */
+    const NUMERIC_FLOOR = 128 // 8rem
+    const TEXT_FLOOR = 224 // 14rem — the longest names in this catalogue fit
+    const px = (c: Column<T>): number => {
+      const floor = c.align === 'right' || c.align === 'center' ? NUMERIC_FLOOR : TEXT_FLOOR
+      const w = c.width
+      if (w == null) return floor
+      if (typeof w === 'number') return w
+      const m = /^([\d.]+)(rem|px)$/.exec(w.trim())
+      if (!m) return floor
+      return m[2] === 'rem' ? parseFloat(m[1]) * 16 : parseFloat(m[1])
+    }
+    return (
+      visibleColumns.reduce((t, c) => t + px(c), 0) +
+      (selectable ? 36 : 0) +
+      (rowActions ? 148 : 0)
+    )
+  }, [visibleColumns, selectable, rowActions])
 
   const valueOf = (row: T, col: Column<T>) => {
     if (col.accessor) return col.accessor(row)
@@ -300,12 +385,18 @@ export function DataTable<T>({
     if (page > totalPages) setPage(1)
   }, [totalPages]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** Rows on this page that may actually be ticked. */
+  const selectablePageRows = useMemo(
+    () => (isRowSelectable ? pageRows.filter(isRowSelectable) : pageRows),
+    [pageRows, isRowSelectable],
+  )
+
   const allOnPageSelected =
-    pageRows.length > 0 && pageRows.every((r) => selected.includes(rowKey(r)))
+    selectablePageRows.length > 0 && selectablePageRows.every((r) => selected.includes(rowKey(r)))
 
   const toggleAll = () => {
     if (!onSelectedChange) return
-    const ids = pageRows.map(rowKey)
+    const ids = selectablePageRows.map(rowKey)
     onSelectedChange(allOnPageSelected ? selected.filter((s) => !ids.includes(s)) : [...new Set([...selected, ...ids])])
   }
 
@@ -476,6 +567,17 @@ export function DataTable<T>({
             'grid-table w-full xl:table-fixed',
             density === 'comfortable' && 'grid-table--comfortable',
           )}
+          // Never let the declared widths be squeezed below their sum.
+          //
+          // Under `table-layout: fixed` a browser scales every column down to
+          // make the table fit its container, and a column with no declared
+          // width is scaled first — all the way to zero. Production entry lost
+          // Operator, Good, Scrap and Rework that way: four columns simply not
+          // drawn, no scrollbar, no clue anything was missing.
+          //
+          // With a min-width the table keeps its natural size and the wrapper
+          // (overflow-auto, above) scrolls instead.
+          style={{ minWidth: naturalMinWidth }}
         >
           <thead>
             <tr>
@@ -517,7 +619,15 @@ export function DataTable<T>({
                   </span>
                 </th>
               ))}
-              <th className="w-full"></th>
+              {/*
+                * Slack absorber — only when nothing else can absorb it.
+                *
+                * `w-full` means `width: 100%`, so this cell claims the entire
+                * table and leaves nothing for columns that declared no width.
+                * When such a column exists it is the one that should grow, so
+                * the spacer must not be rendered at all.
+                */}
+              {!hasFlexColumn && <th className="w-full" />}
               {rowActions && <th className="col-sticky-right" style={{ width: '148px', textAlign: 'right' }}>Action</th>}
             </tr>
           </thead>
@@ -529,13 +639,13 @@ export function DataTable<T>({
                   {visibleColumns.map((c) => (
                     <td key={c.key}><Skeleton className="h-3.5" /></td>
                   ))}
-                  <td />
+                  {!hasFlexColumn && <td />}
                   {rowActions && <td />}
                 </tr>
               ))
             ) : pageRows.length === 0 ? (
               <tr>
-                <td colSpan={visibleColumns.length + 1 + (selectable ? 1 : 0) + (rowActions ? 1 : 0)}>
+                <td colSpan={visibleColumns.length + (hasFlexColumn ? 0 : 1) + (selectable ? 1 : 0) + (rowActions ? 1 : 0)}>
                   <EmptyState title={emptyTitle} description={emptyDescription} action={emptyAction} />
                 </td>
               </tr>
@@ -557,19 +667,31 @@ export function DataTable<T>({
                   >
                     {selectable && (
                       <td onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          className="h-3.5 w-3.5 cursor-pointer accent-brand-600"
-                          checked={isSelected}
-                          onChange={() => toggleOne(id)}
-                          aria-label="Select row"
-                        />
+                        {(() => {
+                          const locked = isRowSelectable ? !isRowSelectable(row) : false
+                          const why = locked ? rowNotSelectableReason?.(row) : undefined
+                          return (
+                            <input
+                              type="checkbox"
+                              className={cn(
+                                'h-3.5 w-3.5 accent-brand-600',
+                                locked ? 'cursor-not-allowed opacity-40' : 'cursor-pointer',
+                              )}
+                              checked={isSelected}
+                              disabled={locked}
+                              title={why}
+                              onChange={() => toggleOne(id)}
+                              aria-label={locked ? (why ?? 'This row cannot be selected') : 'Select row'}
+                            />
+                          )
+                        })()}
                       </td>
                     )}
                     {visibleColumns.map((c) => (
                       <td
                         key={c.key}
                         title={c.className?.includes('col-flex') ? undefined : (c.render ? undefined : String(valueOf(row, c) ?? ''))}
+                        onMouseEnter={c.render ? revealOnHover : undefined}
                         className={cn(
                           c.align === 'right' && 'text-right tabular',
                           c.align === 'center' && 'text-center',
@@ -581,7 +703,7 @@ export function DataTable<T>({
                         {c.render ? c.render(row, i) : (valueOf(row, c) ?? '—')}
                       </td>
                     ))}
-                    <td />
+                    {!hasFlexColumn && <td />}
                     {rowActions && (
                       <td onClick={(e) => e.stopPropagation()} className="col-sticky-right col-flex" style={{ textAlign: 'right' }}>
                         <RowActionCell actions={rowActions(row)} />
@@ -708,7 +830,27 @@ function RowActionCell({ actions }: { actions: ReactNode }) {
           danger
         />
       )}
-
+      {/*
+        * Everything that is not view, edit or delete.
+        *
+        * `rest` was computed here and then never rendered, so on any grid with
+        * more than three row actions the extras simply did not exist in the UI:
+        * Demand lost "Close as satisfied", "Mark as firm" and "Build master
+        * schedule", and there was no affordance to hint that anything was
+        * missing. A dropped action reads as an unimplemented feature.
+        */}
+      {rest.length > 0 && (
+        <Menu
+          trigger={
+            <Button variant="ghost" size="icon-sm" title={`${rest.length} more action(s)`}>
+              <MoreHorizontal className="h-3.5 w-3.5" />
+            </Button>
+          }
+          align="right"
+        >
+          <div className="min-w-[220px] px-1 py-1">{rest}</div>
+        </Menu>
+      )}
     </div>
   )
 }

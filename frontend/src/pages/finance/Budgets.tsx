@@ -122,7 +122,7 @@ export function BudgetsPage() {
   const columns: Column<BudgetStatus>[] = [
     {
       key: 'account', header: 'Account', width: '20rem',
-      render: (b) => (<><p className="truncate text-xs text-fg">{b.line.accountName}</p><p className="font-mono text-2xs text-fg-subtle">{b.line.accountCode}</p></>),
+      render: (b) => (<><p className="truncate text-xs text-fg" title={String(b.line.accountName ?? "")}>{b.line.accountName}</p><p className="font-mono text-2xs text-fg-subtle">{b.line.accountCode}</p></>),
     },
     {
       key: 'owner', header: 'Owner', width: '14rem',

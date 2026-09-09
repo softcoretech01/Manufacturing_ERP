@@ -111,7 +111,7 @@ export function OperationCell({ sequence, name, workCentre }: { sequence: number
         <span className="mr-1.5 font-mono text-2xs text-fg-subtle">{String(sequence).padStart(2, '0')}</span>
         {name}
       </p>
-      {workCentre && <p className="truncate text-2xs text-fg-subtle">{workCentre}</p>}
+      {workCentre && <p className="truncate text-2xs text-fg-subtle" title={String(workCentre ?? "")}>{workCentre}</p>}
     </div>
   )
 }

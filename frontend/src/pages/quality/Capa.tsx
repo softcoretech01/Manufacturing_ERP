@@ -81,11 +81,11 @@ export function CapaPage() {
 
   const columns: Column<Capa>[] = [
     { key: 'docNo', header: 'CAPA', sortable: true, width: '12rem', render: (c) => <span className="font-mono text-xs font-medium text-brand-600">{c.docNo}</span> },
-    { key: 'title', header: 'Action', sortable: true, render: (c) => (<><p className="text-xs font-medium text-fg">{c.title}</p><p className="font-mono text-2xs text-fg-subtle">{c.itemCode}{c.ncrDocNo && ` · from ${c.ncrDocNo}`}</p></>) },
+    { key: 'title', header: 'Action', width: '16rem', sortable: true, render: (c) => (<><p className="text-xs font-medium text-fg">{c.title}</p><p className="font-mono text-2xs text-fg-subtle">{c.itemCode}{c.ncrDocNo && ` · from ${c.ncrDocNo}`}</p></>) },
     { key: 'causeCategory', header: 'Cause', sortable: true, width: '8rem', accessor: (c) => CAUSE_LABEL[c.causeCategory], render: (c) => <span className="text-xs text-fg-muted">{CAUSE_LABEL[c.causeCategory]}</span> },
     { key: 'owner', header: 'Owner', sortable: true, width: '9rem' },
-    { key: 'raisedOn', header: 'Raised', sortable: true, width: '8rem', accessor: (c) => c.raisedOn, render: (c) => formatDate(c.raisedOn) },
-    { key: 'dueOn', header: 'Due', sortable: true, width: '8rem', accessor: (c) => c.dueOn, render: (c) => <span className={overdueDays(c.dueOn, c.closedOn) > 0 ? 'text-danger' : ''}>{formatDate(c.dueOn)}</span> },
+    { key: 'raisedOn', header: 'Raised', sortable: true, width: '8.5rem', accessor: (c) => c.raisedOn, render: (c) => formatDate(c.raisedOn) },
+    { key: 'dueOn', header: 'Due', sortable: true, width: '8.5rem', accessor: (c) => c.dueOn, render: (c) => <span className={overdueDays(c.dueOn, c.closedOn) > 0 ? 'text-danger' : ''}>{formatDate(c.dueOn)}</span> },
     { key: 'timing', header: 'Timing', width: '8rem', accessor: (c) => overdueDays(c.dueOn, c.closedOn), render: (c) => <DueChip days={overdueDays(c.dueOn, c.closedOn)} /> },
     { key: 'effectivenessPct', header: 'Effective', align: 'right', width: '7.5rem', accessor: (c) => c.effectivenessPct ?? -1, render: (c) => (c.effectivenessPct === null ? <span className="text-2xs text-fg-subtle">—</span> : `${c.effectivenessPct}%`) },
     { key: 'status', header: 'Status', sortable: true, width: '10rem', accessor: (c) => STATUS_LABEL[c.status], render: (c) => <QmsStatusBadge status={c.status} /> },

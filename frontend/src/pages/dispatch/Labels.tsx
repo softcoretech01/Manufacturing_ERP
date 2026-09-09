@@ -140,7 +140,7 @@ export function PackLabelsPage() {
     { key: 'code', header: 'Format', sortable: true, width: '13rem', render: (l) => (
       <div className="min-w-0">
         <p className="font-mono text-xs font-medium text-brand-600">{l.code}</p>
-        <p className="truncate text-2xs text-fg-subtle">{l.name}</p>
+        <p className="truncate text-2xs text-fg-subtle" title={String(l.name ?? "")}>{l.name}</p>
       </div>
     ) },
     { key: 'kind', header: 'Level', sortable: true, width: '7.5rem', render: (l) => (

@@ -219,10 +219,10 @@ export function WorkOrdersPage() {
   const columns: Column<MaintWorkOrder>[] = [
     {
       key: 'doc', header: 'Work order', width: '16rem',
-      render: (w) => (<><p className="truncate text-xs text-fg">{w.title}</p><p className="font-mono text-2xs text-fg-subtle">{w.docNo}{w.isRework ? ' · rework' : ''}</p></>),
+      render: (w) => (<><p className="truncate text-xs text-fg" title={String(w.title ?? "")}>{w.title}</p><p className="font-mono text-2xs text-fg-subtle">{w.docNo}{w.isRework ? ' · rework' : ''}</p></>),
     },
     { key: 'type', header: 'Type', width: '10rem', render: (w) => <WoTypeBadge woType={w.woType} /> },
-    { key: 'asset', header: 'Asset', width: '16rem', render: (w) => (<><p className="truncate text-2xs text-fg-muted">{w.assetName}</p><p className="font-mono text-3xs text-fg-subtle">{w.assetCode}</p></>) },
+    { key: 'asset', header: 'Asset', width: '16rem', render: (w) => (<><p className="truncate text-2xs text-fg-muted" title={String(w.assetName ?? "")}>{w.assetName}</p><p className="font-mono text-3xs text-fg-subtle">{w.assetCode}</p></>) },
     { key: 'priority', header: 'Priority', width: '8rem', render: (w) => <PriorityBadge priority={w.priority} /> },
     {
       key: 'tech', header: 'Assigned to', width: '13rem',
@@ -554,7 +554,7 @@ export function WorkOrdersPage() {
                       className="flex w-full items-center gap-3 rounded border border-border p-2.5 text-left transition-colors hover:border-brand-400 hover:bg-surface-2"
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-xs text-fg">{c.technician.name}</span>
+                        <span className="block truncate text-xs text-fg" title={String(c.technician.name ?? "")}>{c.technician.name}</span>
                         <span className="block text-2xs text-fg-subtle">
                           {c.technician.code} · {c.technician.trade.toLowerCase()} · shift {c.technician.shift} · {inr(c.technician.hourlyRate)}/h
                         </span>

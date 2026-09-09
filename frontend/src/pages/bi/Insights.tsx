@@ -97,10 +97,10 @@ export function BiInsightsPage() {
   const usefulPct = rated.length ? (rated.filter((i) => i.feedback === 'USEFUL').length / rated.length) * 100 : 0
 
   const columns: Column<Insight>[] = [
-    { key: 'title', header: 'Insight', sortable: true, render: (i) => (
+    { key: 'title', header: 'Insight', width: '16rem', sortable: true, render: (i) => (
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-fg">{i.title}</p>
-        <p className="truncate font-mono text-2xs text-fg-subtle">{i.code}</p>
+        <p className="truncate text-xs font-medium text-fg" title={String(i.title ?? "")}>{i.title}</p>
+        <p className="truncate font-mono text-2xs text-fg-subtle" title={String(i.code ?? "")}>{i.code}</p>
       </div>
     ) },
     { key: 'module', header: 'Module', sortable: true, width: '11rem', render: (i) => <ModuleChip module={i.module} /> },

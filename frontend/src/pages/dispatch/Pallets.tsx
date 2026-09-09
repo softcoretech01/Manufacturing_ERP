@@ -152,7 +152,7 @@ export function PalletsPage() {
     { key: 'palletNo', header: 'Pallet', sortable: true, width: '11.5rem', render: (p) => (
       <div className="min-w-0">
         <p className="font-mono text-xs font-medium text-brand-600">{p.palletNo}</p>
-        <p className="truncate text-2xs text-fg-subtle">{TYPE_LABEL[p.palletType]}</p>
+        <p className="truncate text-2xs text-fg-subtle" title={String(TYPE_LABEL[p.palletType] ?? "")}>{TYPE_LABEL[p.palletType]}</p>
       </div>
     ) },
     { key: 'customer', header: 'Customer', sortable: true, render: (p) => <PartyCell name={p.customer} place={p.destination} /> },
@@ -177,7 +177,7 @@ export function PalletsPage() {
     ) },
     { key: 'builtBy', header: 'Built by', sortable: true, width: '10rem', render: (p) => (
       <div className="min-w-0">
-        <p className="truncate text-xs text-fg">{p.builtBy}</p>
+        <p className="truncate text-xs text-fg" title={String(p.builtBy ?? "")}>{p.builtBy}</p>
         <p className="text-2xs text-fg-subtle">{formatDateTime(p.builtOn)}</p>
       </div>
     ) },

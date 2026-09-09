@@ -40,8 +40,8 @@ export function ValuationPage() {
       width: '320px', 
       render: (r) => (
         <div className="flex flex-col py-1 min-w-0">
-          <span className="truncate text-sm font-medium text-fg">{r.item_name}</span>
-          <span className="truncate font-mono text-xs text-fg-muted">{r.item_code}</span>
+          <span className="truncate text-sm font-medium text-fg" title={String(r.item_name ?? "")}>{r.item_name}</span>
+          <span className="truncate font-mono text-xs text-fg-muted" title={String(r.item_code ?? "")}>{r.item_code}</span>
         </div>
       ) 
     },

@@ -191,7 +191,7 @@ export function WarehousesPage() {
 
   const columns: Column<Warehouse>[] = [
     { key: 'code', header: 'Code', sortable: true, width: '90px', render: (w) => <span className="font-mono text-xs font-medium">{w.code}</span> },
-    { key: 'name', header: 'Warehouse', sortable: true, render: (w) => <span className="font-medium text-fg">{w.name}</span> },
+    { key: 'name', header: 'Warehouse', width: '16rem', sortable: true, render: (w) => <span className="font-medium text-fg">{w.name}</span> },
     { key: 'branch_code', header: 'Branch', sortable: true, width: '160px', accessor: (w) => w.branch_code ?? '', render: (w) => w.branch_code ? <span className="text-xs text-fg-muted"><span className="font-mono">{w.branch_code}</span> · {w.branch_name}</span> : <span className="text-xs text-fg-subtle">—</span> },
     { key: 'warehouse_type', header: 'Type', sortable: true, width: '150px', render: (w) => <Badge tone="neutral" size="sm" dot={false}>{w.warehouse_type.replace(/_/g, ' ').toLowerCase()}</Badge> },
     { key: 'valuation_method', header: 'Valuation', width: '130px', render: (w) => <span className="text-xs text-fg-muted">{w.valuation_method.replace(/_/g, ' ').toLowerCase()}</span> },

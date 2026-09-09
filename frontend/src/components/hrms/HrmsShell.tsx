@@ -140,7 +140,7 @@ export function EmployeeCell({
 }) {
   return (
     <div className="min-w-0">
-      <p className="truncate text-xs font-medium text-fg">{name}</p>
+      <p className="truncate text-xs font-medium text-fg" title={String(name ?? "")}>{name}</p>
       <p className="truncate font-mono text-2xs text-fg-subtle">
         {code}
         {sub ? ` · ${sub}` : ''}
@@ -153,8 +153,8 @@ export function EmployeeCell({
 export function RoleCell({ designation, department }: { designation: string; department: string }) {
   return (
     <div className="min-w-0">
-      <p className="truncate text-xs text-fg">{designation}</p>
-      <p className="truncate text-2xs text-fg-subtle">{department}</p>
+      <p className="truncate text-xs text-fg" title={String(designation ?? "")}>{designation}</p>
+      <p className="truncate text-2xs text-fg-subtle" title={String(department ?? "")}>{department}</p>
     </div>
   )
 }

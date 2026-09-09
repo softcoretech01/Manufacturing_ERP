@@ -294,7 +294,7 @@ export function MesDashboardPage() {
                   <MachineDot state={m.state} />
                   <div className="min-w-0">
                     <p className="font-mono text-2xs font-medium text-fg">{m.code}</p>
-                    <p className="truncate text-2xs text-fg-subtle">{m.currentOperator ?? 'no operator'}</p>
+                    <p className="truncate text-2xs text-fg-subtle" title={String(m.currentOperator ?? 'no operator')}>{m.currentOperator ?? 'no operator'}</p>
                   </div>
                 </div>
                 <span className={cn(
@@ -315,7 +315,7 @@ export function MesDashboardPage() {
               {runningWo.slice(0, 5).map((w) => (
                 <div key={w.uid} className="rounded border border-border p-2.5">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="truncate text-xs font-medium text-fg">{w.operationName}</p>
+                    <p className="truncate text-xs font-medium text-fg" title={String(w.operationName ?? "")}>{w.operationName}</p>
                     <MesStatusBadge status={w.status} size="sm" />
                   </div>
                   <p className="mt-0.5 text-2xs text-fg-muted">
@@ -355,7 +355,7 @@ export function MesDashboardPage() {
                     <p className="font-mono text-2xs font-medium text-brand-600">{o.docNo}</p>
                     <MesStatusBadge status={o.status} size="sm" />
                   </div>
-                  <p className="mt-0.5 truncate text-2xs text-fg-muted">{o.itemName}</p>
+                  <p className="mt-0.5 truncate text-2xs text-fg-muted" title={String(o.itemName ?? "")}>{o.itemName}</p>
                   <div className="mt-1.5 flex items-center gap-2">
                     <ProgressBar value={o.plannedQty ? (o.producedQty / o.plannedQty) * 100 : 0} tone="brand" className="flex-1" />
                     <span className="text-2xs tabular text-fg-muted">{formatQty(o.producedQty)}/{formatQty(o.plannedQty)}</span>

@@ -189,7 +189,7 @@ export function ExportsPage() {
     { key: 'docNo', header: 'Export', sortable: true, width: '11.5rem', render: (e) => (
       <button type="button" onClick={() => setViewing(e)} className="text-left">
         <p className="font-mono text-xs font-medium text-brand-600 hover:underline">{e.docNo}</p>
-        <p className="truncate font-mono text-2xs text-fg-subtle">{e.shipmentNo}</p>
+        <p className="truncate font-mono text-2xs text-fg-subtle" title={String(e.shipmentNo ?? "")}>{e.shipmentNo}</p>
       </button>
     ) },
     { key: 'customer', header: 'Customer', sortable: true, render: (e) => <PartyCell name={e.customer} place={e.country} /> },
@@ -207,13 +207,13 @@ export function ExportsPage() {
     ) },
     { key: 'vessel', header: 'Vessel · voyage', sortable: true, render: (e) => (
       <div className="min-w-0">
-        <p className="truncate text-xs text-fg">{e.vessel}</p>
-        <p className="truncate text-2xs text-fg-subtle">{e.voyageNo}</p>
+        <p className="truncate text-xs text-fg" title={String(e.vessel ?? "")}>{e.vessel}</p>
+        <p className="truncate text-2xs text-fg-subtle" title={String(e.voyageNo ?? "")}>{e.voyageNo}</p>
       </div>
     ) },
     { key: 'route', header: 'Port to port', sortable: true, width: '13rem', accessor: (e) => e.portOfLoading, render: (e) => (
       <div className="min-w-0">
-        <p className="truncate font-mono text-2xs text-fg">{e.portOfLoading}</p>
+        <p className="truncate font-mono text-2xs text-fg" title={String(e.portOfLoading ?? "")}>{e.portOfLoading}</p>
         <p className="truncate font-mono text-2xs text-fg-subtle">→ {e.portOfDischarge}</p>
       </div>
     ) },
@@ -511,7 +511,7 @@ export function ExportsPage() {
                         {EXPORT_DOC_LABEL[d.docType]}
                         {!d.isMandatory && <span className="ml-1.5 text-2xs text-fg-subtle">(not required for {viewing.incoterm})</span>}
                       </p>
-                      {d.docNo && <p className="truncate font-mono text-2xs text-fg-subtle">{d.docNo}</p>}
+                      {d.docNo && <p className="truncate font-mono text-2xs text-fg-subtle" title={String(d.docNo ?? "")}>{d.docNo}</p>}
                       {d.remarks && <p className="mt-0.5 text-2xs text-fg-muted">{d.remarks}</p>}
                     </div>
                     <DispatchStatusBadge status={d.status} size="sm" />

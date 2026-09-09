@@ -157,8 +157,8 @@ export function EmployeesPage() {
   const columns: Column<HrEmployee>[] = [
     { key: 'employeeCode', header: 'Employee', sortable: true, width: '14rem', render: (e) => (
       <button type="button" onClick={() => setViewing(e)} className="text-left">
-        <p className="truncate text-xs font-medium text-brand-600 hover:underline">{e.fullName}</p>
-        <p className="truncate font-mono text-2xs text-fg-subtle">{e.employeeCode}</p>
+        <p className="truncate text-xs font-medium text-brand-600 hover:underline" title={String(e.fullName ?? "")}>{e.fullName}</p>
+        <p className="truncate font-mono text-2xs text-fg-subtle" title={String(e.employeeCode ?? "")}>{e.employeeCode}</p>
       </button>
     ) },
     { key: 'designation', header: 'Role', sortable: true, render: (e) => <RoleCell designation={e.designation} department={e.department} /> },
@@ -379,7 +379,7 @@ export function EmployeesPage() {
                 {viewing.fullName.split(' ').map((w) => w[0]).slice(0, 2).join('')}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-fg">{viewing.fullName}</p>
+                <p className="truncate text-sm font-semibold text-fg" title={String(viewing.fullName ?? "")}>{viewing.fullName}</p>
                 <p className="truncate text-2xs text-fg-muted">
                   {viewing.designation} · {viewing.department} · grade {viewing.grade}
                 </p>
@@ -449,7 +449,7 @@ export function EmployeesPage() {
                 {skills.filter((s) => s.employeeCode === viewing.employeeCode).map((s) => (
                   <div key={s.uid} className="flex items-center justify-between gap-3 rounded border border-border px-3 py-2">
                     <div className="min-w-0">
-                      <p className="truncate text-xs text-fg">{s.skillName}</p>
+                      <p className="truncate text-xs text-fg" title={String(s.skillName ?? "")}>{s.skillName}</p>
                       <p className="text-2xs text-fg-subtle">
                         {s.certifiedOn ? `certified ${formatDate(s.certifiedOn)}` : 'not certified'}
                         {s.unitsPerHour ? ` · ${s.unitsPerHour}/hr, ${s.defectRatePct}% defects` : ''}

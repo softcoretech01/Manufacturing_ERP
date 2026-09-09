@@ -230,10 +230,10 @@ export function BankingPage() {
   ]
 
   const statementColumns: Column<BankStatementLine>[] = [
-    { key: 'date', header: 'Date', width: '7rem', render: (l) => <span className="text-2xs tabular text-fg-muted">{formatDate(l.date)}</span> },
+    { key: 'date', header: 'Date', width: '8.5rem', render: (l) => <span className="text-2xs tabular text-fg-muted">{formatDate(l.date)}</span> },
     {
       key: 'desc', header: 'Narration', width: '24rem',
-      render: (l) => (<><p className="truncate text-xs text-fg">{l.description}</p>{l.reference && <p className="font-mono text-3xs text-fg-subtle">{l.reference}</p>}</>),
+      render: (l) => (<><p className="truncate text-xs text-fg" title={String(l.description ?? "")}>{l.description}</p>{l.reference && <p className="font-mono text-3xs text-fg-subtle">{l.reference}</p>}</>),
     },
     { key: 'deposit', header: 'Deposit', width: '10rem', align: 'right', render: (l) => <span className="text-xs tabular text-success">{inr(l.deposit, { blankZero: true })}</span> },
     { key: 'withdrawal', header: 'Withdrawal', width: '10rem', align: 'right', render: (l) => <span className="text-xs tabular text-danger">{inr(l.withdrawal, { blankZero: true })}</span> },
@@ -419,7 +419,7 @@ export function BankingPage() {
                       className="flex w-full items-center gap-3 rounded border border-border p-2.5 text-left transition-colors hover:border-brand-400 hover:bg-surface-2"
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-xs text-fg">{c.journal.narration}</span>
+                        <span className="block truncate text-xs text-fg" title={String(c.journal.narration ?? "")}>{c.journal.narration}</span>
                         <span className="block font-mono text-2xs text-fg-subtle">{c.journal.voucherNo} · {formatDate(c.journal.date)}{c.journal.sourceDocNo ? ` · ${c.journal.sourceDocNo}` : ''}</span>
                       </span>
                       <span className="shrink-0 text-right">

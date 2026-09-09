@@ -152,9 +152,9 @@ export function PmPlansPage() {
   const columns: Column<PmDue>[] = [
     {
       key: 'plan', header: 'Plan', width: '18rem',
-      render: (d) => (<><p className="truncate text-xs text-fg">{d.plan.name}</p><p className="font-mono text-2xs text-fg-subtle">{d.plan.code}</p></>),
+      render: (d) => (<><p className="truncate text-xs text-fg" title={String(d.plan.name ?? "")}>{d.plan.name}</p><p className="font-mono text-2xs text-fg-subtle">{d.plan.code}</p></>),
     },
-    { key: 'asset', header: 'Asset', width: '16rem', render: (d) => (<><p className="truncate text-2xs text-fg-muted">{d.plan.assetName}</p><p className="font-mono text-3xs text-fg-subtle">{d.plan.assetCode}</p></>) },
+    { key: 'asset', header: 'Asset', width: '16rem', render: (d) => (<><p className="truncate text-2xs text-fg-muted" title={String(d.plan.assetName ?? "")}>{d.plan.assetName}</p><p className="font-mono text-3xs text-fg-subtle">{d.plan.assetCode}</p></>) },
     { key: 'trigger', header: 'Driven by', width: '12rem', render: (d) => <TriggerBadge trigger={d.plan.trigger} /> },
     {
       key: 'interval', header: 'Interval', width: '11rem',

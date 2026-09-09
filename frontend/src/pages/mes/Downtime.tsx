@@ -57,7 +57,7 @@ export function DowntimePage() {
     { key: 'machineCode', header: 'Machine', sortable: true, width: '12rem', render: (e) => (
       <div>
         <p className="font-mono text-2xs text-fg">{e.machineCode}</p>
-        <p className="truncate text-2xs text-fg-subtle">{e.machine}</p>
+        <p className="truncate text-2xs text-fg-subtle" title={String(e.machine ?? "")}>{e.machine}</p>
       </div>
     ) },
     { key: 'workCentre', header: 'Work centre', sortable: true },
@@ -66,8 +66,8 @@ export function DowntimePage() {
         {DOWNTIME_REASON_LABEL[e.reason]}
       </Badge>
     ) },
-    { key: 'startedAt', header: 'From', sortable: true, width: '10rem', accessor: (e) => e.startedAt, render: (e) => <span className="text-2xs">{formatDateTime(e.startedAt)}</span> },
-    { key: 'endedAt', header: 'To', width: '10rem', render: (e) => (e.endedAt ? <span className="text-2xs">{formatDateTime(e.endedAt)}</span> : <Badge tone="danger" size="sm">Still down</Badge>) },
+    { key: 'startedAt', header: 'From', sortable: true, width: '11rem', accessor: (e) => e.startedAt, render: (e) => <span className="text-2xs">{formatDateTime(e.startedAt)}</span> },
+    { key: 'endedAt', header: 'To', width: '11rem', render: (e) => (e.endedAt ? <span className="text-2xs">{formatDateTime(e.endedAt)}</span> : <Badge tone="danger" size="sm">Still down</Badge>) },
     { key: 'minutes', header: 'Lost', width: '7rem', sortable: true, render: (e) => (
       <span className={cn(e.minutes > 120 ? 'text-danger' : e.minutes > 45 ? 'text-warning' : '')}><Duration minutes={e.minutes} /></span>
     ) },

@@ -233,10 +233,10 @@ export function ComplaintsPage() {
       key: 'doc', header: 'Complaint', width: '15rem',
       render: (c) => (<><p className="font-mono text-2xs text-fg">{c.docNo}</p><p className="truncate text-2xs text-fg-subtle">{formatDate(c.loggedOn)} · {c.loggedBy}</p></>),
     },
-    { key: 'customer', header: 'Customer', width: '16rem', render: (c) => <p className="truncate text-xs text-fg">{c.customerName}</p> },
+    { key: 'customer', header: 'Customer', width: '16rem', render: (c) => <p className="truncate text-xs text-fg" title={String(c.customerName ?? "")}>{c.customerName}</p> },
     {
       key: 'item', header: 'Item / batch', width: '16rem',
-      render: (c) => (<><p className="truncate text-xs text-fg">{c.itemName}</p><p className="font-mono text-2xs text-fg-subtle">{c.batchNo}</p></>),
+      render: (c) => (<><p className="truncate text-xs text-fg" title={String(c.itemName ?? "")}>{c.itemName}</p><p className="font-mono text-2xs text-fg-subtle">{c.batchNo}</p></>),
     },
     { key: 'type', header: 'Type', width: '9rem', render: (c) => <span className="text-2xs text-fg-muted">{c.complaintType}</span> },
     { key: 'severity', header: 'Severity', width: '7rem', render: (c) => <SeverityBadge severity={c.severity} /> },

@@ -202,7 +202,7 @@ export function SparesPage() {
   const txnColumns: Column<SpareTxn>[] = [
     { key: 'doc', header: 'Document', width: '13rem', render: (t) => (<><p className="font-mono text-2xs text-fg">{t.docNo}</p><p className="text-3xs text-fg-subtle">{formatDateTime(t.txnAt)}</p></>) },
     { key: 'type', header: 'Type', width: '9rem', render: (t) => <Badge tone={t.txnType === 'ISSUE' || t.txnType === 'SCRAP' ? 'danger' : t.txnType === 'RECEIPT' || t.txnType === 'RETURN' ? 'success' : 'warning'} size="sm" dot={false}>{t.txnType.toLowerCase()}</Badge> },
-    { key: 'part', header: 'Part', width: '20rem', render: (t) => (<><p className="truncate text-xs text-fg">{t.itemName}</p><p className="font-mono text-2xs text-fg-subtle">{t.itemCode}</p></>) },
+    { key: 'part', header: 'Part', width: '20rem', render: (t) => (<><p className="truncate text-xs text-fg" title={String(t.itemName ?? "")}>{t.itemName}</p><p className="font-mono text-2xs text-fg-subtle">{t.itemCode}</p></>) },
     { key: 'qty', header: 'Quantity', width: '9rem', align: 'right', render: (t) => <span className="text-xs tabular text-fg">{t.qty} {t.uom}</span> },
     { key: 'wo', header: 'Work order', width: '12rem', render: (t) => (t.workOrderNo ? <span className="font-mono text-2xs text-fg-muted">{t.workOrderNo}</span> : <span className="text-2xs text-fg-subtle">—</span>) },
     { key: 'asset', header: 'Asset', width: '12rem', render: (t) => <span className="font-mono text-2xs text-fg-muted">{t.assetCode || '—'}</span> },

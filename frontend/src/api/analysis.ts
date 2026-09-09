@@ -22,13 +22,20 @@ export interface Valuation {
 }
 
 export interface ReorderRow {
+  item_uid: string
   item_code: string
   item_name: string
+  item_type: string
+  category: string
   uom: string
   available: number
+  /** Minimum stock from the Item master. Null when the item has none set. */
+  min_level: number | null
   reorder_level: number
+  /** How much is missing — always positive. Do not prefix it with a minus. */
   shortfall: number
   suggested_order: number
+  last_stock_in: string | null
 }
 
 export interface AgeingRow {

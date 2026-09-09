@@ -162,9 +162,9 @@ export function RequisitionsPage() {
         <p className="truncate text-2xs text-fg-subtle">{formatDate(r.raisedOn)} · {r.raisedBy}</p>
       </div>
     ) },
-    { key: 'designation', header: 'Post', sortable: true, render: (r) => (
+    { key: 'designation', header: 'Post', width: '16rem', sortable: true, render: (r) => (
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-fg">{r.designation}</p>
+        <p className="truncate text-xs font-medium text-fg" title={String(r.designation ?? "")}>{r.designation}</p>
         <p className="truncate text-2xs text-fg-subtle">{r.department} · grade {r.grade}</p>
       </div>
     ) },

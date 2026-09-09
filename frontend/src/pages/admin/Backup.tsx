@@ -37,7 +37,7 @@ export function BackupPage() {
   const untested = backups.filter((b) => b.status === 'SUCCESS' && !b.restoreTested)
 
   const columns: Column<BackupRecord>[] = [
-    { key: 'startedAt', header: 'Taken', sortable: true, width: '170px', sticky: true, render: (b) => <span title={formatDateTime(b.startedAt)}>{formatDateTime(b.startedAt)}</span> },
+    { key: 'startedAt', header: 'Taken', sortable: true, width: '11rem', sticky: true, render: (b) => <span title={formatDateTime(b.startedAt)}>{formatDateTime(b.startedAt)}</span> },
     {
       key: 'type',
       header: 'Type',
@@ -54,7 +54,7 @@ export function BackupPage() {
     },
     { key: 'sizeMb', header: 'Size', align: 'right', sortable: true, width: '110px', render: (b) => <span className="tabular">{b.sizeMb >= 1024 ? `${(b.sizeMb / 1024).toFixed(1)} GB` : `${b.sizeMb} MB`}</span> },
     { key: 'durationSec', header: 'Duration', align: 'right', width: '110px', render: (b) => <span className="tabular">{Math.floor(b.durationSec / 60)}m {b.durationSec % 60}s</span> },
-    { key: 'location', header: 'Location', render: (b) => <span className="truncate font-mono text-2xs text-fg-muted">{b.location}</span> },
+    { key: 'location', header: 'Location', render: (b) => <span className="truncate font-mono text-2xs text-fg-muted" title={String(b.location ?? "")}>{b.location}</span> },
     { key: 'retentionUntil', header: 'Retain until', sortable: true, width: '140px', render: (b) => formatDate(b.retentionUntil) },
     {
       key: 'restoreTested',

@@ -132,19 +132,19 @@ export function VehiclesPage() {
     { key: 'vehicleNo', header: 'Vehicle', sortable: true, width: '12rem', render: (v) => (
       <div className="min-w-0">
         <p className="font-mono text-xs font-medium text-fg">{v.vehicleNo}</p>
-        <p className="truncate text-2xs text-fg-subtle">{VEHICLE_TYPE_LABEL[v.vehicleType]}</p>
+        <p className="truncate text-2xs text-fg-subtle" title={String(VEHICLE_TYPE_LABEL[v.vehicleType] ?? "")}>{VEHICLE_TYPE_LABEL[v.vehicleType]}</p>
       </div>
     ) },
     { key: 'transporter', header: 'Transporter', sortable: true, render: (v) => (
       <div className="min-w-0">
-        <p className="truncate text-xs text-fg">{v.transporter}</p>
-        <p className="truncate text-2xs text-fg-subtle">{v.route}</p>
+        <p className="truncate text-xs text-fg" title={String(v.transporter ?? "")}>{v.transporter}</p>
+        <p className="truncate text-2xs text-fg-subtle" title={String(v.route ?? "")}>{v.route}</p>
       </div>
     ) },
     { key: 'driver', header: 'Driver', sortable: true, render: (v) => (
       <div className="min-w-0">
-        <p className="truncate text-xs text-fg">{v.driver}</p>
-        <p className="truncate font-mono text-2xs text-fg-subtle">{v.driverPhone}</p>
+        <p className="truncate text-xs text-fg" title={String(v.driver ?? "")}>{v.driver}</p>
+        <p className="truncate font-mono text-2xs text-fg-subtle" title={String(v.driverPhone ?? "")}>{v.driverPhone}</p>
       </div>
     ) },
     { key: 'capacityKg', header: 'Capacity', align: 'right', sortable: true, width: '9rem', render: (v) => (

@@ -168,7 +168,7 @@ export function ClassChip({ abc, xyz }: { abc: string; xyz?: string }) {
 export function ItemCell({ code, name, sub }: { code: string; name: string; sub?: ReactNode }) {
   return (
     <div className="min-w-0">
-      <p className="truncate text-xs font-medium text-fg">{name}</p>
+      <p className="truncate text-xs font-medium text-fg" title={String(name ?? "")}>{name}</p>
       <p className="truncate font-mono text-2xs text-fg-subtle">
         {code}
         {sub ? <span className="ml-1 font-sans">· {sub}</span> : null}
@@ -185,7 +185,7 @@ export function LocationCell({ warehouse, bin, batch }: { warehouse: string; bin
         {warehouse}
         {bin ? ` · ${bin}` : ''}
       </p>
-      {batch && <p className="truncate font-mono text-2xs text-fg-subtle">{batch}</p>}
+      {batch && <p className="truncate font-mono text-2xs text-fg-subtle" title={String(batch ?? "")}>{batch}</p>}
     </div>
   )
 }

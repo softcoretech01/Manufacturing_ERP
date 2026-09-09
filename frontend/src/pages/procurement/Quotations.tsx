@@ -458,7 +458,7 @@ export function QuotationsPage() {
                       lookup.itemTypeOf(l.itemCode) || <span className="text-fg-subtle">—</span> },
                   { key: 'category', header: 'Category', width: '150px', render: (l) =>
                       lookup.categoryOf(l.itemCode) || <span className="text-fg-subtle">—</span> },
-                  { key: 'itemName', header: 'Item', render: (l) => <span className="font-medium text-fg">{l.itemName}</span> },
+                  { key: 'itemName', header: 'Item', width: '16rem', render: (l) => <span className="font-medium text-fg">{l.itemName}</span> },
                   { key: 'qty', header: 'Qty', align: 'right', width: '90px', render: (l) => fmtQty(l.qty) },
                   { key: 'uom', header: 'UOM', align: 'center', width: '70px' },
                   { key: 'rate', header: 'Unit Price', align: 'right', width: '110px', render: (l) => money(l.rate) },

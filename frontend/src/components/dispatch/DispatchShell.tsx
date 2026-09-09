@@ -125,7 +125,7 @@ export function DocCell({ docNo, sub, to }: { docNo: string; sub?: string; to?: 
       ) : (
         <p className="font-mono text-xs font-medium text-brand-600">{docNo}</p>
       )}
-      {sub && <p className="truncate text-2xs text-fg-subtle">{sub}</p>}
+      {sub && <p className="truncate text-2xs text-fg-subtle" title={String(sub ?? "")}>{sub}</p>}
     </div>
   )
 }
@@ -134,7 +134,7 @@ export function DocCell({ docNo, sub, to }: { docNo: string; sub?: string; to?: 
 export function ItemCell({ name, code, batch }: { name: string; code: string; batch?: string | null }) {
   return (
     <div className="min-w-0">
-      <p className="truncate text-xs text-fg">{name}</p>
+      <p className="truncate text-xs text-fg" title={String(name ?? "")}>{name}</p>
       <p className="truncate font-mono text-2xs text-fg-subtle">
         {code}
         {batch ? ` · ${batch}` : ''}
@@ -147,8 +147,8 @@ export function ItemCell({ name, code, batch }: { name: string; code: string; ba
 export function PartyCell({ name, place }: { name: string; place?: string | null }) {
   return (
     <div className="min-w-0">
-      <p className="truncate text-xs font-medium text-fg">{name}</p>
-      {place && <p className="truncate text-2xs text-fg-subtle">{place}</p>}
+      <p className="truncate text-xs font-medium text-fg" title={String(name ?? "")}>{name}</p>
+      {place && <p className="truncate text-2xs text-fg-subtle" title={String(place ?? "")}>{place}</p>}
     </div>
   )
 }

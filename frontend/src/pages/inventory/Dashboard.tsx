@@ -238,7 +238,7 @@ export function InventoryDashboardPage() {
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block text-lg font-semibold leading-none text-fg tabular">{a.count}</span>
-                <span className="mt-1 block truncate text-xs text-fg-muted">{a.label}</span>
+                <span className="mt-1 block truncate text-xs text-fg-muted" title={String(a.label ?? "")}>{a.label}</span>
               </span>
               <ArrowRight className="h-3.5 w-3.5 shrink-0 text-fg-subtle" />
             </Link>
@@ -284,7 +284,7 @@ export function InventoryDashboardPage() {
                 return (
                   <div key={w.uid}>
                     <div className="mb-1 flex items-center justify-between gap-2 text-xs">
-                      <span className="truncate font-mono text-2xs text-fg">{w.code}</span>
+                      <span className="truncate font-mono text-2xs text-fg" title={String(w.code ?? "")}>{w.code}</span>
                       <span className={cn('tabular text-2xs', pct > 85 ? 'text-warning' : 'text-fg-muted')}>
                         {w.binsOccupied}/{w.binCount} · {pct.toFixed(0)}%
                       </span>
@@ -371,7 +371,7 @@ export function InventoryDashboardPage() {
                   {reorderRows.slice(0, 7).map((r) => (
                     <tr key={r.uid}>
                       <td className="max-w-[16rem]">
-                        <p className="truncate text-xs font-medium text-fg">{r.itemName}</p>
+                        <p className="truncate text-xs font-medium text-fg" title={String(r.itemName ?? "")}>{r.itemName}</p>
                         <p className="font-mono text-2xs text-fg-subtle">{r.itemCode}</p>
                       </td>
                       <td className="text-right tabular">{formatQty(r.free)}</td>
@@ -405,7 +405,7 @@ export function InventoryDashboardPage() {
                 kpis.pendingPutaway.map((p) => (
                   <Link key={p.uid} to="/inventory/putaway" className="flex items-start justify-between gap-3 border-b border-border pb-2.5 last:border-0 last:pb-0">
                     <div className="min-w-0">
-                      <p className="truncate font-mono text-2xs font-medium text-brand-600">{p.docNo}</p>
+                      <p className="truncate font-mono text-2xs font-medium text-brand-600" title={String(p.docNo ?? "")}>{p.docNo}</p>
                       <p className="truncate text-2xs text-fg-muted">
                         {p.sourceParty} · {p.lines.length} lines
                       </p>
@@ -428,7 +428,7 @@ export function InventoryDashboardPage() {
                   return (
                     <Link key={b.uid} to="/inventory/batches" className="flex items-start justify-between gap-3 border-b border-border pb-2.5 last:border-0 last:pb-0">
                       <div className="min-w-0">
-                        <p className="truncate text-xs font-medium text-fg">{b.itemName}</p>
+                        <p className="truncate text-xs font-medium text-fg" title={String(b.itemName ?? "")}>{b.itemName}</p>
                         <p className="truncate font-mono text-2xs text-fg-subtle">
                           {b.batchNo} · {formatQty(b.quantityRemaining)} {b.uom}
                         </p>

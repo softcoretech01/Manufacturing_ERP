@@ -4,6 +4,10 @@
 register their routers here. This phase mounts IAM (auth) and Organisation."""
 
 from __future__ import annotations
+from app.modules.planning.api.capacity_router import router as planning_capacity_router
+from app.modules.planning.api.dashboard_router import router as planning_dashboard_router
+from app.modules.planning.api.demand_router import router as planning_demand_router
+from app.modules.planning.api.mrp_router import router as planning_mrp_router
 from app.modules.planning.api.routers import router as planning_router
 
 from contextlib import asynccontextmanager
@@ -37,6 +41,7 @@ from app.routers.steel_grade import router as steel_grade_router
 from app.routers.steel_thickness import router as steel_thickness_router
 from app.routers.machine import router as machine_router
 from app.routers.admin_plants import router as admin_plants_router
+from app.routers.production_line import router as production_line_router
 from app.routers.production_lookups import router as production_lookups_router
 from app.routers.shift import router as shift_router
 from app.routers.holiday_calendar import router as holiday_calendar_router
@@ -96,6 +101,8 @@ from app.modules.inventory.api.routers import router as inventory_router
 from app.modules.inventory.api.analysis_router import router as analysis_router
 from app.modules.inventory.api.count_router import router as count_router
 from app.modules.inventory.api.stock_router import router as stock_router
+from app.modules.inventory.api.report_router import router as inv_report_router
+from app.modules.inventory.api.txn_doc_router import router as txn_doc_router
 from app.modules.inventory.api.txn_router import router as txn_router
 from app.modules.masters.api.router import router as masters_router
 from app.modules.numbering.api.router import router as numbering_router
@@ -147,6 +154,12 @@ def create_app() -> FastAPI:
     app.include_router(inventory_router, prefix=api)
     app.include_router(stock_router, prefix=api)
     app.include_router(txn_router, prefix=api)
+    # The stock-transaction *document* layer (header + lines + lifecycle). Its
+    # tables, service, schemas and the frontend that calls them all shipped, but
+    # the router was never mounted, so every /inventory/stock-transactions call
+    # 404'd and Stock Out / Return / Transfer had no working backend at all.
+    app.include_router(txn_doc_router, prefix=api)
+    app.include_router(inv_report_router, prefix=api)
     app.include_router(count_router, prefix=api)
     app.include_router(analysis_router, prefix=api)
     # Two item masters exist: `Item` (SpItem, integer id) which procurement and
@@ -179,6 +192,7 @@ def create_app() -> FastAPI:
     app.include_router(machine_router, prefix=api)
     app.include_router(admin_plants_router, prefix=api)
     app.include_router(production_lookups_router, prefix=api)
+    app.include_router(production_line_router, prefix=api)
     app.include_router(shift_router, prefix=api)
     app.include_router(holiday_calendar_router, prefix=api)
     app.include_router(quality_parameter_router, prefix=api)
@@ -247,6 +261,10 @@ def create_app() -> FastAPI:
         return {"status": "ok", "app": settings.app_name}
 
     app.include_router(planning_router, prefix=api)
+    app.include_router(planning_mrp_router, prefix=api)
+    app.include_router(planning_demand_router, prefix=api)
+    app.include_router(planning_capacity_router, prefix=api)
+    app.include_router(planning_dashboard_router, prefix=api)
     return app
 
 

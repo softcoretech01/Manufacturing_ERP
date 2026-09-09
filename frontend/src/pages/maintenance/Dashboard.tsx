@@ -127,7 +127,7 @@ export function MaintenanceDashboardPage() {
                 <li key={i}>
                   <Link to={a.to} className="flex items-baseline gap-2 text-xs hover:underline">
                     <span className="font-medium text-fg">{a.title}</span>
-                    <span className="truncate text-2xs text-fg-muted">{a.detail}</span>
+                    <span className="truncate text-2xs text-fg-muted" title={String(a.detail ?? "")}>{a.detail}</span>
                     <ArrowRight className="ml-auto h-3 w-3 shrink-0 text-fg-subtle" />
                   </Link>
                 </li>
@@ -187,7 +187,7 @@ export function MaintenanceDashboardPage() {
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block text-lg font-semibold leading-none text-fg tabular">{c.count}</span>
-                <span className="mt-1 block truncate text-xs text-fg-muted">{c.label}</span>
+                <span className="mt-1 block truncate text-xs text-fg-muted" title={String(c.label ?? "")}>{c.label}</span>
               </span>
               <ArrowRight className="h-3.5 w-3.5 shrink-0 text-fg-subtle" />
             </Link>
@@ -208,7 +208,7 @@ export function MaintenanceDashboardPage() {
                       return (
                         <tr key={b.uid} className="bg-danger/5">
                           <td className="font-mono text-2xs text-fg">{b.docNo}</td>
-                          <td><p className="truncate text-xs text-fg">{b.assetName}</p><p className="font-mono text-3xs text-fg-subtle">{b.assetCode}</p></td>
+                          <td><p className="truncate text-xs text-fg" title={String(b.assetName ?? "")}>{b.assetName}</p><p className="font-mono text-3xs text-fg-subtle">{b.assetCode}</p></td>
                           <td><PriorityBadge priority={b.priority} /></td>
                           <td className="text-2xs text-fg-muted">{b.category.toLowerCase()}</td>
                           <td className="text-xs tabular text-danger">{b.downtimeEnd ? duration(0) : duration(mins)}</td>
@@ -279,8 +279,8 @@ export function MaintenanceDashboardPage() {
                   <tbody>
                     {k.duePlans.slice(0, 7).map((x) => (
                       <tr key={x.plan.uid} className={x.isOverdue ? 'bg-danger/5' : undefined}>
-                        <td><p className="truncate text-xs text-fg">{x.plan.name}</p><p className="font-mono text-3xs text-fg-subtle">{x.plan.code}</p></td>
-                        <td><p className="truncate text-2xs text-fg-muted">{x.plan.assetName}</p></td>
+                        <td><p className="truncate text-xs text-fg" title={String(x.plan.name ?? "")}>{x.plan.name}</p><p className="font-mono text-3xs text-fg-subtle">{x.plan.code}</p></td>
+                        <td><p className="truncate text-2xs text-fg-muted" title={String(x.plan.assetName ?? "")}>{x.plan.assetName}</p></td>
                         <td>
                           <div className="flex items-center gap-2">
                             <ProgressBar value={Math.min(100, x.elapsedPct)} tone={x.isOverdue ? 'danger' : x.elapsedPct >= 90 ? 'warning' : 'success'} className="w-12" />
@@ -336,7 +336,7 @@ export function MaintenanceDashboardPage() {
               {k.reliability.filter((r) => r.failures > 0).slice(0, 4).map((r) => (
                 <div key={r.assetCode} className="flex items-center gap-2">
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-2xs text-fg">{r.assetName}</span>
+                    <span className="block truncate text-2xs text-fg" title={String(r.assetName ?? "")}>{r.assetName}</span>
                     <span className="block text-3xs text-fg-subtle">{r.failures} failure{r.failures === 1 ? '' : 's'} · {duration(r.downtimeMinutes)} down</span>
                   </span>
                   <span className={cn('shrink-0 text-xs font-medium tabular', r.availabilityPct >= 98 ? 'text-success' : r.availabilityPct >= 95 ? 'text-warning' : 'text-danger')}>

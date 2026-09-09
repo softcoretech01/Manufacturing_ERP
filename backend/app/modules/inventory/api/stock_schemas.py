@@ -36,7 +36,12 @@ class StockBalanceRow(ApiModel):
     warehouse_name: str | None
     batch_no: str
     available_qty: float
+    # Committed to a production order, not yet issued.
     reserved_qty: float
+    # Quarantined or blocked — on the shelf but not usable.
+    held_qty: float = 0
+    # available_qty - reserved_qty. What may still be committed.
+    free_qty: float = 0
     total_qty: float
     unit_cost: float | None
     stock_value: float | None
@@ -44,14 +49,26 @@ class StockBalanceRow(ApiModel):
 
 
 class BatchRow(ApiModel):
+    """A batch holding stock, at one warehouse, with its expiry position."""
+
     item_uid: str
     item_code: str
     item_name: str
+    item_type: str
     batch_no: str
-    total_inward: float
-    total_outward: float
-    current_stock: float
-    status: str
+    warehouse_uid: str | None
+    warehouse_code: str | None
+    warehouse_name: str | None
+    uom: str
+    available_qty: float
+    unit_cost: float | None
+    stock_value: float | None
+    mfg_date: date | None
+    expiry_date: date | None
+    # None when the batch has no expiry date recorded; the row then reports
+    # status UNKNOWN rather than claiming to be valid.
+    days_to_expiry: int | None
+    status: str  # EXPIRED | EXPIRING_SOON | VALID | UNKNOWN
     last_movement_date: datetime | None
 
 
@@ -72,6 +89,11 @@ class LedgerRow(ApiModel):
     batch_no: str
     stock_status: str
     posted_by_name: str | None
+    warehouse_code: str | None = None
+    warehouse_name: str | None = None
+    uom: str = ""
+    item_code: str = ""
+    item_name: str = ""
 
 
 class LedgerItem(ApiModel):

@@ -103,8 +103,8 @@ export function MonitoringPage() {
     { key: 'at', header: 'When', width: '13rem', render: (l) => <span className="text-2xs tabular text-fg-muted">{formatDateTime(l.at)}</span> },
     { key: 'level', header: 'Level', width: '8rem', render: (l) => <Badge tone={LEVEL_TONE[l.level]} size="sm">{l.level.toLowerCase()}</Badge> },
     { key: 'source', header: 'Source', width: '12rem', render: (l) => <Badge tone="neutral" size="sm" dot={false}>{LOG_SOURCE_LABEL[l.source]}</Badge> },
-    { key: 'origin', header: 'Origin', width: '18rem', render: (l) => <span className="truncate font-mono text-2xs text-fg-muted">{l.origin}</span> },
-    { key: 'message', header: 'Message', render: (l) => <p className="truncate text-xs text-fg">{l.message}</p> },
+    { key: 'origin', header: 'Origin', width: '18rem', render: (l) => <span className="truncate font-mono text-2xs text-fg-muted" title={String(l.origin ?? "")}>{l.origin}</span> },
+    { key: 'message', header: 'Message', render: (l) => <p className="truncate text-xs text-fg" title={String(l.message ?? "")}>{l.message}</p> },
     { key: 'user', header: 'User', width: '11rem', render: (l) => <span className="text-2xs text-fg-muted">{l.userName ?? '—'}</span> },
     { key: 'duration', header: 'Took', width: '9rem', align: 'right', render: (l) => (l.durationMs === null ? <span className="text-2xs text-fg-subtle">—</span> : <span className={cn('text-2xs tabular', l.durationMs > 5_000 ? 'text-warning' : 'text-fg-muted')}>{l.durationMs.toLocaleString('en-IN')} ms</span>) },
     {
@@ -154,7 +154,7 @@ export function MonitoringPage() {
               <Card key={h.component} className={cn(h.status === 'DOWN' && 'border-danger/40', h.status === 'DEGRADED' && 'border-warning/40')}>
                 <CardBody>
                   <div className="mb-1 flex items-center justify-between gap-2">
-                    <p className="truncate text-xs font-medium text-fg">{h.component}</p>
+                    <p className="truncate text-xs font-medium text-fg" title={String(h.component ?? "")}>{h.component}</p>
                     <Badge tone={HEALTH_TONE[h.status]} size="sm">{h.status.toLowerCase()}</Badge>
                   </div>
                   <p className="text-3xs uppercase tracking-wider text-fg-subtle">{h.kind.toLowerCase()}</p>

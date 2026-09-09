@@ -142,7 +142,7 @@ export function ShiftsPage() {
       const s = shifts.find((x) => x.code === r.shiftCode)
       return (
         <div className="min-w-0">
-          <p className="truncate text-xs font-medium text-fg">{s?.name ?? r.shiftCode}</p>
+          <p className="truncate text-xs font-medium text-fg" title={String(s?.name ?? r.shiftCode ?? "")}>{s?.name ?? r.shiftCode}</p>
           <p className="font-mono text-2xs text-fg-subtle">{s ? `${s.startTime}–${s.endTime}` : ''}</p>
         </div>
       )
@@ -182,7 +182,7 @@ export function ShiftsPage() {
   const shiftColumns: Column<Shift>[] = [
     { key: 'code', header: 'Shift', sortable: true, width: '13rem', render: (s) => (
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-fg">{s.name}</p>
+        <p className="truncate text-xs font-medium text-fg" title={String(s.name ?? "")}>{s.name}</p>
         <p className="font-mono text-2xs text-fg-subtle">{s.code}</p>
       </div>
     ) },
@@ -331,7 +331,7 @@ export function ShiftsPage() {
                       c.certified === 0 ? 'border-danger/30 bg-danger/5' : c.certified < c.rostered ? 'border-warning/30 bg-warning/5' : 'border-border',
                     )}
                   >
-                    <p className="truncate text-xs font-medium text-fg">{c.workCentre}</p>
+                    <p className="truncate text-xs font-medium text-fg" title={String(c.workCentre ?? "")}>{c.workCentre}</p>
                     <p className={cn('mt-0.5 text-2xs', c.certified === 0 ? 'font-medium text-danger' : 'text-fg-muted')}>
                       {c.certified} certified of {c.rostered} rostered
                     </p>

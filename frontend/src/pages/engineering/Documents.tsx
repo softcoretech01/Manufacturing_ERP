@@ -126,9 +126,9 @@ export function EngDocumentsPage() {
     { key: 'docType', header: 'Type', sortable: true, width: '8.5rem', accessor: (d) => docTypeLabel[d.docType] ?? d.docType, render: (d) => <span className="text-xs text-fg-muted">{docTypeLabel[d.docType] ?? d.docType}</span> },
     { key: 'productCode', header: 'Product', sortable: true, width: '7.5rem', render: (d) => <span className="font-mono text-2xs text-fg-muted">{d.productCode}</span> },
     { key: 'revision', header: 'Rev', align: 'right', width: '4.25rem', accessor: (d) => d.revision, render: (d) => <span className="font-mono text-2xs">R{d.revision}</span> },
-    { key: 'fileName', header: 'File', render: (d) => <span className="truncate font-mono text-2xs text-fg-muted">{d.fileName}</span> },
+    { key: 'fileName', header: 'File', render: (d) => <span className="truncate font-mono text-2xs text-fg-muted" title={String(d.fileName ?? "")}>{d.fileName}</span> },
     { key: 'sizeKb', header: 'Size', align: 'right', sortable: true, width: '5.5rem', accessor: (d) => d.sizeKb, render: (d) => (d.sizeKb > 1024 ? `${(d.sizeKb / 1024).toFixed(1)} MB` : `${d.sizeKb} KB`) },
-    { key: 'uploadedOn', header: 'Uploaded', sortable: true, width: '8rem', accessor: (d) => d.uploadedOn, render: (d) => formatDate(d.uploadedOn) },
+    { key: 'uploadedOn', header: 'Uploaded', sortable: true, width: '8.5rem', accessor: (d) => d.uploadedOn, render: (d) => formatDate(d.uploadedOn) },
     { key: 'status', header: 'Status', sortable: true, width: '8.5rem', render: (d) => <EngStatusBadge status={d.status} size="sm" /> },
   ]
 

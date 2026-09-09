@@ -231,7 +231,7 @@ export function BreakdownsPage() {
 
   const columns: Column<Breakdown>[] = [
     { key: 'doc', header: 'Ticket', width: '13rem', render: (b) => (<><p className="font-mono text-2xs text-fg">{b.docNo}</p><p className="text-3xs text-fg-subtle">{formatDateTime(b.reportedAt)}</p></>) },
-    { key: 'asset', header: 'Asset', width: '17rem', render: (b) => (<><p className="truncate text-xs text-fg">{b.assetName}</p><p className="font-mono text-2xs text-fg-subtle">{b.assetCode}</p></>) },
+    { key: 'asset', header: 'Asset', width: '17rem', render: (b) => (<><p className="truncate text-xs text-fg" title={String(b.assetName ?? "")}>{b.assetName}</p><p className="font-mono text-2xs text-fg-subtle">{b.assetCode}</p></>) },
     { key: 'category', header: 'Category', width: '11rem', render: (b) => <CategoryBadge category={b.causeCategory ?? b.category} /> },
     { key: 'priority', header: 'Priority', width: '8rem', render: (b) => <PriorityBadge priority={b.priority} /> },
     {

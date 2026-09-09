@@ -64,12 +64,12 @@ export function ViewModal({
         <DataTable
           density="compact"
           searchable={false}
-          columns={[
+          columns={([
             { key: 'item_code', header: 'Item Code' },
             { key: 'item_name', header: 'Name' },
             { key: 'quantity', header: 'Quantity', align: 'right' },
             { key: 'batch_no', header: 'Batch' },
-          ].filter(c => c.key !== 'batch_no' || !rows[0]?.movement_type?.includes('ISSUE'))}
+          ] as Column<any>[]).filter(c => c.key !== 'batch_no' || !rows[0]?.movement_type?.includes('ISSUE'))}
           rows={rows}
           rowKey={(r: any) => r.uid}
         />
@@ -252,7 +252,7 @@ export function MovementModal({
       onClose={onClose}
       title={config.title}
       description={config.description}
-      size="5xl"
+      size="4xl"
       closeOnBackdrop={false}
       footer={
         <>
@@ -319,7 +319,7 @@ export function MovementModal({
                 )}
 
                 <div className="pt-1">
-                  <IconButton icon={Trash2} variant="ghost" tone="danger" title="Remove" onClick={() => removeLine(line.id)} disabled={lines.length === 1} />
+                  <IconButton icon={Trash2} variant="danger" title="Remove" onClick={() => removeLine(line.id)} disabled={lines.length === 1} />
                 </div>
               </div>
             )

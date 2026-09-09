@@ -15,6 +15,7 @@ import { cn } from '@/lib/cn'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatAmount, formatDate, formatDateTime, formatQty } from '@/lib/format'
 import {
+  isPastDue,
   ORDER_FLOW,
   ORDER_STATUS_LABEL,
   releaseBlockers,
@@ -26,6 +27,7 @@ import {
 import { NO_SIMULATION, defaultBomFor, defaultRoutingFor, rollUpCost } from '@/lib/engFlow'
 import { newUid } from '@/store/data'
 import { usePlanningData } from './usePlanningData'
+import { demandProgress } from '@/lib/demandProgress'
 import type { OrderComponent, ProductionOrder, ProductionOrderType } from '@/types/planning'
 
 /**
@@ -44,6 +46,15 @@ const OPEN_STATES: ProductionOrder['status'][] = ['PLANNED', 'FIRM_PLANNED', 'RE
 interface FormState {
   productCode: string
   qty: string
+  /**
+   * The demand this order is being raised for.
+   *
+   * Empty for a stock order raised on the planner's own judgement. When set,
+   * the product and quantity come from the demand and the order is stamped with
+   * `demandRefs`, which is what lets Capacity attribute its hours back to the
+   * customer order and what makes the plan traceable end to end.
+   */
+  demandDocNo: string
   orderType: ProductionOrderType
   priority: ProductionOrder['priority']
   plannedStart: string
@@ -52,14 +63,44 @@ interface FormState {
 
 export function ProductionOrdersPage() {
   const toast = useToast()
-  const { orders, products, ctx, starts } = usePlanningData()
+  const { orders, demand, mps, products, ctx, starts } = usePlanningData()
   const { rows, create, update, remove } = orders
+
+  /** Open demand that still needs building — the choices for a new order. */
+  const openDemandForOrders = useMemo(
+    () =>
+      demand.rows
+        .filter((d) => d.status === 'OPEN' && d.qty - (d.qtyPlanned ?? 0) > 0)
+        .sort((a, b) => a.requiredOn.localeCompare(b.requiredOn)),
+    [demand.rows],
+  )
 
   const [tab, setTab] = useState('open')
   const [detail, setDetail] = useState<ProductionOrder | null>(null)
   const [detailTab, setDetailTab] = useState('components')
   const [formOpen, setFormOpen] = useState(false)
-  const [form, setForm] = useState<FormState>({ productCode: '', qty: '', orderType: 'STANDARD', priority: 'NORMAL', plannedStart: '', remarks: '' })
+  const [form, setForm] = useState<FormState>({ productCode: '', qty: '', demandDocNo: '', orderType: 'STANDARD', priority: 'NORMAL', plannedStart: '', remarks: '' })
+
+  /*
+   * What the selected demand still needs.
+   *
+   * `qty − qtyPlanned` is not the answer on its own: production orders already
+   * raised against the demand have to come off too, or a planner raising a
+   * second order for the same shortfall double-builds it.
+   */
+  const formDemand = useMemo(
+    () => openDemandForOrders.find((d) => d.docNo === form.demandDocNo) ?? null,
+    [openDemandForOrders, form.demandDocNo],
+  )
+  const formDemandProgress = useMemo(
+    () => (formDemand ? demandProgress(formDemand, mps.rows, rows) : null),
+    [formDemand, mps.rows, rows],
+  )
+  /** Maximum this order may be raised for. Null when no demand is selected. */
+  const maxQty = formDemandProgress
+    ? Math.max(0, formDemandProgress.outstanding - formDemandProgress.ordered)
+    : null
+
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [confirmDelete, setConfirmDelete] = useState<ProductionOrder | null>(null)
   const [simFor, setSimFor] = useState<ProductionOrder | null>(null)
@@ -89,6 +130,7 @@ export function ProductionOrdersPage() {
       key: 'productCode',
       header: 'Product',
       sortable: true,
+      width: '16rem',
       render: (o) => (
         <>
           <p className="text-xs font-medium text-fg">{o.productName}</p>
@@ -111,7 +153,7 @@ export function ProductionOrdersPage() {
       ),
     },
     { key: 'priority', header: 'Priority', width: '6rem', render: (o) => <PriorityBadge priority={o.priority} /> },
-    { key: 'plannedStart', header: 'Start', sortable: true, width: '8rem', accessor: (o) => o.plannedStart, render: (o) => formatDate(o.plannedStart) },
+    { key: 'plannedStart', header: 'Start', sortable: true, width: '8.5rem', accessor: (o) => o.plannedStart, render: (o) => formatDate(o.plannedStart) },
     {
       key: 'plannedFinish',
       header: 'Finish',
@@ -132,6 +174,7 @@ export function ProductionOrdersPage() {
     setForm({
       productCode: products.rows.find((p) => p.lifecycle === 'PRODUCTION')?.code ?? '',
       qty: '',
+      demandDocNo: '',
       orderType: 'STANDARD',
       priority: 'NORMAL',
       plannedStart: starts[1],
@@ -153,6 +196,14 @@ export function ProductionOrdersPage() {
     const e: Record<string, string> = {}
     if (!form.productCode) e.productCode = 'Choose the product to make.'
     if (!(Number(form.qty) > 0)) e.qty = 'Quantity must be greater than zero.'
+    else if (maxQty !== null && Number(form.qty) > maxQty) {
+      // Building more than the customer ordered is a decision, not a typo — but
+      // it has to be a deliberate one, so it is blocked here and the planner
+      // clears the demand link if they really mean to overbuild.
+      e.qty =
+        `Production quantity cannot exceed the remaining demand of ` +
+        `${maxQty.toLocaleString('en-IN')} ${formDemand?.uom ?? ''}.`.trimEnd()
+    }
     if (!form.plannedStart) e.plannedStart = 'A planned start date is required.'
     if (form.productCode && !defaultBomFor(form.productCode, ctx.boms)) e.productCode = 'That product has no live bill of material, so no component list can be built.'
     setErrors(e)
@@ -207,7 +258,7 @@ export function ProductionOrdersPage() {
       routingRevision: routing?.revision ?? 0,
       components,
       operations,
-      demandRefs: [],
+      demandRefs: form.demandDocNo ? [form.demandDocNo] : [],
       estimatedUnitCost: roll.total,
       remarks: form.remarks.trim(),
       createdBy: 'A. Lakshmi',
@@ -546,16 +597,96 @@ export function ProductionOrdersPage() {
         }
       >
         <div className="grid gap-3.5 sm:grid-cols-2">
+          {/*
+            * Raising against a demand fills the product and quantity from the
+            * order, and stamps the link. Typing them by hand instead is still
+            * allowed — a rework or a stock build has no customer order behind
+            * it — but the common case should not require re-keying figures that
+            * already exist, because that is where transcription errors come from.
+            */}
+          <Select
+            label="For demand"
+            containerClassName="sm:col-span-2"
+            hint={
+              form.demandDocNo
+                ? 'Product and quantity are taken from this order.'
+                : 'Optional. Leave blank for a stock build or a rework with no customer order behind it.'
+            }
+            value={form.demandDocNo}
+            onChange={(e) => {
+              const docNo = e.target.value
+              const d = openDemandForOrders.find((x) => x.docNo === docNo)
+              setForm((f) => ({
+                ...f,
+                demandDocNo: docNo,
+                productCode: d ? d.productCode : f.productCode,
+                qty: d ? String(d.qty - (d.qtyPlanned ?? 0)) : f.qty,
+                // Start early enough to finish by the required date; the
+                // simulation below shows whether that is actually achievable.
+                plannedStart: d ? starts[0] : f.plannedStart,
+                priority: d && isPastDue(d.requiredOn) ? 'URGENT' : f.priority,
+              }))
+              setErrors({})
+            }}
+            options={[
+              { value: '', label: 'No demand — stock build' },
+              ...openDemandForOrders.map((d) => ({
+                value: d.docNo,
+                label: `${d.docNo} — ${d.productCode} · ${(d.qty - (d.qtyPlanned ?? 0)).toLocaleString('en-IN')} ${d.uom} by ${formatDate(d.requiredOn)}`,
+              })),
+            ]}
+          />
+          {formDemandProgress && formDemand && (
+            <div className="sm:col-span-2 grid grid-cols-2 gap-3 rounded-lg border border-border bg-surface-2 p-3 sm:grid-cols-4">
+              <SummaryFact label="Demand" value={formDemand.docNo} mono />
+              <SummaryFact
+                label="Demand qty"
+                value={`${formDemandProgress.outstanding.toLocaleString('en-IN')} ${formDemand.uom}`}
+              />
+              <SummaryFact
+                label="Already on order"
+                value={`${formDemandProgress.ordered.toLocaleString('en-IN')} ${formDemand.uom}`}
+              />
+              <SummaryFact
+                label="Remaining"
+                value={`${(maxQty ?? 0).toLocaleString('en-IN')} ${formDemand.uom}`}
+                tone={(maxQty ?? 0) > 0 ? 'brand' : 'success'}
+              />
+            </div>
+          )}
           <Select
             label="Product"
             required
             containerClassName="sm:col-span-2"
             value={form.productCode}
             error={errors.productCode}
+            // Locked, not hidden: the planner should see which product the
+            // demand chose for them, and clearing the demand unlocks it again.
+            hint={form.demandDocNo ? `Set by ${form.demandDocNo}.` : undefined}
+            disabled={!!form.demandDocNo}
             onChange={(e) => setForm({ ...form, productCode: e.target.value })}
             options={[{ value: '', label: 'Select a product…' }, ...products.rows.map((p) => ({ value: p.code, label: `${p.code} — ${p.name}` }))]}
           />
-          <Input label="Quantity" type="number" required value={form.qty} error={errors.qty} onChange={(e) => setForm({ ...form, qty: e.target.value })} />
+          <Input
+            label="Quantity"
+            type="number"
+            required
+            min={0}
+            max={maxQty ?? undefined}
+            value={form.qty}
+            error={
+              errors.qty ??
+              (maxQty !== null && Number(form.qty) > maxQty
+                ? `Production quantity cannot exceed the remaining demand of ${maxQty.toLocaleString('en-IN')} ${formDemand?.uom ?? ''}.`.trimEnd()
+                : undefined)
+            }
+            hint={
+              maxQty !== null
+                ? `Maximum allowed: ${maxQty.toLocaleString('en-IN')} ${formDemand?.uom ?? ''}`.trimEnd()
+                : undefined
+            }
+            onChange={(e) => setForm({ ...form, qty: e.target.value })}
+          />
           <Input label="Planned start" type="date" required value={form.plannedStart} error={errors.plannedStart} onChange={(e) => setForm({ ...form, plannedStart: e.target.value })} />
           <Select label="Order type" value={form.orderType} onChange={(e) => setForm({ ...form, orderType: e.target.value as ProductionOrderType })} options={TYPES.map((t) => ({ value: t, label: t.charAt(0) + t.slice(1).toLowerCase() }))} />
           <Select label="Priority" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value as ProductionOrder['priority'] })} options={(['LOW', 'NORMAL', 'HIGH', 'URGENT'] as const).map((p) => ({ value: p, label: p.charAt(0) + p.slice(1).toLowerCase() }))} />
@@ -774,6 +905,35 @@ export function ProductionOrdersPage() {
           {confirmDelete?.docNo} will be marked deleted, not physically removed. It has not been released.
         </p>
       </Modal>
+    </div>
+  )
+}
+
+/** One read-only figure in the order form's planning summary. */
+function SummaryFact({
+  label,
+  value,
+  mono,
+  tone,
+}: {
+  label: string
+  value: string
+  mono?: boolean
+  tone?: 'brand' | 'success'
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[11px] uppercase tracking-wide text-fg-subtle">{label}</p>
+      <p
+        className={cn(
+          'truncate text-[13px] font-semibold tabular-nums',
+          mono && 'font-mono',
+          tone === 'brand' ? 'text-brand-700' : tone === 'success' ? 'text-success' : 'text-fg',
+        )}
+        title={value}
+      >
+        {value}
+      </p>
     </div>
   )
 }

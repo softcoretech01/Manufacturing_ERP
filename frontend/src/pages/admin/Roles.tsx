@@ -191,8 +191,8 @@ export function RolesPage() {
                 )}
               >
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-xs font-medium">{r.name}</span>
-                  <span className="block truncate font-mono text-[10px] opacity-70">{r.code}</span>
+                  <span className="block truncate text-xs font-medium" title={String(r.name ?? "")}>{r.name}</span>
+                  <span className="block truncate font-mono text-[10px] opacity-70" title={String(r.code ?? "")}>{r.code}</span>
                 </span>
                 {!r.is_active && <Badge tone="neutral" size="sm">off</Badge>}
                 <span className="shrink-0 text-2xs tabular opacity-70">{r.permission_count}</span>

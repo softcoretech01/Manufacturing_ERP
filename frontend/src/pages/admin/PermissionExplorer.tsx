@@ -126,8 +126,8 @@ export function PermissionExplorerPage() {
                 <button key={p.code} onClick={() => setSelectedCode(p.code)}
                   className={cn('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors', p.code === selectedCode ? 'bg-brand-500/10' : 'hover:bg-surface-3')}>
                   <span className="min-w-0 flex-1">
-                    <span className={cn('block truncate font-mono text-[11px]', p.code === selectedCode ? 'text-brand-600' : 'text-fg')}>{p.code}</span>
-                    <span className="block truncate text-[10px] text-fg-subtle">{p.label}</span>
+                    <span className={cn('block truncate font-mono text-[11px]', p.code === selectedCode ? 'text-brand-600' : 'text-fg')} title={String(p.code ?? "")}>{p.code}</span>
+                    <span className="block truncate text-[10px] text-fg-subtle" title={String(p.label ?? "")}>{p.label}</span>
                   </span>
                   {p.is_sensitive && <ShieldAlert className="h-3 w-3 shrink-0 text-danger" />}
                 </button>
@@ -157,7 +157,7 @@ export function PermissionExplorerPage() {
                 <div className="divide-y divide-border">
                   {grantingRoles.map((r) => (
                     <div key={r.uid} className="flex items-center gap-3 px-4 py-2.5">
-                      <p className="min-w-0 flex-1 truncate text-sm text-fg">{r.name}</p>
+                      <p className="min-w-0 flex-1 truncate text-sm text-fg" title={String(r.name ?? "")}>{r.name}</p>
                       <span className="shrink-0 rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[10px] text-fg-muted">{r.code}</span>
                       <span className="w-16 shrink-0 text-right text-2xs text-fg-muted tabular">{r.codes.length} perms</span>
                     </div>
@@ -176,8 +176,8 @@ export function PermissionExplorerPage() {
                     <div key={u.uid} className="flex items-center gap-3 px-4 py-2.5">
                       <Avatar name={u.full_name} size="sm" />
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm text-fg">{u.full_name}</p>
-                        <p className="truncate text-2xs text-fg-subtle">{u.login_id}</p>
+                        <p className="truncate text-sm text-fg" title={String(u.full_name ?? "")}>{u.full_name}</p>
+                        <p className="truncate text-2xs text-fg-subtle" title={String(u.login_id ?? "")}>{u.login_id}</p>
                       </div>
                       <span className="shrink-0 rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[10px] text-fg-muted">
                         via {u.roles.find((rc) => rolesByCode.get(rc)?.codes.includes(selectedCode ?? ''))}

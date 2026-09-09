@@ -6,7 +6,7 @@ import { engineeringApi } from '@/api/engineering'
 import { items as masterItemsApi, stock } from '@/api/stock'
 import { getPurchaseOrders } from '@/api/procurement'
 import { bucketStarts, DEFAULT_HORIZON } from '@/lib/planFlow'
-import type { Bom, EngProduct, EngWorkCentre, Routing, Tool } from '@/types/engineering'
+import type { Bom, EngWorkCentre, Routing, Tool } from '@/types/engineering'
 import type { PurchaseOrder } from '@/types/procurement'
 import type { DemandLine, ForecastLine, MpsLine, PlanningPolicy, ProductionOrder, CalendarDay } from '@/types/planning'
 import type { StockPosition } from '@/types/inventory'
@@ -55,14 +55,54 @@ export function usePlanningData() {
   const bomsQuery = useQuery({ queryKey: ['eng:boms'], queryFn: engineeringApi.getBoms })
   const routingsQuery = useQuery({ queryKey: ['eng:routings'], queryFn: engineeringApi.getRoutings })
   const workCentresQuery = useQuery({ queryKey: ['eng:workcentres'], queryFn: engineeringApi.getEngWorkCentres })
+  /*
+   * Products come from the item master, over the API — the same source demand,
+   * BOMs, routings, production orders and MRP all key off.
+   *
+   * They were briefly read from the `masterRegistry` PRODUCT stub instead. That
+   * list is codes PRD-0001…PRD-0006, which exist in no other table: the item
+   * master holds FG-SS-750-BLK and its siblings. So the MPS product picker
+   * offered products that no demand line, BOM or production order referenced,
+   * and every product a planner selected showed "Demand 0 · planned 0" no
+   * matter how much demand was actually booked against it.
+   */
   const productsQuery = useQuery({ queryKey: ['eng:products'], queryFn: engineeringApi.getEngProducts })
+  const productRows = useMemo(
+    () => (productsQuery.data ?? []).filter((p) => !p.deletedAt),
+    [productsQuery.data],
+  )
+
+  /**
+   * Everything the item master holds — finished goods, sub-assemblies,
+   * components, packing, raw material. Production orders legitimately cover
+   * sub-assemblies, so they need the wider list.
+   */
+  const products = useMemo(
+    () => ({ rows: productRows, isLoading: productsQuery.isLoading }),
+    [productRows, productsQuery.isLoading],
+  )
+
+  /**
+   * What the company actually sells.
+   *
+   * Demand and the master schedule are commitments to a customer, so they may
+   * only be raised against a finished product. Offering the whole item master
+   * let a planner book customer demand for "Barcode Label — EAN-13", which is
+   * not something anyone orders and which MRP would then try to plan a BOM for.
+   */
+  const sellableProducts = useMemo(
+    () => ({
+      rows: productRows.filter((p) => p.productType === 'FINISHED'),
+      isLoading: productsQuery.isLoading,
+    }),
+    [productRows, productsQuery.isLoading],
+  )
   const toolsQuery = useQuery({ queryKey: ['eng:tools'], queryFn: engineeringApi.getEngTools })
   const purchaseOrdersQuery = useQuery({ queryKey: ['proc:po'], queryFn: getPurchaseOrders })
   
   const boms = { rows: bomsQuery.data ?? [], isLoading: bomsQuery.isLoading }
   const routings = { rows: routingsQuery.data ?? [], isLoading: routingsQuery.isLoading }
   const workCentres = { rows: workCentresQuery.data ?? [], isLoading: workCentresQuery.isLoading }
-  const products = { rows: productsQuery.data ?? [], isLoading: productsQuery.isLoading }
   const tools = { rows: toolsQuery.data ?? [], isLoading: toolsQuery.isLoading }
   const purchaseOrders = { rows: purchaseOrdersQuery.data ?? [], isLoading: purchaseOrdersQuery.isLoading }
 
@@ -142,6 +182,7 @@ export function usePlanningData() {
     routings,
     workCentres,
     products,
+    sellableProducts,
     tools,
     purchaseOrders,
     ctx,

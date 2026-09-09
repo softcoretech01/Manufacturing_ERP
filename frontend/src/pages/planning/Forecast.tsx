@@ -109,6 +109,7 @@ export function ForecastPage() {
       key: 'productCode',
       header: 'Product',
       sortable: true,
+      width: '16rem',
       render: (r) => (
         <>
           <p className="text-xs font-medium text-fg">{r.productName}</p>

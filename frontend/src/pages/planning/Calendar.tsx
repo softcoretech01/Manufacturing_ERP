@@ -159,7 +159,7 @@ export function CalendarPage() {
         <CardHeader title="Next twelve weeks" description="Green is open, red is closed, amber is an extra shift" />
         <CardBody className="p-0">
           <div className="overflow-x-auto">
-            <table className="grid-table">
+            <table className="grid-table grid-table--auto">
               <thead>
                 <tr>
                   <th style={{ width: '9rem' }}>Week</th>

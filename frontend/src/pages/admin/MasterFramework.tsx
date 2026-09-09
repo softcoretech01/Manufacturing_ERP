@@ -88,8 +88,8 @@ export function MasterFrameworkPage() {
       width: '230px',
       render: (m) => (
         <div className="min-w-0">
-          <p className="truncate text-xs font-medium text-fg">{m.name}</p>
-          <p className="truncate font-mono text-2xs text-fg-subtle">{m.code}</p>
+          <p className="truncate text-xs font-medium text-fg" title={String(m.name ?? "")}>{m.name}</p>
+          <p className="truncate font-mono text-2xs text-fg-subtle" title={String(m.code ?? "")}>{m.code}</p>
         </div>
       ),
     },

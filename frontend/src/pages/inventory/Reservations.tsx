@@ -88,7 +88,7 @@ export function ReservationsPage() {
         {r.priority.charAt(0) + r.priority.slice(1).toLowerCase()}
       </Badge>
     ) },
-    { key: 'requiredOn', header: 'Required', sortable: true, width: '8rem', accessor: (r) => r.requiredOn, render: (r) => formatDate(r.requiredOn) },
+    { key: 'requiredOn', header: 'Required', sortable: true, width: '8.5rem', accessor: (r) => r.requiredOn, render: (r) => formatDate(r.requiredOn) },
     { key: 'expiresOn', header: 'Expires', sortable: true, width: '8rem', accessor: (r) => r.expiresOn, render: (r) => {
       const days = Math.ceil((new Date(r.expiresOn).getTime() - Date.now()) / 86_400_000)
       return (
@@ -250,7 +250,7 @@ export function ReservationsPage() {
             pressure.map((x) => (
               <div key={x.item.uid}>
                 <div className="mb-1 flex items-center justify-between gap-2 text-xs">
-                  <span className="truncate text-fg">{x.item.itemName}</span>
+                  <span className="truncate text-fg" title={String(x.item.itemName ?? "")}>{x.item.itemName}</span>
                   <span className={cn('shrink-0 tabular text-2xs', x.pct >= 100 ? 'text-danger' : x.pct > 70 ? 'text-warning' : 'text-fg-muted')}>
                     {formatQty(x.claimed)} of {formatQty(x.item.available)} {x.item.uom} · {x.pct.toFixed(0)}%
                   </span>

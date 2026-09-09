@@ -89,10 +89,15 @@ export interface LowStockRow {
 
 export interface CategoryLedgerRow {
   category: string
+  /** The raw item_type behind the display category, for drill-down filtering. */
+  item_type: string
   item_count: number
+  /** Closing less the period's net movement — so opening + in - out = closing. */
+  opening_qty: number
   total_in_qty: number
   total_out_qty: number
   current_qty: number
+  /** Null when the caller lacks INVENTORY.STOCK.VALUE. */
   total_value: number | null
 }
 

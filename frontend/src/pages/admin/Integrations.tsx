@@ -155,7 +155,7 @@ export function IntegrationsPage() {
                   {WEBHOOKS.map((w) => (
                     <tr key={w.event}>
                       <td><span className="font-mono text-2xs text-fg">{w.event}</span></td>
-                      <td><span className="truncate font-mono text-2xs text-fg-muted">{w.url}</span></td>
+                      <td><span className="truncate font-mono text-2xs text-fg-muted" title={String(w.url ?? "")}>{w.url}</span></td>
                       <td>
                         <Badge tone={w.status === 'ACTIVE' ? 'success' : w.status === 'FAILING' ? 'danger' : 'neutral'} size="sm">
                           {w.status.toLowerCase()}

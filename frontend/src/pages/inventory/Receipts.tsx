@@ -15,7 +15,7 @@ import {
   Section, FieldGrid, Field, LineItemsTable, TotalsPanel, money, qty as fmtQty,
 } from '@/components/procurement/ProcKit'
 import { getGrns, postGrn } from '@/api/procurement'
-import { InvFilterBar, InvSearch } from '@/components/inventory/InvFilterBar'
+import { InvFilterBar, InvSearch, InvSelect } from '@/components/inventory/InvFilterBar'
 import { InvDateFilter, type DateRange } from '@/components/inventory/InvDateFilter'
 
 /** A GRN that has already been posted is in the ledger and must never go in twice. */
@@ -127,7 +127,7 @@ function AddToStockModal({
                   lookup.categoryOf(l.itemCode) || <span className="text-fg-subtle">&mdash;</span>
               },
               {
-                key: 'itemName', header: 'Item', render: (l: any) => (
+                key: 'itemName', header: 'Item', width: '16rem', render: (l: any) => (
                   <>
                     <span className="font-medium text-fg">{l.itemName || l.itemCode}</span>
                     <span className="block font-mono text-[11px] text-fg-muted">{l.itemCode}</span>
@@ -173,6 +173,7 @@ export function GoodsReceiptPage() {
   const [selectedGrn, setSelectedGrn] = useState<any>(null)
   const [search, setSearch] = useState('')
   const [dateRange, setDateRange] = useState<DateRange>({ from: '', to: '' })
+  const [status, setStatus] = useState('')
 
   // Fetch pending GRNs
   const grnQuery = useQuery({
@@ -192,45 +193,126 @@ export function GoodsReceiptPage() {
         (r.poNo || '').toLowerCase().includes(q),
       )
     }
+    if (status) list = list.filter(r => (isPosted(r) ? 'POSTED' : 'PENDING') === status)
     if (dateRange.from) list = list.filter(r => r.docDate >= dateRange.from)
     if (dateRange.to) list = list.filter(r => r.docDate <= dateRange.to)
     return list
-  }, [grnQuery.data, search, dateRange])
+  }, [grnQuery.data, search, status, dateRange])
+
+  // Line-derived figures. The GRN payload carries its lines, so the counts and
+  // totals are computed from the same numbers the detail modal shows — no second
+  // source of truth, and no field the API does not actually return.
+  const lineCount = (r: any) => (Array.isArray(r.lines) ? r.lines.length : 0)
+  const totalQty = (r: any) =>
+    (r.lines ?? []).reduce(
+      (sum: number, l: any) => sum + (Number(l.acceptedQty ?? l.receivedQty) || 0), 0,
+    )
+  const totalValue = (r: any) =>
+    Number(r.grnValue) ||
+    (r.lines ?? []).reduce(
+      (sum: number, l: any) =>
+        sum + (Number(l.acceptedQty ?? l.receivedQty) || 0) * (Number(l.rate) || 0), 0,
+    )
 
   const columns: Column<any>[] = [
-    { key: 'sno', header: 'S.NO', width: '70px', render: (_, i) => <span className="text-fg-muted">{i + 1}</span> },
-    { key: 'docDate', header: 'Date', width: '140px', render: (r) => formatDate(r.docDate) },
-    { key: 'docNo', header: 'GRN Number', render: (r) => <span className="font-mono text-2xs text-brand-600 font-semibold">{r.docNo}</span> },
-    { key: 'supplierName', header: 'Supplier' },
-    { key: 'poNo', header: 'PO Reference', render: (r) => <span className="font-mono text-2xs">{r.poNo}</span> },
     {
-      key: 'status', header: 'Status', width: '140px',
+      key: 'sno', header: 'S.No', width: '68px', align: 'center',
+      render: (_r, i) => <span className="text-[13px] tabular-nums text-fg-subtle">{i + 1}</span>,
+    },
+    {
+      key: 'docNo', header: 'Stock In No', width: '155px', sortable: true,
+      accessor: (r) => r.docNo ?? '',
+      render: (r) => (
+        <span className="font-mono text-[13px] font-semibold text-brand-600">{r.docNo ?? '—'}</span>
+      ),
+    },
+    {
+      key: 'docDate', header: 'Date', width: '115px', sortable: true,
+      accessor: (r) => r.docDate ?? '',
+      render: (r) => (
+        <span className="text-[13px] tabular-nums">{r.docDate ? formatDate(r.docDate) : '—'}</span>
+      ),
+    },
+    {
+      key: 'supplierName', header: 'Supplier', width: '160px',
+      accessor: (r) => r.supplierName ?? '',
+      render: (r) => (
+        <span className="block truncate text-[14px] text-fg" title={r.supplierName ?? ''}>
+          {r.supplierName || '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'poNo', header: 'Reference', width: '160px', defaultHidden: true,
+      accessor: (r) => r.poNo ?? '',
+      render: (r) => r.poNo
+        ? <span className="font-mono text-[12px] text-fg-muted">{r.poNo}</span>
+        : <span className="text-fg-subtle">—</span>,
+    },
+    {
+      key: 'warehouse', header: 'Store', width: '145px',
+      accessor: (r) => r.warehouse ?? '',
+      render: (r) => (
+        <span className="block truncate text-[14px] text-fg-muted" title={r.warehouse ?? ''}>
+          {r.warehouse || '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'itemCount', header: 'Items', width: '80px', align: 'right',
+      accessor: (r) => lineCount(r),
+      render: (r) => <span className="text-[14px] tabular-nums">{lineCount(r)}</span>,
+    },
+    {
+      key: 'totalQty', header: 'Total Qty', width: '110px', align: 'right', sortable: true,
+      accessor: (r) => totalQty(r),
+      render: (r) => (
+        <span className="text-[14px] font-medium tabular-nums text-fg">{fmtQty(totalQty(r))}</span>
+      ),
+    },
+    {
+      key: 'totalValue', header: 'Total Value', width: '130px', align: 'right', sortable: true,
+      accessor: (r) => totalValue(r),
+      render: (r) => (
+        <span className="text-[14px] font-semibold tabular-nums text-fg">{money(totalValue(r))}</span>
+      ),
+    },
+    {
+      key: 'receivedBy', header: 'Created By', width: '145px', defaultHidden: true,
+      accessor: (r) => r.receivedBy ?? '',
+      render: (r) => (
+        <span className="block truncate text-[13px] text-fg-muted" title={r.receivedBy ?? ''}>
+          {r.receivedBy || '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'status', header: 'Status', width: '110px', align: 'center',
+      accessor: (r) => (isPosted(r) ? 'POSTED' : 'PENDING'),
       render: (r) => {
         const posted = isPosted(r)
-        const displayStatus = posted ? 'POSTED' : 'PENDING'
         return (
           <Badge tone={posted ? 'success' : 'warning'} size="sm">
-            {displayStatus}
+            {posted ? 'POSTED' : 'PENDING'}
           </Badge>
         )
       },
     },
     {
-      // View is always available — a posted receipt is the one you most often
-      // need to look at, and disabling the whole cell once it was posted left
-      // no way to open it at all. Posting stays a separate, primary action that
-      // only appears while there is something to post.
-      key: 'action', header: 'Actions', align: 'right', width: '180px', className: 'col-flex',
+      // View is always available — a posted receipt is the one most often
+      // looked at. Posting stays a separate primary action that only appears
+      // while there is still something to post.
+      key: 'action', header: 'Actions', align: 'center', width: '150px', className: 'col-flex',
       render: (r) => {
         const posted = isPosted(r)
         return (
-          <div className="flex items-center justify-end gap-1">
+          <div className="flex items-center justify-center gap-1">
             <IconButton
               icon={Eye}
               variant="ghost"
               size="sm"
               title="View receipt details"
-              aria-label="View receipt details"
+              aria-label={`View receipt ${r.docNo ?? ''}`}
               onClick={() => setSelectedGrn(r)}
             />
             {posted ? (
@@ -241,7 +323,7 @@ export function GoodsReceiptPage() {
               <Button
                 size="sm"
                 variant="primary"
-                icon={<PackagePlus className="w-3 h-3" />}
+                icon={<PackagePlus className="h-3 w-3" />}
                 onClick={() => setSelectedGrn(r)}
               >
                 Add to Stock
@@ -252,6 +334,7 @@ export function GoodsReceiptPage() {
       },
     },
   ]
+
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
@@ -265,8 +348,33 @@ export function GoodsReceiptPage() {
 
       {/* Filter bar */}
       <InvFilterBar
-        left={<InvSearch value={search} onChange={setSearch} placeholder="Search supplier, GRN, PO…" />}
-        right={<InvDateFilter value={dateRange} onChange={setDateRange} />}
+        left={
+          <>
+            <InvSearch value={search} onChange={setSearch} placeholder="Search supplier, GRN, PO…" />
+            <InvSelect
+              label="Status"
+              value={status}
+              onChange={setStatus}
+              options={[
+                { value: '', label: 'All statuses' },
+                { value: 'PENDING', label: 'Pending' },
+                { value: 'POSTED', label: 'Posted' },
+              ]}
+            />
+          </>
+        }
+        right={
+          <div className="flex items-center gap-2">
+            <InvDateFilter value={dateRange} onChange={setDateRange} />
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => { setSearch(''); setStatus(''); setDateRange({ from: '', to: '' }) }}
+            >
+              Clear Filters
+            </Button>
+          </div>
+        }
       />
 
       <DataTable

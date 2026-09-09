@@ -202,7 +202,7 @@ export function BranchesPage() {
 
   const columns: Column<Branch>[] = [
     { key: 'code', header: 'Code', sortable: true, width: '90px', render: (b) => <span className="font-mono text-xs font-medium">{b.code}</span> },
-    { key: 'name', header: 'Branch', sortable: true, render: (b) => <span className="font-medium text-fg">{b.name}</span> },
+    { key: 'name', header: 'Branch', width: '16rem', sortable: true, render: (b) => <span className="font-medium text-fg">{b.name}</span> },
     { key: 'branch_type', header: 'Type', sortable: true, width: '140px', render: (b) => <Badge tone="neutral" size="sm" dot={false}>{b.branch_type.replace(/_/g, ' ').toLowerCase()}</Badge> },
     {
       key: 'gstin',

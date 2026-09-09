@@ -195,7 +195,7 @@ export function AssetsPage() {
             <span className="w-4" />
           )}
           <span className="min-w-0">
-            <span className="block truncate text-xs text-fg">{n.asset.name}</span>
+            <span className="block truncate text-xs text-fg" title={String(n.asset.name ?? "")}>{n.asset.name}</span>
             <span className="font-mono text-2xs text-fg-subtle">{n.asset.code}{n.children.length ? ` · ${n.children.length} below` : ''}</span>
           </span>
         </div>
@@ -230,7 +230,7 @@ export function AssetsPage() {
   ]
 
   const listColumns: Column<MaintAsset>[] = [
-    { key: 'asset', header: 'Asset', width: '22rem', render: (a) => (<><p className="truncate text-xs text-fg">{a.name}</p><p className="font-mono text-2xs text-fg-subtle">{a.code}</p></>) },
+    { key: 'asset', header: 'Asset', width: '22rem', render: (a) => (<><p className="truncate text-xs text-fg" title={String(a.name ?? "")}>{a.name}</p><p className="font-mono text-2xs text-fg-subtle">{a.code}</p></>) },
     { key: 'make', header: 'Make / model', width: '16rem', render: (a) => (<><p className="truncate text-2xs text-fg-muted">{a.manufacturer || '—'}</p><p className="text-3xs text-fg-subtle">{a.model}</p></>) },
     { key: 'serial', header: 'Serial', width: '13rem', render: (a) => <span className="font-mono text-2xs text-fg-muted">{a.serialNumber || '—'}</span> },
     { key: 'where', header: 'Where', width: '14rem', render: (a) => (<><p className="text-2xs text-fg-muted">{a.department}</p><p className="text-3xs text-fg-subtle">{a.productionLine || a.location || '—'}</p></>) },
@@ -410,7 +410,7 @@ export function AssetsPage() {
                       return (
                         <div key={p.uid} className={cn('flex items-center gap-2 rounded border p-2', due.isOverdue ? 'border-danger/40 bg-danger/5' : 'border-border')}>
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-xs text-fg">{p.name}</span>
+                            <span className="block truncate text-xs text-fg" title={String(p.name ?? "")}>{p.name}</span>
                             <span className="block text-3xs text-fg-subtle">{p.code} · {due.basis}</span>
                           </span>
                           {due.isOverdue ? <Badge tone="danger" size="sm">Overdue</Badge> : due.isDue ? <Badge tone="warning" size="sm">Due</Badge> : <Badge tone="success" size="sm">In interval</Badge>}
@@ -465,7 +465,7 @@ export function AssetsPage() {
                           <span className="text-3xs text-fg-subtle">{formatDate(b.reportedAt.slice(0, 10))}</span>
                           <span className="ml-auto"><MaintStatusBadge status={b.status} /></span>
                         </p>
-                        <p className="mt-0.5 truncate text-2xs text-fg-muted">{b.symptoms}</p>
+                        <p className="mt-0.5 truncate text-2xs text-fg-muted" title={String(b.symptoms ?? "")}>{b.symptoms}</p>
                         {b.rootCause && <p className="mt-0.5 text-3xs text-fg-subtle"><span className="text-fg-muted">Cause:</span> {b.rootCause.slice(0, 120)}{b.rootCause.length > 120 ? '…' : ''}</p>}
                       </div>
                     ))}

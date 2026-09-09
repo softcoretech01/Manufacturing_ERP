@@ -45,7 +45,7 @@ export function SodPage() {
   }
 
   const ruleColumns: Column<SodRule>[] = [
-    { key: 'name', header: 'Rule', sortable: true, render: (r) => <span className="font-medium text-fg">{r.name}</span> },
+    { key: 'name', header: 'Rule', width: '16rem', sortable: true, render: (r) => <span className="font-medium text-fg">{r.name}</span> },
     { key: 'permission_a', header: 'Permission A', render: (r) => <span className="font-mono text-[11px]">{r.permission_a}</span> },
     { key: 'permission_b', header: 'Permission B', render: (r) => <span className="font-mono text-[11px]">{r.permission_b}</span> },
     { key: 'severity', header: 'Severity', width: '100px', render: (r) => <Badge tone={r.severity === 'BLOCK' ? 'danger' : 'warning'} size="sm">{r.severity}</Badge> },

@@ -51,7 +51,7 @@ export function Sidebar() {
         </div>
         {!collapsed && (
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold leading-tight text-fg">{portal.name}</p>
+            <p className="truncate text-sm font-semibold leading-tight text-fg" title={String(portal.name ?? "")}>{portal.name}</p>
             <p className="truncate text-2xs leading-tight text-fg-subtle">SSB Industries</p>
           </div>
         )}
@@ -94,7 +94,7 @@ export function Sidebar() {
                 {group.icon && <group.icon className="h-[18px] w-[18px] shrink-0 text-[#7C8AA5] group-hover:text-brand-500" />}
                 {!collapsed && (
                   <>
-                    <span className="flex-1 truncate">{group.label}</span>
+                    <span className="flex-1 truncate" title={String(group.label ?? "")}>{group.label}</span>
                     <ChevronDown
                       className={cn('h-4 w-4 shrink-0 transition-transform text-[#7C8AA5] group-hover:text-brand-500', isOpen && 'rotate-180')}
                     />
@@ -164,7 +164,7 @@ function NavRow({
           )}
         >
           {item.icon && <item.icon className="h-4 w-4 shrink-0 text-[#7C8AA5] group-hover:text-brand-500" />}
-          <span className="flex-1 truncate">{item.label}</span>
+          <span className="flex-1 truncate" title={String(item.label ?? "")}>{item.label}</span>
           <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 transition-transform text-[#7C8AA5]', subOpen && 'rotate-180')} />
         </button>
         {subOpen && (
@@ -190,7 +190,7 @@ function NavRow({
         {item.icon && <item.icon className="h-[18px] w-[18px] shrink-0 opacity-50 text-[#7C8AA5]" />}
         {!collapsed && (
           <>
-            <span className="flex-1 truncate">{item.label}</span>
+            <span className="flex-1 truncate" title={String(item.label ?? "")}>{item.label}</span>
             <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] uppercase tracking-wide">soon</span>
           </>
         )}
@@ -225,7 +225,7 @@ function NavRow({
               )}
             />
           )}
-          {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
+          {!collapsed && <span className="flex-1 truncate" title={String(item.label ?? "")}>{item.label}</span>}
           {!collapsed && badgeCount !== undefined && badgeCount > 0 && (
             <span className={cn('rounded-full px-1.5 text-[10px] font-semibold tabular', isActive ? 'bg-white text-brand-500' : 'bg-brand-500 text-white')}>
               {badgeCount}

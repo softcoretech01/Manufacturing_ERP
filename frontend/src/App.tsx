@@ -49,8 +49,12 @@ import { TransporterMasterPage } from '@/pages/masters/Transporter'
 import { BankMasterPage } from '@/pages/masters/Bank'
 import { ContactMasterPage } from '@/pages/masters/Contact'
 import { ItemMasterPage } from '@/pages/masters/Item'
+import { ProductsMasterPage } from '@/pages/masters/Products'
 import { EmployeeMasterPage } from '@/pages/masters/Employee'
 import { MachineMasterPage } from '@/pages/masters/Machine'
+import { PlanningPolicyPage } from '@/pages/masters/PlanningPolicy'
+import { ProductionLinesPage } from '@/pages/masters/ProductionLines'
+import { WorkCentresPage as MastersWorkCentresPage } from '@/pages/masters/WorkCentres'
 import { SimpleMasterPage } from '@/pages/masters/SimpleMaster'
 import { ImportExportPage } from '@/pages/masters/ImportExport'
 import { DuplicatesPage } from '@/pages/masters/Duplicates'
@@ -69,9 +73,10 @@ import { ApprovalsPage } from '@/pages/procurement/Approvals'
 import { InventoryDashboardPage } from '@/pages/inventory/Dashboard'
 import { StockEnquiryPage } from '@/pages/inventory/Stock'
 import { StockLedgerPage } from '@/pages/inventory/Ledger'
+import { CategoryLedgerPage } from '@/pages/inventory/CategoryLedger'
 import { PutawayPage } from '@/pages/inventory/Putaway'
-import { MaterialIssuePage } from '@/pages/inventory/Issues'
-import { TransfersPage } from '@/pages/inventory/Transfers'
+import { StockOutPage } from '@/pages/inventory/StockOut'
+import { StockTransferPage } from '@/pages/inventory/StockTransfer'
 import { AdjustmentsPage } from '@/pages/inventory/Adjustments'
 import { CountingPage } from '@/pages/inventory/Counting'
 import { BatchesPage } from '@/pages/inventory/Batches'
@@ -87,7 +92,7 @@ import { AbcXyzPage } from '@/pages/inventory/AbcXyz'
 import { StockMovementPage } from '@/pages/inventory/Movement'
 import { ReorderReportPage } from '@/pages/inventory/Reorder'
 import { RequisitionsPage as InventoryRequisitionsPage } from '@/pages/inventory/Requisitions'
-import { MaterialReturnsPage } from '@/pages/inventory/Returns'
+import { StockReturnPage } from '@/pages/inventory/StockReturn'
 import { GoodsInTransitPage } from '@/pages/inventory/GoodsInTransit'
 import { JobWorkPage } from '@/pages/inventory/JobWork'
 import { ScrapPage } from '@/pages/inventory/Scrap'
@@ -317,10 +322,20 @@ export default function App() {
         <Route path="/masters/bank" element={<BankMasterPage />} />
         <Route path="/masters/contact" element={<ContactMasterPage />} />
         <Route path="/masters/item" element={<ItemMasterPage />} />
+        {/*
+          * Products is a real screen reading the item master, declared before
+          * the simple-master loop below so it wins over the fixture-backed
+          * PRODUCT entry in the registry. Without this the menu showed five
+          * invented products that no BOM, stock row or demand line referenced.
+          */}
+        <Route path="/masters/product" element={<ProductsMasterPage />} />
         <Route path="/masters/product-items" element={<ItemMasterPage />} />
         <Route path="/masters/company-items" element={<ItemMasterPage />} />
         <Route path="/masters/employee" element={<EmployeeMasterPage />} />
         <Route path="/masters/machine" element={<MachineMasterPage />} />
+        <Route path="/masters/production-lines" element={<ProductionLinesPage />} />
+        <Route path="/masters/work-centres" element={<MastersWorkCentresPage />} />
+        <Route path="/masters/planning-policy" element={<PlanningPolicyPage />} />
         <Route path="/masters/import" element={<ImportExportPage />} />
         <Route path="/masters/duplicates" element={<DuplicatesPage />} />
         {/* Every remaining master is rendered from the registry by one screen. */}
@@ -342,9 +357,10 @@ export default function App() {
         <Route path="/inventory" element={<InventoryDashboardPage />} />
         <Route path="/inventory/stock" element={<StockEnquiryPage />} />
         <Route path="/inventory/ledger" element={<StockLedgerPage />} />
+        <Route path="/inventory/category-ledger" element={<CategoryLedgerPage />} />
         <Route path="/inventory/putaway" element={<PutawayPage />} />
-        <Route path="/inventory/issues" element={<MaterialIssuePage />} />
-        <Route path="/inventory/transfers" element={<TransfersPage />} />
+        <Route path="/inventory/issues" element={<StockOutPage />} />
+        <Route path="/inventory/transfers" element={<StockTransferPage />} />
         <Route path="/inventory/adjustments" element={<AdjustmentsPage />} />
         <Route path="/inventory/counting" element={<CountingPage />} />
         <Route path="/inventory/batches" element={<BatchesPage />} />
@@ -360,7 +376,7 @@ export default function App() {
         <Route path="/inventory/movement" element={<StockMovementPage />} />
         <Route path="/inventory/reorder" element={<ReorderReportPage />} />
         <Route path="/inventory/requisitions" element={<InventoryRequisitionsPage />} />
-        <Route path="/inventory/returns" element={<MaterialReturnsPage />} />
+        <Route path="/inventory/returns" element={<StockReturnPage />} />
         <Route path="/inventory/goods-in-transit" element={<GoodsInTransitPage />} />
         <Route path="/inventory/job-work" element={<JobWorkPage />} />
         <Route path="/inventory/scrap" element={<ScrapPage />} />

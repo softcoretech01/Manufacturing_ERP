@@ -50,9 +50,9 @@ export function InstructionsPage() {
         {i.code}
       </button>
     ) },
-    { key: 'operationName', header: 'Operation', sortable: true, render: (i) => (
+    { key: 'operationName', header: 'Operation', width: '16rem', sortable: true, render: (i) => (
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-fg">{i.operationName}</p>
+        <p className="truncate text-xs font-medium text-fg" title={String(i.operationName ?? "")}>{i.operationName}</p>
         <p className="font-mono text-2xs text-fg-subtle">{i.operationCode}</p>
       </div>
     ) },
@@ -232,7 +232,7 @@ export function InstructionsPage() {
                     onClick={() => toast.info('Opening attachment', `${a.name} — in the live system this opens the document viewer at the station.`)}
                     className="flex w-full items-center justify-between rounded border border-border px-3 py-2 text-left hover:bg-surface-2"
                   >
-                    <span className="truncate text-xs text-fg">{a.name}</span>
+                    <span className="truncate text-xs text-fg" title={String(a.name ?? "")}>{a.name}</span>
                     <Badge tone={KIND_TONE[a.kind]} size="sm" dot={false}>{a.kind.toLowerCase()}</Badge>
                   </button>
                 ))}

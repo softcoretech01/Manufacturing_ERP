@@ -114,6 +114,8 @@ export function BiDataSourcesPage() {
     {
       key: 'name',
       header: 'Feed',
+      className: 'cell-wrap',
+      width: '16rem',
       render: (s) => (
         <div>
           <p className="text-xs font-medium text-fg">{s.name}</p>
@@ -175,6 +177,7 @@ export function BiDataSourcesPage() {
     {
       key: 'status',
       header: 'Status',
+      className: 'cell-wrap',
       render: (s) => (
         <div>
           <Badge

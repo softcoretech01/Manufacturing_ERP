@@ -122,7 +122,7 @@ export function MasterOverviewPage() {
                     className="group rounded border border-border p-3 transition-colors hover:border-brand-500/50 hover:bg-surface-2"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <span className="truncate text-sm font-medium text-fg group-hover:text-brand-600">{m.title}</span>
+                      <span className="truncate text-sm font-medium text-fg group-hover:text-brand-600" title={String(m.title ?? "")}>{m.title}</span>
                       <ArrowRight className="h-3.5 w-3.5 shrink-0 text-fg-subtle transition-transform group-hover:translate-x-0.5 group-hover:text-brand-600" />
                     </div>
                     <p className="mt-0.5 font-mono text-2xs text-fg-subtle">{m.code}</p>
@@ -213,7 +213,7 @@ export function MasterOverviewPage() {
                 >
                   <span className="flex min-w-0 items-center gap-2.5">
                     <AlertTriangle className={cn('h-4 w-4 shrink-0', qq.tone === 'danger' ? 'text-danger' : 'text-warning')} />
-                    <span className="truncate text-sm text-fg">{qq.label}</span>
+                    <span className="truncate text-sm text-fg" title={String(qq.label ?? "")}>{qq.label}</span>
                   </span>
                   <span className="flex shrink-0 items-center gap-2">
                     <span className={cn('text-sm font-semibold tabular', qq.tone === 'danger' ? 'text-danger' : 'text-warning')}>
@@ -278,7 +278,7 @@ export function MasterOverviewPage() {
               {importRuns.map((r) => (
                 <Link key={r.uid} to="/masters/import" className="block rounded border border-border p-3 transition-colors hover:bg-surface-2">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-xs font-medium text-fg">{r.fileName}</span>
+                    <span className="truncate text-xs font-medium text-fg" title={String(r.fileName ?? "")}>{r.fileName}</span>
                     <Badge
                       tone={r.status === 'COMMITTED' ? 'success' : r.status === 'FAILED' ? 'danger' : 'pending'}
                       size="sm"

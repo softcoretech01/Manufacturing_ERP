@@ -163,7 +163,7 @@ export function SkillsPage() {
       const def = definitions.find((d) => d.code === s.skillCode)
       return (
         <div className="min-w-0">
-          <p className="truncate text-xs text-fg">{s.skillName}</p>
+          <p className="truncate text-xs text-fg" title={String(s.skillName ?? "")}>{s.skillName}</p>
           <p className="truncate text-2xs text-fg-subtle">
             {def?.workCentre ?? 'no work centre'}
             {def?.criticality === 'CRITICAL' ? ' · critical' : ''}
@@ -213,7 +213,7 @@ export function SkillsPage() {
   const defColumns: Column<SkillDefinition>[] = [
     { key: 'code', header: 'Skill', sortable: true, width: '15rem', render: (d) => (
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-fg">{d.name}</p>
+        <p className="truncate text-xs font-medium text-fg" title={String(d.name ?? "")}>{d.name}</p>
         <p className="font-mono text-2xs text-fg-subtle">{d.code}</p>
       </div>
     ) },
@@ -358,7 +358,7 @@ export function SkillsPage() {
                     </th>
                     {definitions.filter((d) => d.isActive).map((d) => (
                       <th key={d.code} className="px-2 py-2 text-left text-2xs font-medium text-fg-muted" title={d.name}>
-                        <span className="block max-w-[5.5rem] truncate">{d.name}</span>
+                        <span className="block max-w-[5.5rem] truncate" title={String(d.name ?? "")}>{d.name}</span>
                         {d.criticality === 'CRITICAL' && <span className="text-danger">critical</span>}
                       </th>
                     ))}
@@ -368,8 +368,8 @@ export function SkillsPage() {
                   {shopFloor.map((e) => (
                     <tr key={e.uid} className="border-b border-border/70 hover:bg-surface-2">
                       <td className="sticky left-0 bg-surface px-2 py-1.5">
-                        <p className="truncate text-xs font-medium text-fg">{e.fullName}</p>
-                        <p className="truncate font-mono text-2xs text-fg-subtle">{e.employeeCode}</p>
+                        <p className="truncate text-xs font-medium text-fg" title={String(e.fullName ?? "")}>{e.fullName}</p>
+                        <p className="truncate font-mono text-2xs text-fg-subtle" title={String(e.employeeCode ?? "")}>{e.employeeCode}</p>
                       </td>
                       {definitions.filter((d) => d.isActive).map((d) => {
                         const s = skills.find((x) => x.employeeCode === e.employeeCode && x.skillCode === d.code)

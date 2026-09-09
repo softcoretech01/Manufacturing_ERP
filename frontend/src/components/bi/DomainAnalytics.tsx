@@ -257,8 +257,8 @@ export function DomainAnalytics({
                 <div key={row.label} className="flex flex-wrap items-center gap-3 rounded border border-border px-3 py-1.5">
                   <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: BI_COLOURS[i % BI_COLOURS.length] }} />
                   <div className="min-w-[8rem] flex-1">
-                    <p className="truncate text-xs font-medium text-fg">{row.label}</p>
-                    {row.sub && <p className="truncate text-2xs text-fg-subtle">{row.sub}</p>}
+                    <p className="truncate text-xs font-medium text-fg" title={String(row.label ?? "")}>{row.label}</p>
+                    {row.sub && <p className="truncate text-2xs text-fg-subtle" title={String(row.sub ?? "")}>{row.sub}</p>}
                   </div>
                   <ProgressBar
                     value={(row.value / max) * 100}

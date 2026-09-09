@@ -143,7 +143,7 @@ export function ContractorsPage() {
   const conColumns: Column<Contractor>[] = [
     { key: 'code', header: 'Contractor', sortable: true, width: '16rem', render: (c) => (
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-fg">{c.name}</p>
+        <p className="truncate text-xs font-medium text-fg" title={String(c.name ?? "")}>{c.name}</p>
         <p className="truncate font-mono text-2xs text-fg-subtle">{c.code} · {c.contactPerson}</p>
       </div>
     ) },
@@ -172,7 +172,7 @@ export function ContractorsPage() {
     ) },
     { key: 'licenceExpiresOn', header: 'CLRA licence', sortable: true, width: '11rem', accessor: (c) => c.licenceExpiresOn, render: (c) => (
       <div className="min-w-0">
-        <p className="truncate font-mono text-2xs text-fg">{c.licenceNo}</p>
+        <p className="truncate font-mono text-2xs text-fg" title={String(c.licenceNo ?? "")}>{c.licenceNo}</p>
         <DueCell date={c.licenceExpiresOn} />
       </div>
     ) },
@@ -189,13 +189,13 @@ export function ContractorsPage() {
     { key: 'attendanceDate', header: 'Date', sortable: true, width: '8.5rem', accessor: (l) => l.attendanceDate, render: (l) => formatDate(l.attendanceDate) },
     { key: 'labourName', header: 'Labour', sortable: true, width: '13rem', render: (l) => (
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-fg">{l.labourName}</p>
-        <p className="truncate font-mono text-2xs text-fg-subtle">{l.labourId}</p>
+        <p className="truncate text-xs font-medium text-fg" title={String(l.labourName ?? "")}>{l.labourName}</p>
+        <p className="truncate font-mono text-2xs text-fg-subtle" title={String(l.labourId ?? "")}>{l.labourId}</p>
       </div>
     ) },
     { key: 'contractorName', header: 'Contractor', sortable: true, render: (l) => (
       <div className="min-w-0">
-        <p className="truncate text-xs text-fg">{l.contractorName}</p>
+        <p className="truncate text-xs text-fg" title={String(l.contractorName ?? "")}>{l.contractorName}</p>
         <p className="truncate text-2xs text-fg-subtle">{l.department}{l.workCentre ? ` · ${l.workCentre}` : ''}</p>
       </div>
     ) },
@@ -230,7 +230,7 @@ export function ContractorsPage() {
     ) },
     { key: 'contractorName', header: 'Contractor', sortable: true, render: (b) => (
       <div className="min-w-0">
-        <p className="truncate text-xs text-fg">{b.contractorName}</p>
+        <p className="truncate text-xs text-fg" title={String(b.contractorName ?? "")}>{b.contractorName}</p>
         <p className="font-mono text-2xs text-fg-subtle">{b.contractorCode}</p>
       </div>
     ) },

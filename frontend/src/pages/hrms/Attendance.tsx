@@ -110,7 +110,7 @@ export function AttendancePage() {
     ) },
     { key: 'shiftName', header: 'Shift', sortable: true, width: '11rem', render: (r) => (
       <div className="min-w-0">
-        <p className="truncate text-xs text-fg">{r.shiftName}</p>
+        <p className="truncate text-xs text-fg" title={String(r.shiftName ?? "")}>{r.shiftName}</p>
         <p className="font-mono text-2xs text-fg-subtle">{r.shiftStart}–{r.shiftEnd}</p>
       </div>
     ) },

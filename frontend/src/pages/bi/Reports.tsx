@@ -109,6 +109,7 @@ export function BiReportsPage() {
     {
       key: 'name',
       header: 'Report',
+      className: 'cell-wrap',
       render: (r) => (
         <div>
           <p className={cn('text-xs font-medium', r.isActive ? 'text-fg' : 'text-fg-subtle line-through')}>{r.name}</p>
@@ -120,6 +121,7 @@ export function BiReportsPage() {
     {
       key: 'category',
       header: 'Category',
+      className: 'cell-wrap',
       render: (r) => (
         <div>
           <Badge tone="neutral">{CATEGORY_LABEL[r.category]}</Badge>
@@ -130,6 +132,7 @@ export function BiReportsPage() {
     {
       key: 'columns',
       header: 'What it contains',
+      className: 'cell-wrap',
       render: (r) => (
         <div className="max-w-[20rem]">
           <p className="text-2xs leading-snug text-fg-muted">{r.columns}</p>
@@ -140,11 +143,12 @@ export function BiReportsPage() {
     {
       key: 'schedule',
       header: 'Delivery',
+      className: 'cell-wrap',
       render: (r) =>
         r.schedule ? (
           <div>
             <Badge tone="brand">{r.schedule}</Badge>
-            <p className="max-w-[12rem] truncate text-2xs text-fg-subtle">{r.recipients.join(', ')}</p>
+            <p className="max-w-[12rem] text-2xs leading-snug text-fg-subtle">{r.recipients.join(', ')}</p>
           </div>
         ) : (
           <span className="text-2xs text-fg-subtle">On demand</span>
@@ -301,7 +305,7 @@ export function BiReportsPage() {
                 to={r.drillTo!}
                 className="flex items-center justify-between rounded border border-border px-3 py-1.5 text-xs text-fg hover:border-brand-500/50 hover:bg-brand-500/5"
               >
-                <span className="truncate">{r.name}</span>
+                <span className="truncate" title={String(r.name ?? "")}>{r.name}</span>
                 <span className="ml-2 shrink-0 text-2xs text-brand-600">Open module →</span>
               </Link>
             ))}

@@ -48,12 +48,12 @@ export function WorkflowMonitorPage() {
       key: 'document_no', header: 'Document', sortable: true, width: '190px', sticky: true,
       render: (t) => (
         <div className="min-w-0">
-          <p className="truncate font-mono text-xs font-medium text-fg">{t.document_no}</p>
-          <p className="truncate text-2xs text-fg-subtle">{t.document_label}</p>
+          <p className="truncate font-mono text-xs font-medium text-fg" title={String(t.document_no ?? "")}>{t.document_no}</p>
+          <p className="truncate text-2xs text-fg-subtle" title={String(t.document_label ?? "")}>{t.document_label}</p>
         </div>
       ),
     },
-    { key: 'subject', header: 'Subject', render: (t) => <span className="truncate text-xs">{t.subject}</span> },
+    { key: 'subject', header: 'Subject', render: (t) => <span className="truncate text-xs" title={String(t.subject ?? "")}>{t.subject}</span> },
     { key: 'amount', header: 'Value', align: 'right', sortable: true, width: '120px', accessor: (t) => t.amount ?? 0, render: (t) => (t.amount == null ? <span className="text-fg-subtle">—</span> : formatCurrency(t.amount)) },
     {
       key: 'level', header: 'Stage', width: '170px', accessor: (t) => t.current_level ?? 0,
@@ -66,7 +66,7 @@ export function WorkflowMonitorPage() {
       ),
     },
     { key: 'requester', header: 'Raised by', width: '150px', render: (t) => (
-      <span className="flex items-center gap-1.5"><Avatar name={t.requester ?? '?'} size="xs" /><span className="truncate text-xs">{t.requester}</span></span>
+      <span className="flex items-center gap-1.5"><Avatar name={t.requester ?? '?'} size="xs" /><span className="truncate text-xs" title={String(t.requester ?? "")}>{t.requester}</span></span>
     ) },
     { key: 'sla', header: 'SLA', width: '110px', accessor: (t) => (t.overdue ? 0 : 1), render: (t) => (
       t.status !== 'IN_PROGRESS' ? <span className="text-2xs text-fg-subtle">—</span> :
@@ -151,7 +151,7 @@ function InstanceDrawer({ uid, onClose, onReassign }: { uid: string | null; onCl
                   <span className="text-2xs font-semibold text-fg-subtle">L{t.level_no}</span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-xs text-fg">{t.level_name} · {t.assignee}{t.on_behalf_of && <span className="text-fg-subtle"> (for {t.on_behalf_of})</span>}</p>
-                    {t.comments && <p className="truncate text-2xs text-fg-muted">{t.comments}</p>}
+                    {t.comments && <p className="truncate text-2xs text-fg-muted" title={String(t.comments ?? "")}>{t.comments}</p>}
                   </div>
                   <Badge tone={t.status === 'APPROVED' ? 'success' : t.status === 'REJECTED' ? 'danger' : t.status === 'PENDING' ? 'pending' : 'neutral'} size="sm">{t.status.toLowerCase()}</Badge>
                 </li>

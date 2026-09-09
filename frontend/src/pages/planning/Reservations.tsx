@@ -145,6 +145,7 @@ export function ReservationsPage() {
       key: 'itemCode',
       header: 'Component',
       sortable: true,
+      width: '16rem',
       render: (r) => (
         <>
           <p className="text-xs font-medium text-fg">{r.itemName}</p>

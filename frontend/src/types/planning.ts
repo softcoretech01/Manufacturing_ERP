@@ -96,6 +96,14 @@ export interface MpsLine {
   isFirm: boolean
   status: 'DRAFT' | 'APPROVED' | 'RELEASED'
   remarks: string
+  /**
+   * The demand document this bucket was scheduled for.
+   *
+   * Null on an aggregate schedule that smooths a product's whole demand stream.
+   * Set when the planner built the schedule from one order — which is what makes
+   * "show me the schedule for this order" answerable at all.
+   */
+  demandDocNo?: string | null
   createdBy: string
   createdAt: string
   version: number

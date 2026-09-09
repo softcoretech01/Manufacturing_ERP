@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Check, Layers, Save, Wand2 } from 'lucide-react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { CalendarRange, Check, Layers, Save, Wand2, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader, EmptyState } from '@/components/ui/Card'
 import { Modal } from '@/components/ui/Modal'
@@ -7,6 +8,8 @@ import { Input, Select } from '@/components/ui/Input'
 import { Alert, PageHeader } from '@/components/ui/Misc'
 import { useToast } from '@/components/ui/Toast'
 import { PlanStatusBadge } from '@/components/planning/PlanShell'
+import { NewMasterScheduleModal } from '@/components/planning/NewMasterScheduleModal'
+import { MpsList } from '@/components/planning/MpsList'
 import { cn } from '@/lib/cn'
 import { exportRows, type ExportColumn, type ExportFormat } from '@/lib/export'
 import { formatDate } from '@/lib/format'
@@ -29,31 +32,61 @@ import type { MpsLine } from '@/types/planning'
 
 export function MpsPage() {
   const toast = useToast()
-  const { mps, demand, products, ctx, starts } = usePlanningData()
+  const navigate = useNavigate()
+  const [params, setParams] = useSearchParams()
+  const { mps, demand, products, sellableProducts, ctx, starts } = usePlanningData()
   const { rows, create, update } = mps
 
+  /*
+   * `?demand=DEM-…` scopes the screen to one order — the make-to-order view
+   * reached from the Demand screen's "View schedule". Without it the screen is
+   * the aggregate one it has always been: pick a product, smooth its demand.
+   *
+   * The scope drives the product too. A demand is for one product, so leaving
+   * the picker free would let the two disagree and show a schedule that has
+   * nothing to do with the order named at the top.
+   */
+  const demandScope = params.get('demand') ?? ''
+  const scopedDemand = demand.rows.find((d) => d.docNo === demandScope) ?? null
+
+  const [scheduleOpen, setScheduleOpen] = useState(false)
+  // Set when the planner opens an aggregate schedule, which has no demand to
+  // scope by. Without it the grid would show on the list view as well.
+  const [aggregateOpen, setAggregateOpen] = useState(false)
   const [productCode, setProductCode] = useState(() => products.rows.find((p) => p.lifecycle === 'PRODUCTION')?.code ?? '')
   const [draft, setDraft] = useState<Record<number, string>>({})
   const [levelOpen, setLevelOpen] = useState(false)
   const [levelTarget, setLevelTarget] = useState('')
 
-  const product = products.rows.find((p) => p.code === productCode)
-  const item = productCode ? planningItem(productCode, ctx) : null
+  // Under a demand scope the product is the demand's, not the picker's.
+  const effectiveProduct = scopedDemand ? scopedDemand.productCode : productCode
+  const product = products.rows.find((p) => p.code === effectiveProduct)
+  const item = effectiveProduct ? planningItem(effectiveProduct, ctx) : null
 
   /** Demand landing in each bucket, from the demand register. */
   const demandByBucket = useMemo(() => {
     const arr = Array.from({ length: starts.length }, () => 0)
-    for (const d of demand.rows) {
-      if (d.productCode !== productCode || d.status !== 'OPEN') continue
+    // Scoped: only the one order. Unscoped: every open line for the product.
+    const source = scopedDemand
+      ? [scopedDemand]
+      : demand.rows.filter((d) => d.productCode === effectiveProduct && d.status === 'OPEN')
+    for (const d of source) {
       const b = bucketIndex(d.requiredOn, starts)
       if (b >= 0) arr[b] += Math.max(0, d.qty - d.qtyPlanned)
     }
     return arr
-  }, [demand.rows, productCode, starts])
+  }, [demand.rows, effectiveProduct, scopedDemand, starts])
 
   const lines = useMemo(
-    () => rows.filter((m) => m.productCode === productCode).sort((a, b) => a.bucket - b.bucket),
-    [rows, productCode],
+    () =>
+      rows
+        .filter((m) =>
+          scopedDemand
+            ? m.demandDocNo === scopedDemand.docNo
+            : m.productCode === effectiveProduct,
+        )
+        .sort((a, b) => a.bucket - b.bucket),
+    [rows, effectiveProduct, scopedDemand],
   )
 
   const lineFor = (bucket: number) => lines.find((l) => l.bucket === bucket)
@@ -84,7 +117,7 @@ export function MpsPage() {
   }
 
   function saveDraft() {
-    if (!productCode || !product) return
+    if (!effectiveProduct || !product) return
     let created = 0
     let updated = 0
     for (const [bucketStr, value] of Object.entries(draft)) {
@@ -100,7 +133,7 @@ export function MpsPage() {
         create({
           uid: newUid('mps'),
           docNo: 'MPS/26-27/0001',
-          productCode,
+          productCode: effectiveProduct,
           productName: product.name,
           uom: product.baseUom,
           bucket,
@@ -110,6 +143,7 @@ export function MpsPage() {
           isFirm: bucket <= 1,
           status: 'APPROVED',
           remarks: '',
+          demandDocNo: scopedDemand?.docNo ?? null,
           createdBy: 'A. Lakshmi',
           createdAt: new Date().toISOString(),
           version: 1,
@@ -154,7 +188,7 @@ export function MpsPage() {
       { header: 'Projected stock', value: (r) => r.projected },
       { header: 'Firm', value: (r) => r.firm },
     ]
-    const n = exportRows(format, `mps-${productCode}`, `Master production schedule — ${productCode}`, columns, data)
+    const n = exportRows(format, `mps-${effectiveProduct}`, `Master production schedule — ${effectiveProduct}`, columns, data)
     toast.success('Export ready', `${n} rows written.`)
   }
 
@@ -165,22 +199,108 @@ export function MpsPage() {
       <PageHeader
         title="Master production schedule"
         breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Planning', to: '/planning' }, { label: 'MPS' }]}
+        description={
+          scopedDemand
+            ? `Weekly schedule for ${scopedDemand.docNo}.`
+            : 'Every master schedule. Open one to edit its weekly quantities.'
+        }
         actions={
-          <>
-            <Button variant="outline" size="sm" icon={<Wand2 className="h-3.5 w-3.5" />} disabled={!productCode || totalDemand === 0} onClick={() => { setLevelTarget('8'); setLevelOpen(true) }}>
-              Level the load
+          scopedDemand ? (
+            <>
+              <Button variant="outline" size="sm" icon={<Wand2 className="h-3.5 w-3.5" />} disabled={!effectiveProduct || totalDemand === 0} onClick={() => { setLevelTarget('8'); setLevelOpen(true) }}>
+                Level the load
+              </Button>
+              <Button variant="outline" size="sm" disabled={!effectiveProduct} onClick={() => doExport('xlsx')}>
+                Export
+              </Button>
+              <Button variant="primary" size="sm" icon={<Save className="h-4 w-4" />} disabled={!dirty} onClick={saveDraft}>
+                Save schedule
+              </Button>
+            </>
+          ) : (
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<CalendarRange className="h-4 w-4" />}
+              onClick={() => setScheduleOpen(true)}
+            >
+              New master schedule
             </Button>
-            <Button variant="outline" size="sm" disabled={!productCode} onClick={() => doExport('xlsx')}>
-              Export
-            </Button>
-            <Button variant="primary" size="sm" icon={<Save className="h-4 w-4" />} disabled={!dirty} onClick={saveDraft}>
-              Save schedule
-            </Button>
-          </>
+          )
         }
       />
 
-      <Card className="mb-4">
+      {/*
+        * No demand in the URL means "show me every schedule"; a demand means
+        * "let me edit this one". One route, two views — the list is where a
+        * planner starts, and the grid is the detail they drill into.
+        */}
+      {!scopedDemand && (
+        <MpsList
+          mps={rows}
+          demand={demand.rows}
+          onNew={() => setScheduleOpen(true)}
+          onExportDone={(n) => toast.success('Export ready', `${n} rows written.`)}
+          onOpen={(r) => {
+            if (r.demandDocNo) {
+              setParams({ demand: r.demandDocNo })
+            } else {
+              // An aggregate schedule has no demand to scope by, so the product
+              // picker is the way in.
+              setProductCode(r.productCode)
+              setAggregateOpen(true)
+              setDraft({})
+            }
+          }}
+        />
+      )}
+
+      {scopedDemand && (
+        <Card className="mb-4 border-brand-500/40">
+          <CardBody className="flex flex-wrap items-center gap-x-6 gap-y-3">
+            <div className="min-w-0">
+              <p className="text-2xs uppercase tracking-wide text-fg-subtle">Scheduling for</p>
+              <p className="truncate font-mono text-sm font-semibold text-brand-600" title={scopedDemand.docNo}>
+                {scopedDemand.docNo}
+              </p>
+            </div>
+            <div className="min-w-0">
+              <p className="text-2xs uppercase tracking-wide text-fg-subtle">Customer</p>
+              <p className="truncate text-sm font-medium text-fg" title={scopedDemand.customer}>
+                {scopedDemand.customer}
+              </p>
+            </div>
+            <div>
+              <p className="text-2xs uppercase tracking-wide text-fg-subtle">Ordered</p>
+              <p className="text-sm font-semibold tabular text-fg">
+                {scopedDemand.qty.toLocaleString('en-IN')} {scopedDemand.uom}
+              </p>
+            </div>
+            <div>
+              <p className="text-2xs uppercase tracking-wide text-fg-subtle">Required by</p>
+              <p className="text-sm font-semibold text-fg">{formatDate(scopedDemand.requiredOn)}</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<X className="h-3.5 w-3.5" />}
+              className="ml-auto"
+              onClick={() => {
+                // Drop the scope rather than navigating, so the browser Back
+                // button still returns to the Demand screen the planner came from.
+                const next = new URLSearchParams(params)
+                next.delete('demand')
+                setAggregateOpen(false)
+                setParams(next, { replace: true })
+              }}
+            >
+              Show all products
+            </Button>
+          </CardBody>
+        </Card>
+      )}
+
+      <Card className={aggregateOpen ? 'mb-4' : 'mb-4 hidden'}>
         <CardBody className="grid gap-3.5 sm:grid-cols-4">
           <Select
             label="Product"
@@ -190,7 +310,7 @@ export function MpsPage() {
               setProductCode(e.target.value)
               setDraft({})
             }}
-            options={[{ value: '', label: 'Select a product…' }, ...products.rows.map((p) => ({ value: p.code, label: `${p.code} — ${p.name}` }))]}
+            options={[{ value: '', label: 'Select a product…' }, ...sellableProducts.rows.map((p) => ({ value: p.code, label: `${p.code} — ${p.name}` }))]}
           />
           <div className="flex flex-col justify-end pb-1">
             <p className="text-2xs text-fg-subtle">Free stock today</p>
@@ -203,7 +323,7 @@ export function MpsPage() {
         </CardBody>
       </Card>
 
-      {!productCode ? (
+      {!scopedDemand && !aggregateOpen ? null : !effectiveProduct ? (
         <Card>
           <EmptyState title="Choose a product" description="The schedule is maintained per finished product across the twelve-week horizon." />
         </Card>
@@ -223,15 +343,15 @@ export function MpsPage() {
 
           <Card>
             <CardHeader
-              title={`${product?.name ?? productCode}`}
+              title={`${product?.name ?? effectiveProduct}`}
               description={`Demand ${totalDemand.toLocaleString('en-IN')} · planned ${totalPlanned.toLocaleString('en-IN')} · ${totalPlanned >= totalDemand ? 'covered' : `${(totalDemand - totalPlanned).toLocaleString('en-IN')} short over the horizon`}`}
             />
             <CardBody className="p-0">
               <div className="overflow-x-auto">
-                <table className="grid-table">
+                <table className="grid-table grid-table--auto">
                   <thead>
                     <tr>
-                      <th style={{ minWidth: '11rem' }}>Row</th>
+                      <th className="cell-label" style={{ minWidth: '11rem' }}>Measure</th>
                       {starts.map((s, b) => (
                         <th key={s} className="text-right" style={{ minWidth: '5.5rem' }}>
                           <span className="block">W{b + 1}</span>
@@ -243,14 +363,14 @@ export function MpsPage() {
                   </thead>
                   <tbody>
                     <tr>
-                      <td className="text-xs font-medium text-fg-muted">Demand</td>
+                      <td className="cell-label text-xs font-medium text-fg-muted">Demand</td>
                       {demandByBucket.map((v, b) => (
                         <td key={b} className="text-right tabular text-xs">{v ? v.toLocaleString('en-IN') : <span className="text-fg-subtle">—</span>}</td>
                       ))}
                       <td className="text-right tabular text-xs font-medium">{totalDemand.toLocaleString('en-IN')}</td>
                     </tr>
                     <tr>
-                      <td className="text-xs font-medium text-fg">Planned production</td>
+                      <td className="cell-label text-xs font-medium text-fg">Planned production</td>
                       {starts.map((_, b) => {
                         const l = lineFor(b)
                         return (
@@ -274,7 +394,7 @@ export function MpsPage() {
                       <td className="text-right tabular text-xs font-semibold">{totalPlanned.toLocaleString('en-IN')}</td>
                     </tr>
                     <tr>
-                      <td className="text-xs font-medium text-fg-muted">Projected stock</td>
+                      <td className="cell-label text-xs font-medium text-fg-muted">Projected stock</td>
                       {projection.map((v, b) => (
                         <td key={b} className={cn('text-right tabular text-xs', v < 0 ? 'font-medium text-danger' : v < (item?.safetyStock ?? 0) ? 'text-warning' : 'text-fg-muted')}>
                           {Math.round(v).toLocaleString('en-IN')}
@@ -283,7 +403,7 @@ export function MpsPage() {
                       <td />
                     </tr>
                     <tr>
-                      <td className="text-xs font-medium text-fg-muted">Status</td>
+                      <td className="cell-label text-xs font-medium text-fg-muted">Status</td>
                       {starts.map((_, b) => {
                         const l = lineFor(b)
                         return (
@@ -366,6 +486,20 @@ export function MpsPage() {
           )}
         </div>
       </Modal>
+
+      <NewMasterScheduleModal
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+        demand={demand.rows}
+        starts={starts}
+        existing={rows}
+        onCreate={create}
+        presetDemandDocNo={scopedDemand?.docNo}
+        onSaved={(docNo) => {
+          setScheduleOpen(false)
+          navigate(`/planning/mps?demand=${encodeURIComponent(docNo)}`)
+        }}
+      />
     </div>
   )
 }
