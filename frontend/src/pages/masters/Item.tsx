@@ -126,6 +126,47 @@ function ItemForm({ s, open, onClose, onSave, fixedParent }: { s?: Item | null; 
   const [baseUom, setBaseUom] = useState(s?.baseUom || 'NOS')
   const [unitPrice, setUnitPrice] = useState<number | ''>(s?.sellingPrice ?? '')
 
+  /*
+   * Bottle attributes. These columns exist on the item master and are read by
+   * engineering, but until now no screen wrote them, so they sat empty on every
+   * real product. Four are backed by a master and store its code; capacity is a
+   * plain number, matching the int column and the NominalMl on the capacity
+   * master. The backend rejects a code no master carries, so this dropdown is a
+   * convenience, not the control.
+   */
+  const [capacityMl, setCapacityMl] = useState<number | ''>(s?.capacityMl ?? '')
+  const [colour, setColour] = useState(s?.colour || '')
+  const [lidType, setLidType] = useState(s?.lidType || '')
+  const [steelGrade, setSteelGrade] = useState(s?.steelGrade || '')
+  const [bottleModel, setBottleModel] = useState(s?.bottleModel || '')
+
+  const { data: attrOptions } = useQuery({
+    queryKey: ['item-attribute-options'],
+    queryFn: api.getItemAttributeOptions,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  // Only products the factory makes carry these. A barcode label has no steel
+  // grade, and showing five empty pickers on one would be noise.
+  const itemType = s ? s.itemType : typeForCategory(category)
+  const showBottleAttributes = itemType === 'FINISHED' || itemType === 'SEMI_FINISHED'
+
+  /*
+   * A value already stored that the master no longer offers -- ITM-0004 holds
+   * three of them -- must stay visible and stay selected, or simply opening the
+   * form would silently blank it on save. It is shown as unrecognised so the
+   * problem is legible rather than hidden.
+   */
+  const optionsFor = (field: keyof api.ItemAttributeOptions, current: string) => {
+    const rows = attrOptions?.[field] ?? []
+    const orphan = current && !rows.some((o) => o.code === current)
+    return [
+      { value: '', label: '— none —' },
+      ...rows.map((o) => ({ value: o.code, label: `${o.name} (${o.code})` })),
+      ...(orphan ? [{ value: current, label: `${current} — not in the master` }] : []),
+    ]
+  }
+
   useEffect(() => {
     if (open) {
       if (!s) {
@@ -140,6 +181,11 @@ function ItemForm({ s, open, onClose, onSave, fixedParent }: { s?: Item | null; 
       setParent(s?.category ? cats.parentFor[s.category] ?? fixedParent ?? '' : fixedParent ?? '')
       setBaseUom(s?.baseUom || 'NOS')
       setUnitPrice(s?.sellingPrice ?? '')
+      setCapacityMl(s?.capacityMl ?? '')
+      setColour(s?.colour || '')
+      setLidType(s?.lidType || '')
+      setSteelGrade(s?.steelGrade || '')
+      setBottleModel(s?.bottleModel || '')
     }
   }, [s, open])
 
@@ -155,9 +201,24 @@ function ItemForm({ s, open, onClose, onSave, fixedParent }: { s?: Item | null; 
     const shortName = name.trim().substring(0, 50)
     const base = baseUom || 'NOS'
     const price = unitPrice === '' ? 0 : Number(unitPrice)
+    if (capacityMl !== '' && (!Number.isInteger(Number(capacityMl)) || Number(capacityMl) < 1)) {
+      toast.error('Capacity must be a whole number of millilitres')
+      return
+    }
+    // Send the attributes only for the item types that carry them, so editing a
+    // carton cannot write a steel grade onto it.
+    const attributes = showBottleAttributes
+      ? {
+          capacityMl: capacityMl === '' ? null : Number(capacityMl),
+          colour: colour || null,
+          lidType: lidType || null,
+          steelGrade: steelGrade || null,
+          bottleModel: bottleModel || null,
+        }
+      : {}
     if (s) {
       // Preserve the existing itemType on edit; only Category is user-editable.
-      onSave({ ...s, code: s.code, name: name.trim(), shortName, category, baseUom: base, purchaseUom: base, salesUom: base, sellingPrice: price })
+      onSave({ ...s, code: s.code, name: name.trim(), shortName, category, baseUom: base, purchaseUom: base, salesUom: base, sellingPrice: price, ...attributes })
     } else {
       if (!code.trim()) {
         toast.error('Item code is still generating — please wait a moment and try again.')
@@ -175,6 +236,7 @@ function ItemForm({ s, open, onClose, onSave, fixedParent }: { s?: Item | null; 
         sellingPrice: price,
         valuationMethod: 'STANDARD',
         status: 'ACTIVE',
+        ...attributes,
       } as Partial<Item>)
     }
   }
@@ -215,6 +277,30 @@ function ItemForm({ s, open, onClose, onSave, fixedParent }: { s?: Item | null; 
         <Select label="Base UOM" value={baseUom} onChange={(e) => setBaseUom(e.target.value)} options={uomOptions.length ? uomOptions : UOM_OPTIONS} />
         <Input label="Unit price" type="number" value={unitPrice === '' ? '' : unitPrice} onChange={(e) => setUnitPrice(e.target.value === '' ? '' : Number(e.target.value))} placeholder="0.00" />
       </div>
+
+      {showBottleAttributes && (
+        <div className="mt-6 border-t border-border pt-5">
+          <p className="mb-1 text-sm font-medium text-fg">Bottle attributes</p>
+          <p className="mb-4 text-xs text-muted">
+            Engineering and planning read these. Leave a field empty rather than
+            guessing — an empty attribute is honest, a wrong one is not.
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Input
+              label="Capacity (ml)"
+              type="number"
+              min={1}
+              value={capacityMl === '' ? '' : capacityMl}
+              onChange={(e) => setCapacityMl(e.target.value === '' ? '' : Number(e.target.value))}
+              placeholder="750"
+            />
+            <Select label="Colour" value={colour} onChange={(e) => setColour(e.target.value)} options={optionsFor('colour', colour)} />
+            <Select label="Lid type" value={lidType} onChange={(e) => setLidType(e.target.value)} options={optionsFor('lidType', lidType)} />
+            <Select label="Steel grade" value={steelGrade} onChange={(e) => setSteelGrade(e.target.value)} options={optionsFor('steelGrade', steelGrade)} />
+            <Select label="Bottle model" value={bottleModel} onChange={(e) => setBottleModel(e.target.value)} options={optionsFor('bottleModel', bottleModel)} />
+          </div>
+        </div>
+      )}
     </Modal>
   )
 }

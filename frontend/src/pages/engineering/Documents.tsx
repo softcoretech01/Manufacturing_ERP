@@ -91,6 +91,30 @@ export function EngDocumentsPage() {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [confirmDelete, setConfirmDelete] = useState<EngDocument | null>(null)
 
+  /**
+   * A document can name a product the item master no longer has — an item
+   * retired by a data-quality pass, or one that only existed in the old master.
+   * A plain <select> renders an unmatched value as blank, so the field looked
+   * empty while still holding the code, and a required-field asterisk invited
+   * the user to pick a replacement and change what the document belongs to.
+   *
+   * Carry the orphan as its own disabled option instead: visible, still
+   * selected, and impossible to lose by accident.
+   */
+  const orphanProduct =
+    form.productCode && !products.some((p) => p.code === form.productCode)
+      ? form.productCode
+      : null
+
+  const productOptions = useMemo(() => {
+    const live = products.map((p) => ({ value: p.code, label: `${p.code} — ${p.name}` }))
+    if (!orphanProduct) return [{ value: '', label: 'Select a product…' }, ...live]
+    return [
+      { value: orphanProduct, label: `${orphanProduct} — missing product`, disabled: true },
+      ...live,
+    ]
+  }, [products, orphanProduct])
+
   const fetchDocuments = async () => {
     try {
       const data = await api.getEngDocuments()
@@ -436,8 +460,9 @@ export function EngDocumentsPage() {
             required
             value={form.productCode ?? ''}
             error={errors.productCode}
+            hint={orphanProduct ? `${orphanProduct} is no longer in the item master.` : undefined}
             onChange={(e) => setForm({ ...form, productCode: e.target.value })}
-            options={[{ value: '', label: 'Select a product…' }, ...products.map((p) => ({ value: p.code, label: `${p.code} — ${p.name}` }))]}
+            options={productOptions}
           />
           <Input label="File name" required value={form.fileName ?? ''} maxLength={255} error={errors.fileName} placeholder="DRG-FG-600-GRN-R1.pdf" onChange={(e) => setForm({ ...form, fileName: e.target.value })} />
           <Input maxLength={255} label="Size (KB)" type="number" value={form.sizeKb ?? ''} onChange={(e) => setForm({ ...form, sizeKb: e.target.value })} />

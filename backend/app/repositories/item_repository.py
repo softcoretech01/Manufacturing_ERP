@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,13 +30,38 @@ class ItemRepository:
         # Lowercase first letter for camelCase to match TS interface
         return {k[0].lower() + k[1:]: v for k, v in data.items()}
 
-    async def get_all_items(self) -> list[dict[str, Any]]:
-        stmt = text("CALL ERP_Master.SpItem('LIST', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)")
-        result = await self.session.execute(stmt)
+    async def get_all_items(
+        self, item_types: Sequence[str] | None = None
+    ) -> list[dict[str, Any]]:
+        """Active items, optionally narrowed to a set of ItemType values.
+
+        With no filter this is `SpItem('LIST')` exactly as before, so every
+        existing caller is untouched.
+
+        With a filter it runs the same query the procedure's LIST branch runs
+        (`SELECT * FROM Item WHERE IsDeleted = 0 ORDER BY Id DESC`) plus an
+        `ItemType IN (...)` clause. The procedure takes 47 positional arguments
+        and has no filter parameter, so narrowing it would mean rewriting it and
+        re-testing every caller for a clause the query can carry itself. The
+        filter still runs in the database, not in Python.
+        """
+        if item_types is None:
+            stmt = text("CALL ERP_Master.SpItem('LIST', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)")
+            result = await self.session.execute(stmt)
+        elif not item_types:
+            # An explicit empty set means "nothing qualifies". Returning the full
+            # list here would silently defeat the filter.
+            return []
+        else:
+            result = await self.session.execute(
+                text("SELECT * FROM ERP_Master.Item"
+                     " WHERE IsDeleted = 0 AND ItemType IN :types"
+                     " ORDER BY Id DESC").bindparams(types=tuple(item_types)))
+
         rows = result.mappings().fetchall()
-        
+
         items = [self._parse_row(row) for row in rows]
-        
+
         if items:
             # Fetch all conversions
             conv_stmt = text("SELECT * FROM ERP_Master.ItemUomConversion")

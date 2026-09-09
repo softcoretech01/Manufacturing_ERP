@@ -98,6 +98,22 @@ export const updateItem = (id: number | string, data: any) => api.put<any>(`/ite
 export const deleteItem = (id: number | string) => api.del(`/items/${id}`)
 export const getNextItemCode = () => api.get<{code: string}>(`/items/next-code`)
 
+/**
+ * Selectable values for the four coded bottle attributes on an item.
+ *
+ * The item stores the master code (COL-0002) while the form shows the name
+ * (Matte Black), so both are returned. One request fills all four dropdowns.
+ */
+export type AttributeOption = { code: string; name: string }
+export type ItemAttributeOptions = {
+  colour: AttributeOption[]
+  lidType: AttributeOption[]
+  steelGrade: AttributeOption[]
+  bottleModel: AttributeOption[]
+}
+export const getItemAttributeOptions = () =>
+  api.get<ItemAttributeOptions>('/items/attribute-options')
+
 // LidType
 export const getLidTypes = () => api.get<any>('/lid-types').then(res => Array.isArray(res) ? res : res.data || [])
 export const createLidType = (data: any) => api.post<any>('/lid-types', data)
