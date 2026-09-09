@@ -8,9 +8,17 @@ shape for a new master would import the same bugs.
 from typing import Any
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.utils.db_errors import raise_for_duplicate
 from app.utils.dbtypes import as_bool
+
+# The router pre-checks the code, so this only fires on a race between two
+# concurrent creates -- but without it that race is a 500.
+_DUPLICATE_MESSAGES = {
+    "uk_documenttype_code": "Document type {value} already exists.",
+}
 
 _SELECT = """
 SELECT dt.Id, dt.Code, dt.Name, dt.Description, dt.RetentionRule,
@@ -68,6 +76,14 @@ class DocumentTypeRepository:
         return {r[0] for r in rows}
 
     async def create(self, data: dict, user: str) -> dict[str, Any]:
+        try:
+            return await self._insert(data, user)
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise_for_duplicate(exc, _DUPLICATE_MESSAGES)
+            raise
+
+    async def _insert(self, data: dict, user: str) -> dict[str, Any]:
         await self.session.execute(
             text(
                 "INSERT INTO ERP_Product.DocumentType"

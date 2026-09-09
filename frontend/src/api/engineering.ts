@@ -46,10 +46,23 @@ export const engineeringApi = {
   // Engineering reads the list and writes back a rolled-up standard cost; it does
   // not create or delete product records -- do that in Masters > Product Items.
 
-  getEngProducts: (): Promise<EngProduct[]> => api.get<any[]>('/items').then((res: any) => {
-    const data = Array.isArray(res) ? res : res.data || [];
-    return data.map(mapItemToEngProduct);
-  }),
+  /**
+   * Active items from the item master.
+   *
+   * `manufacturableOnly` narrows to what the factory actually produces
+   * (FINISHED and SEMI_FINISHED), which is what the Routing, BOM-parent and
+   * MPS pickers need — offering argon gas or barcode labels as something to
+   * route or schedule is meaningless. Everything else keeps the full list,
+   * because BOM components, requisitions and stock screens legitimately need
+   * raw materials, packaging and consumables.
+   */
+  getEngProducts: (options?: { manufacturableOnly?: boolean }): Promise<EngProduct[]> => {
+    const path = options?.manufacturableOnly ? '/items?manufacturableOnly=true' : '/items'
+    return api.get<any[]>(path).then((res: any) => {
+      const data = Array.isArray(res) ? res : res.data || [];
+      return data.map(mapItemToEngProduct);
+    })
+  },
   updateEngProduct: (id: string | number, data: any) => {
     const itemData = {
       itemType: data.productType || 'FINISHED',

@@ -84,7 +84,10 @@ export function BomPage() {
       try {
         const [bomData, productData, itemsData] = await Promise.all([
           api.getBoms(),
-          api.getEngProducts(),
+          // Parent product only. BOM components come from `masterItems`
+          // below, which stays unfiltered so raw materials, packaging and
+          // consumables remain selectable as children.
+          api.getEngProducts({ manufacturableOnly: true }),
           getItems(),
         ])
         setRows(bomData)

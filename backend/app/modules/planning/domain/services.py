@@ -74,19 +74,35 @@ class PlanningService:
         if str(row[0]).upper() in {"INACTIVE", "BLOCKED", "OBSOLETE"}:
             raise AppError(f"Item {item_code} is {str(row[0]).lower()}")
 
+    # A production order may only be built to engineering that has been released.
+    # DRAFT and PENDING_APPROVAL BOMs are still being edited; SUPERSEDED and
+    # OBSOLETE ones describe how the product used to be made.
+    LIVE_BOM_STATUSES = ("ACTIVE", "APPROVED")
+
     async def _validate_bom(self, bom_doc_no: str):
         boms = await self.bom_repo.get_all_boms()
         bom = next((b for b in boms if b.get('docNo') == bom_doc_no), None)
         if not bom:
             raise AppError(f"BOM {bom_doc_no} does not exist")
-        if bom.get('status') not in ['ACTIVE', 'APPROVED']:
-            pass # Relax status check if we don't know the exact status enum, but wait, the prompt says "BOM is valid/active"
+        status = bom.get('status')
+        if status not in self.LIVE_BOM_STATUSES:
+            raise AppError(
+                f"BOM {bom_doc_no} is {status}, not released. A production order"
+                " can only be raised against an ACTIVE or APPROVED BOM."
+            )
             
     async def _validate_routing(self, routing_doc_no: str):
         routings = await self.routing_repo.get_all_routings()
         routing = next((r for r in routings if r.get('docNo') == routing_doc_no), None)
         if not routing:
             raise AppError(f"Routing {routing_doc_no} does not exist")
+        # Same rule as the BOM: released engineering only.
+        status = routing.get('status')
+        if status not in self.LIVE_BOM_STATUSES:
+            raise AppError(
+                f"Routing {routing_doc_no} is {status}, not released. A production"
+                " order can only be raised against an ACTIVE or APPROVED routing."
+            )
             
     async def _validate_workcentre(self, wc_code: str):
         wcs = await self.wc_repo.get_all_workcentres()

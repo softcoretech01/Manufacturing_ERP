@@ -10,6 +10,7 @@ from app.schemas.engineering_document import EngDocumentSchema
 from app.services.engineering_document_service import (
     EngineeringDocumentService,
     UnknownDocumentTypeError,
+    UnknownProductError,
 )
 
 router = APIRouter(tags=["Engineering Documents"])
@@ -35,7 +36,7 @@ async def create_document(
     data = doc.model_dump(mode='json')
     try:
         result = await service.create_document(data, user_id)
-    except UnknownDocumentTypeError as exc:
+    except (UnknownDocumentTypeError, UnknownProductError) as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                             detail=str(exc)) from exc
     if not result:
@@ -52,7 +53,7 @@ async def update_document(
     data = doc.model_dump(mode='json')
     try:
         result = await service.update_document(doc_uid, data, user_id)
-    except UnknownDocumentTypeError as exc:
+    except (UnknownDocumentTypeError, UnknownProductError) as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                             detail=str(exc)) from exc
     if not result:

@@ -78,7 +78,9 @@ export function RoutingPage() {
     try {
       const [rtgData, prodData, wcData, opData, toolData, machData] = await Promise.all([
         api.getRoutings(),
-        api.getEngProducts(),
+        // Only what the factory produces: a routing describes how something
+        // is made, so argon gas and barcode labels have no place here.
+        api.getEngProducts({ manufacturableOnly: true }),
         api.getWorkCentres(),
         api.getOperations(),
         api.getTools(),

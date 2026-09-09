@@ -1,7 +1,8 @@
-from typing import Any, List, Dict
+from typing import Any
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-import json
+
 
 class EngineeringDocumentRepository:
     def __init__(self, session: AsyncSession):
@@ -46,6 +47,18 @@ class EngineeringDocumentRepository:
         result["uploadedBy"] = data.get("CreatedBy")
         result["uploadedOn"] = data.get("CreatedDate")
         return result
+
+    async def active_product_codes(self) -> set[str]:
+        """Product codes a document may legitimately be filed against.
+
+        `ProductCode` names `ERP_Master.Item.Code`, the same business key the BOMs
+        and routings use. Soft-deleted items are excluded, which is why an item
+        retired by a data-quality pass turns its documents into orphans.
+        """
+        rows = await self.session.execute(text(
+            "SELECT Code FROM ERP_Master.Item WHERE IFNULL(IsDeleted, 0) = 0"
+        ))
+        return {r[0] for r in rows}
 
     async def get_next_code(self) -> dict[str, str]:
         stmt = text("SELECT IFNULL(MAX(CAST(SUBSTRING(DocumentCode, 5) AS UNSIGNED)), 0) + 1 AS nextNum FROM ERP_Product.EngineeringDocument WHERE DocumentCode LIKE 'DOC-%'")
