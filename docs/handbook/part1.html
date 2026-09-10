@@ -1,0 +1,367 @@
+<title>SSB ERP Development Handbook</title>
+<style>
+  @page { size: A4 portrait; margin: 17mm 16mm 18mm 16mm; }
+  @page :first { margin: 0; }
+
+  :root{
+    --ink:#14161a; --ink2:#3d434d; --ink3:#6a7180;
+    --rule:#d8dce3; --rule2:#eceef2;
+    --bg-soft:#f6f7f9; --bg-tint:#eef4fb;
+    --brand:#1d4f91; --brand2:#2a78d6;
+    --p0:#2a78d6; --p1:#eb6834; --p2:#1baf7a; --p3:#eda100; --p4:#e87ba4;
+    --ok:#0f7a4d; --warn:#a35a00; --stop:#b3261e;
+  }
+
+  *{box-sizing:border-box}
+  body{
+    font-family:"Liberation Sans","DejaVu Sans",Arial,sans-serif;
+    font-size:9.5pt; line-height:1.5; color:var(--ink);
+    margin:0; -webkit-print-color-adjust:exact; print-color-adjust:exact;
+  }
+  h1,h2,h3,h4{ color:var(--brand); line-height:1.25; margin:0 0 .35em; break-after:avoid; }
+  h2{ font-size:15pt; padding-bottom:5px; border-bottom:2.5px solid var(--brand);
+      margin:0 0 12px; break-before:page; }
+  h2:first-of-type{ break-before:auto }
+  h3{ font-size:11.5pt; margin:16px 0 6px; color:#123f77 }
+  h4{ font-size:10pt; margin:12px 0 4px; color:var(--ink); }
+  p{ margin:0 0 7px; text-align:justify }
+  ul,ol{ margin:0 0 8px; padding-left:17px }
+  li{ margin:0 0 3px }
+  b,strong{ color:var(--ink) }
+  code{ font-family:"DejaVu Sans Mono",monospace; font-size:8.4pt; background:var(--bg-soft);
+        padding:.5px 3px; border-radius:2px; color:#0f3b6e }
+  a{ color:var(--brand2); text-decoration:none }
+
+  /* ---------- cover ---------- */
+  .cover{ height:297mm; display:flex; flex-direction:column; color:#fff;
+          background:linear-gradient(160deg,#123f77 0%,#1d4f91 45%,#2a78d6 100%);
+          padding:24mm 20mm; break-after:page; }
+  .cover .eyebrow{ font-size:9pt; letter-spacing:.22em; text-transform:uppercase;
+                   color:#bcd6f5; margin-bottom:4mm }
+  .cover h1{ color:#fff; font-size:31pt; line-height:1.12; margin:0 0 5mm; max-width:150mm }
+  .cover .sub{ font-size:13pt; color:#dce9f9; max-width:145mm; line-height:1.45 }
+  .cover .rule{ width:38mm; height:3px; background:#7fb2ea; margin:9mm 0 }
+  .cover .facts{ display:grid; grid-template-columns:repeat(2,1fr); gap:5mm 8mm; max-width:150mm }
+  .cover .fact{ border-left:2.5px solid #7fb2ea; padding-left:4mm }
+  .cover .fact .k{ font-size:7.8pt; letter-spacing:.14em; text-transform:uppercase; color:#a9c9ef }
+  .cover .fact .v{ font-size:12.5pt; font-weight:bold; color:#fff; line-height:1.3 }
+  .cover .foot{ margin-top:auto; font-size:9pt; color:#bcd6f5;
+                border-top:1px solid rgba(255,255,255,.28); padding-top:4mm }
+
+  /* ---------- tables ---------- */
+  table{ width:100%; border-collapse:collapse; font-size:8.6pt; margin:8px 0 12px;
+         break-inside:auto }
+  thead{ display:table-header-group }
+  tr{ break-inside:avoid }
+  th{ background:var(--brand); color:#fff; text-align:left; font-weight:bold;
+      padding:5px 6px; font-size:8.2pt; line-height:1.3; vertical-align:bottom }
+  td{ padding:4.5px 6px; border-bottom:1px solid var(--rule2); vertical-align:top; line-height:1.4 }
+  tbody tr:nth-child(even) td{ background:#fafbfc }
+  table.tight td, table.tight th{ padding:3.5px 5px; font-size:8.2pt }
+  .num{ text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap }
+  .ctr{ text-align:center }
+  td.tot, tr.tot td{ background:var(--bg-tint) !important; font-weight:bold; border-top:1.5px solid var(--brand) }
+
+  /* ---------- status pills ---------- */
+  .pill{ display:inline-block; font-size:7.4pt; font-weight:bold; padding:1px 5px;
+         border-radius:8px; white-space:nowrap; letter-spacing:.02em }
+  .pill.done{ background:#e2f3ea; color:#0f7a4d; border:1px solid #b7ddc8 }
+  .pill.part{ background:#fdf0dd; color:#a35a00; border:1px solid #f0d3a4 }
+  .pill.shell{ background:#fde8e6; color:#b3261e; border:1px solid #f4c6c1 }
+  .pill.none{ background:#eceef2; color:#5a6270; border:1px solid #d3d8e0 }
+
+  /* ---------- boxes ---------- */
+  .note, .callout{ border:1px solid var(--rule); border-left:3.5px solid var(--brand2);
+        background:var(--bg-soft); padding:8px 11px; margin:10px 0; font-size:8.9pt;
+        break-inside:avoid; border-radius:0 3px 3px 0 }
+  .note .hd{ font-weight:bold; color:var(--brand); margin-bottom:3px; font-size:9pt }
+  .note.warn{ border-left-color:#eb6834; background:#fdf6f1 }
+  .note.warn .hd{ color:#a04a1a }
+  .note.stop{ border-left-color:var(--stop); background:#fdf2f1 }
+  .note.stop .hd{ color:var(--stop) }
+  .note.ok{ border-left-color:var(--ok); background:#f2f9f5 }
+  .note.ok .hd{ color:var(--ok) }
+  .note p:last-child{ margin-bottom:0 }
+
+  pre.dia{ font-family:"DejaVu Sans Mono",monospace; font-size:7.3pt; line-height:1.32;
+       background:#fbfcfd; border:1px solid var(--rule); border-radius:3px;
+       padding:9px 10px; margin:9px 0 12px; white-space:pre; overflow:visible;
+       break-inside:avoid; color:#1b2430 }
+
+  /* ---------- flow chain ---------- */
+  .chain{ display:flex; flex-wrap:wrap; align-items:center; gap:3px 2px; margin:7px 0 11px;
+          break-inside:avoid }
+  .chain .s{ background:#fff; border:1.3px solid var(--brand2); color:#123f77;
+             border-radius:3px; padding:3px 6px; font-size:8pt; font-weight:bold; line-height:1.25 }
+  .chain .s small{ display:block; font-weight:normal; font-size:6.8pt; color:var(--ink3);
+                   font-family:"DejaVu Sans Mono",monospace }
+  .chain .s.gate{ border-color:#eda100; background:#fffbf2; color:#8a5d00 }
+  .chain .s.out{ border-style:dashed; border-color:var(--ink3); color:var(--ink2) }
+  .chain .s.ext{ border-color:#1baf7a; background:#f4fbf8; color:#0d6b4c }
+  .chain .a{ color:var(--brand2); font-weight:bold; font-size:10pt; padding:0 1px }
+
+  /* ---------- steps ---------- */
+  ol.steps{ counter-reset:st; list-style:none; padding-left:0; margin:8px 0 12px }
+  ol.steps > li{ counter-increment:st; position:relative; padding-left:22px; margin-bottom:5px;
+                 break-inside:avoid; font-size:8.9pt }
+  ol.steps > li::before{ content:counter(st); position:absolute; left:0; top:.5px;
+        width:15px; height:15px; border-radius:50%; background:var(--brand2); color:#fff;
+        font-size:7.2pt; font-weight:bold; text-align:center; line-height:15px }
+  ol.steps > li .who{ font-family:"DejaVu Sans Mono",monospace; font-size:7.4pt;
+        color:var(--ink3); display:block }
+
+  /* ---------- gantt ---------- */
+  .gantt{ font-size:7.4pt; margin:10px 0 8px; break-inside:avoid }
+  .gantt table{ font-size:7.4pt; margin:0 }
+  .gantt th{ padding:3px 1px; font-size:6.6pt; text-align:center; background:#123f77 }
+  .gantt th.lab{ text-align:left; padding-left:5px; width:47mm }
+  .gantt th.own{ width:13mm }
+  .gantt td{ padding:0; border-bottom:1px solid #fff; height:15px }
+  .gantt td.lab{ padding:2px 5px; font-size:7.6pt; font-weight:bold; color:var(--ink);
+                 background:#f6f7f9; border-right:1px solid var(--rule) }
+  .gantt td.own{ padding:2px 3px; font-size:7pt; text-align:center; color:var(--ink2);
+                 background:#f6f7f9; border-right:1px solid var(--rule);
+                 font-family:"DejaVu Sans Mono",monospace }
+  .gantt td.wk{ background:#fcfcfd; border-right:1px solid #f1f3f6 }
+  .gantt td.wk.q{ background:#f4f6f9 }
+  .gantt .bar{ height:11px; margin:2px 0; border-radius:3px; position:relative }
+  .gantt .bar span{ position:absolute; left:4px; top:-.5px; font-size:6.4pt; color:#fff;
+                    font-weight:bold; white-space:nowrap; line-height:11px }
+  .legend{ display:flex; flex-wrap:wrap; gap:4px 14px; font-size:7.8pt; margin:2px 0 10px }
+  .legend i{ display:inline-block; width:11px; height:9px; border-radius:2px;
+             margin-right:4px; vertical-align:-1px }
+
+  /* ---------- misc layout ---------- */
+  .two{ display:grid; grid-template-columns:1fr 1fr; gap:0 16px }
+  .kpi{ display:grid; grid-template-columns:repeat(4,1fr); gap:7px; margin:10px 0 14px }
+  .kpi .k{ border:1px solid var(--rule); border-top:3px solid var(--brand2);
+           background:var(--bg-soft); padding:7px 8px; text-align:center; border-radius:0 0 3px 3px }
+  .kpi .k .v{ font-size:16pt; font-weight:bold; color:var(--brand); line-height:1.1 }
+  .kpi .k .l{ font-size:7.2pt; color:var(--ink3); text-transform:uppercase; letter-spacing:.07em;
+              margin-top:2px; line-height:1.25 }
+  .toc{ font-size:9.2pt }
+  .toc div{ display:flex; padding:3.5px 0; border-bottom:1px dotted var(--rule) }
+  .toc .n{ width:30px; color:var(--brand2); font-weight:bold; flex:none }
+  .toc .t{ flex:1 }
+  .toc .d{ color:var(--ink3); font-size:8.2pt; text-align:right; flex:none; max-width:62mm }
+  .toc div.sub{ padding-left:30px; border-bottom:none; padding-top:1px; padding-bottom:1px }
+  .toc div.sub .t{ color:var(--ink2); font-size:8.4pt }
+  .keep{ break-inside:avoid }
+  .own-tag{ display:inline-block; font-family:"DejaVu Sans Mono",monospace; font-size:7.6pt;
+            font-weight:bold; background:var(--bg-tint); color:var(--brand);
+            border:1px solid #c6dcf3; border-radius:3px; padding:0 4px }
+</style>
+
+<!-- ═══════════════════════════ COVER ═══════════════════════════ -->
+<div class="cover">
+  <div class="eyebrow">SSB Industries &middot; Stainless Steel Bottle Manufacturing</div>
+  <h1>Manufacturing ERP<br>Development Handbook</h1>
+  <div class="sub">Portal map, page connections, process flows, team allocation
+    and the 18-week plan to release&nbsp;1.</div>
+  <div class="rule"></div>
+  <div style="flex:1 1 auto"></div>
+  <div class="facts">
+    <div class="fact"><div class="k">Screens in the product</div><div class="v">253 across 15 portals</div></div>
+    <div class="fact"><div class="k">Team</div><div class="v">6 people (1 lead + 5 developers)</div></div>
+    <div class="fact"><div class="k">Remaining effort</div><div class="v">383 person-days</div></div>
+    <div class="fact"><div class="k">Target to go-live</div><div class="v">18 weeks</div></div>
+  </div>
+  <div class="foot" style="margin-top:14mm">
+    Version 1.0 &middot; September 2026 &middot; Internal &mdash; for the development team<br>
+    Derived from the repository as it stands: <code style="background:rgba(255,255,255,.14);color:#dce9f9">frontend/src/config/portals.ts</code>,
+    <code style="background:rgba(255,255,255,.14);color:#dce9f9">navigation.ts</code>,
+    <code style="background:rgba(255,255,255,.14);color:#dce9f9">App.tsx</code>,
+    <code style="background:rgba(255,255,255,.14);color:#dce9f9">backend/app</code> and <code style="background:rgba(255,255,255,.14);color:#dce9f9">docs/srs</code>.
+  </div>
+</div>
+
+<!-- ═══════════════════════════ TOC ═══════════════════════════ -->
+<h2 style="break-before:auto">Contents</h2>
+<div class="toc">
+  <div><span class="n">1</span><span class="t"><b>How to use this handbook</b></span><span class="d">Scope, and the one assumption behind every number</span></div>
+  <div><span class="n">2</span><span class="t"><b>The system in one page</b></span><span class="d">What we are building, and the portal idea</span></div>
+  <div><span class="n">3</span><span class="t"><b>Where the build stands today</b></span><span class="d">Measured status of all 15 portals</span></div>
+  <div><span class="n">4</span><span class="t"><b>Portal-wise pages and modules</b></span><span class="d">Every menu group and screen, portal by portal</span></div>
+  <div><span class="n">5</span><span class="t"><b>Page-to-page connections</b></span><span class="d">Which screen opens which, inside each portal</span></div>
+  <div><span class="n">6</span><span class="t"><b>Step-by-step process flows</b></span><span class="d">The eight flows the business actually runs</span></div>
+  <div><span class="n">7</span><span class="t"><b>Overall project workflow</b></span><span class="d">Enquiry to cash, end to end</span></div>
+  <div><span class="n">8</span><span class="t"><b>Dependencies between portals</b></span><span class="d">What must exist before what</span></div>
+  <div><span class="n">9</span><span class="t"><b>Development sequence</b></span><span class="d">Six phases, and why in that order</span></div>
+  <div><span class="n">10</span><span class="t"><b>Team allocation</b></span><span class="d">Who works on which portal and pages</span></div>
+  <div><span class="n">11</span><span class="t"><b>Responsibilities of each team member</b></span><span class="d">Owned, shared and escalated</span></div>
+  <div><span class="n">12</span><span class="t"><b>Duration estimates</b></span><span class="d">Person-days per portal, and how they were built</span></div>
+  <div><span class="n">13</span><span class="t"><b>The 18-week schedule</b></span><span class="d">Week-by-week plan and milestones</span></div>
+  <div><span class="n">14</span><span class="t"><b>Definition of done</b></span><span class="d">The checklist every screen must pass</span></div>
+  <div><span class="n">15</span><span class="t"><b>Risks and open items</b></span><span class="d">What can break the plan, and the fix</span></div>
+  <div><span class="n">A</span><span class="t"><b>Appendix A &mdash; Full screen and route reference</b></span><span class="d">All 253 routes, by portal</span></div>
+</div>
+
+<!-- ═══════════════════════════ 1 ═══════════════════════════ -->
+<h2>1. How to use this handbook</h2>
+
+<p>This is the working document for the six of us building the SSB Manufacturing ERP. It answers
+five questions, in this order: what screens exist, how they connect, who builds what, in what
+order, and by when. Read sections 1 to 3 once. Then live in sections 10 to 14 &mdash; those are
+the ones you will come back to every week.</p>
+
+<h3>1.1 The one assumption behind every number</h3>
+
+<div class="note warn">
+  <div class="hd">This plan estimates the work that remains, not the work from zero</div>
+  <p>The repository already contains a substantial, working product: 253 screens are routed,
+  and 5 of the 15 portals are wired end to end to a real FastAPI backend. Every duration in
+  section 12 is therefore <b>remaining effort to finish a portal</b>, not the effort to build it
+  from scratch. Section 3 shows the measured status that this rests on, so you can check the
+  basis yourself. If you want a from-zero estimate instead, say so and the numbers change
+  substantially.</p>
+</div>
+
+<h3>1.2 What is in scope for release 1</h3>
+
+<p>Thirteen portals. Two are deliberately deferred to release 2: <b>Sales &amp; CRM</b> and the
+<b>Shop Floor Terminal</b>. Both are marked <code>status: 'PLANNED'</code> in
+<code>portals.ts</code>, neither has a single screen built, and Sales &amp; CRM has no approved
+specification (SRS Volume 2 is "Not started"). Building them now would mean inventing business
+rules, which section 15 explains we must not do. The external Supplier and Customer portals and
+the React Native mobile app are also release 2.</p>
+
+<h3>1.3 How the estimates were produced</h3>
+
+<p>Every screen was classified into one of five types, each with a fresher-calibrated day rate
+that already assumes the shared component library in <code>frontend/src/components</code> is
+reused rather than rewritten. The per-portal totals in section 12 are the sum of their screens.
+The rates:</p>
+
+<table class="tight">
+  <thead><tr><th style="width:16mm">Type</th><th>What it is</th><th class="ctr" style="width:22mm">Days per screen</th><th>Example</th></tr></thead>
+  <tbody>
+    <tr><td><b>A</b></td><td>Lookup or simple master: list, form, soft delete, where-used</td><td class="ctr">1.0</td><td>Reason codes, UOM</td></tr>
+    <tr><td><b>B</b></td><td>List and detail over an API that already exists</td><td class="ctr">1.5</td><td>Category ledger</td></tr>
+    <tr><td><b>C</b></td><td>Dashboard or report over existing APIs</td><td class="ctr">1.5</td><td>Portal dashboards</td></tr>
+    <tr><td><b>D</b></td><td>Transaction document: header, lines, state machine, approval, print</td><td class="ctr">4.0</td><td>Material issue, maintenance work order</td></tr>
+    <tr><td><b>E</b></td><td>Calculation engine plus its screen</td><td class="ctr">6.0</td><td>Payroll run, OEE, cost roll-up</td></tr>
+  </tbody>
+</table>
+
+<p>A type D or E figure includes its backend: SQLAlchemy models, Alembic migration, repository,
+application service, Pydantic schemas, router, permissions, and tests. It does not include code
+review, which is the lead's time, or UAT, which is budgeted separately in section 12.</p>
+
+<!-- ═══════════════════════════ 2 ═══════════════════════════ -->
+<h2>2. The system in one page</h2>
+
+<p>SSB Manufacturing ERP is one connected system for a stainless steel vacuum-insulated water
+bottle plant. It runs the business from buying steel coil, through production, quality and
+packing, to dispatch, invoicing and payroll. It is a <b>modular monolith</b>: a single deployable
+FastAPI application partitioned into modules that map one-to-one onto the SRS volumes, with one
+React front end on top.</p>
+
+<h3>2.1 What a portal is</h3>
+
+<p>A portal is the working context a person signs into &mdash; not a security boundary. A
+storekeeper receiving goods works in Inventory; a buyer works in Procurement. Permissions are
+resolved per user regardless of which portal they are in, server-side, every time. The portal
+only decides which part of the product they are put in front of, and which sidebar tree they
+get. This matters to you as a developer for one reason: <b>never treat the sidebar as a
+control</b>. Hiding a menu item is a convenience. The permission dependency on the endpoint is
+the control.</p>
+
+<h3>2.2 The stack, which is locked</h3>
+
+<table class="tight">
+  <thead><tr><th style="width:34mm">Layer</th><th>Decision</th></tr></thead>
+  <tbody>
+    <tr><td>Database</td><td>MySQL 8.0+, InnoDB, <code>utf8mb4_0900_ai_ci</code></td></tr>
+    <tr><td>Backend</td><td>Python 3.12+, FastAPI, SQLAlchemy 2.0 typed <code>Mapped[]</code>, Alembic, Pydantic v2</td></tr>
+    <tr><td>Async and cache</td><td>Celery + Redis, <code>celery beat</code>; Redis 7+ for cache, locks, rate limits</td></tr>
+    <tr><td>Front end</td><td>React 18, TypeScript, Vite, Tailwind, TanStack Query for server state, Zustand for client state</td></tr>
+    <tr><td>Forms and tables</td><td>React Hook Form + Zod; TanStack Table, virtualised</td></tr>
+    <tr><td>Reports</td><td>WeasyPrint for PDF, openpyxl / xlsxwriter for Excel</td></tr>
+    <tr><td>Auth</td><td>JWT RS256 access token, 15 minutes, plus rotating opaque DB-backed refresh token</td></tr>
+  </tbody>
+</table>
+
+<p>Adding a runtime dependency, framework or datastore requires an ADR in <code>docs/adr/</code>
+and the lead's approval. This is not negotiable and it is not bureaucracy: a fresher adding a
+second state library or a second table component is the single fastest way to make 253 screens
+inconsistent.</p>
+
+<h3>2.3 The four rules you will break first</h3>
+
+<table class="tight">
+  <thead><tr><th style="width:44mm">Rule</th><th>Why it exists</th></tr></thead>
+  <tbody>
+    <tr><td><b>Soft delete only</b></td><td>Never <code>DELETE</code> a business row. Set <code>deleted_at</code> and <code>deleted_by</code>. Unique keys carry a generated <code>deleted_key</code> companion column because MySQL treats multiple NULLs as distinct.</td></tr>
+    <tr><td><b>Tenancy is application-enforced</b></td><td>MySQL has no row-level security. The base repository injects <code>company_id</code> into every query and every insert. Raw SQL must bind it explicitly; CI greps for <code>text(</code> without a tenant bind.</td></tr>
+    <tr><td><b>Public <code>uid</code>, never <code>id</code></b></td><td>URLs and payloads use the ULID <code>uid</code>. The <code>BIGINT id</code> never leaves the database.</td></tr>
+    <tr><td><b>No <code>FLOAT</code> for money or quantity</b></td><td>Quantity and rate are <code>DECIMAL(18,6)</code>, amount is <code>DECIMAL(18,2)</code>, percentage is <code>DECIMAL(9,4)</code>. Round half-up once, at persistence.</td></tr>
+  </tbody>
+</table>
+
+<!-- ═══════════════════════════ 3 ═══════════════════════════ -->
+<h2>3. Where the build stands today</h2>
+
+<p>This table was measured from the repository, not estimated. "Screens" counts distinct routes
+in <code>App.tsx</code> plus the 22 generic master routes driven by <code>masterRegistry.ts</code>.
+"Wired" counts page components that import from <code>@/api</code>, meaning they talk to the real
+backend rather than a mock fixture.</p>
+
+<div class="kpi">
+  <div class="k"><div class="v">253</div><div class="l">Screens routed</div></div>
+  <div class="k"><div class="v">130</div><div class="l">Wired to the backend</div></div>
+  <div class="k"><div class="v">5</div><div class="l">Portals complete</div></div>
+  <div class="k"><div class="v">8</div><div class="l">Portals still to finish</div></div>
+</div>
+
+<table>
+  <thead><tr>
+    <th style="width:47mm">Portal</th><th class="ctr" style="width:15mm">Screens</th>
+    <th class="ctr" style="width:15mm">Wired</th><th style="width:20mm">Status</th>
+    <th>Backend module and routers that exist</th>
+  </tr></thead>
+  <tbody>
+    <tr><td><b>Administration &amp; Platform</b></td><td class="ctr">39</td><td class="ctr">26</td><td><span class="pill part">Part-built</span></td><td><code>iam</code>, <code>organisation</code>, <code>numbering</code>, <code>workflow</code>, <code>security</code>, <code>parameters</code>, <code>audit</code></td></tr>
+    <tr><td><b>Master Data</b></td><td class="ctr">38</td><td class="ctr">34</td><td><span class="pill done">Complete</span></td><td><code>masters</code> plus ~25 lookup routers</td></tr>
+    <tr><td><b>Procurement</b></td><td class="ctr">8</td><td class="ctr">8</td><td><span class="pill done">Complete</span></td><td><code>procurement</code>, <code>rfq</code>, <code>quotation</code>, <code>purchase_order</code>, <code>grn</code>, <code>supplier</code></td></tr>
+    <tr><td><b>Inventory &amp; Stores</b></td><td class="ctr">31</td><td class="ctr">16</td><td><span class="pill part">Part-built</span></td><td><code>inventory</code>: stock, txn, txn_doc, count, analysis, report</td></tr>
+    <tr><td><b>Product Engineering</b></td><td class="ctr">13</td><td class="ctr">12</td><td><span class="pill done">Complete</span></td><td>8 <code>engineering_*</code> routers: BOM, routing, operations, work centres, tools, cost, changes, documents</td></tr>
+    <tr><td><b>Production Planning</b></td><td class="ctr">11</td><td class="ctr">4</td><td><span class="pill part">Part-built</span></td><td><code>planning</code>: MRP engine, capacity, demand, dashboard</td></tr>
+    <tr><td><b>Shop Floor Execution</b></td><td class="ctr">17</td><td class="ctr">0</td><td><span class="pill shell">UI only</span></td><td class="ctr">&mdash; none &mdash;</td></tr>
+    <tr><td><b>Quality</b></td><td class="ctr">11</td><td class="ctr">11</td><td><span class="pill done">Complete</span></td><td><code>inspections</code>, <code>ncr</code>, <code>capa</code>, <code>calibration</code>, <code>complaint</code>, <code>defects</code>, <code>quality_plans</code>, <code>supplier_quality</code></td></tr>
+    <tr><td><b>Plant Maintenance &amp; EAM</b></td><td class="ctr">12</td><td class="ctr">0</td><td><span class="pill shell">UI only</span></td><td class="ctr">&mdash; none &mdash;</td></tr>
+    <tr><td><b>Packing, Dispatch &amp; Logistics</b></td><td class="ctr">19</td><td class="ctr">19</td><td><span class="pill done">Complete</span></td><td>12 routers: packing order, carton, pallet, label, pick list, loading, shipment, POD, freight, exports, returns</td></tr>
+    <tr><td><b>Finance &amp; Accounts</b></td><td class="ctr">12</td><td class="ctr">0</td><td><span class="pill shell">UI only</span></td><td class="ctr">&mdash; none &mdash;</td></tr>
+    <tr><td><b>HR, Payroll &amp; Workforce</b></td><td class="ctr">22</td><td class="ctr">0</td><td><span class="pill shell">UI only</span></td><td class="ctr">&mdash; none &mdash;</td></tr>
+    <tr><td><b>Analytics &amp; Insights</b></td><td class="ctr">18</td><td class="ctr">0</td><td><span class="pill shell">UI only</span></td><td>partial <code>analytics</code>, <code>reporting</code></td></tr>
+    <tr><td><b>Sales &amp; CRM</b></td><td class="ctr">0</td><td class="ctr">0</td><td><span class="pill none">Release 2</span></td><td class="ctr">&mdash; none, and no SRS &mdash;</td></tr>
+    <tr><td><b>Shop Floor Terminal</b></td><td class="ctr">0</td><td class="ctr">0</td><td><span class="pill none">Release 2</span></td><td class="ctr">&mdash; none &mdash;</td></tr>
+    <tr class="tot"><td>Total</td><td class="ctr">253</td><td class="ctr">130</td><td colspan="2">Plus sign-in and profile screens</td></tr>
+  </tbody>
+</table>
+
+<div class="note ok">
+  <div class="hd">Read this before you feel behind</div>
+  <p>"UI only" is not zero. Those 81 screens already have their layout, their mock fixture and
+  their TypeScript types written. The mock file in <code>frontend/src/mock/</code> is a working
+  specification of the shape the API must return. Your job on those screens is to build the
+  backend to match, then delete the mock. That is why five UI-only portals cost 220 person-days
+  and not double that.</p>
+</div>
+
+<h3>3.1 The framework services that are already done</h3>
+
+<p>Seven cross-cutting services carry every document in every portal, and all seven are built and
+working. You do not need to build them, you need to <i>use</i> them:</p>
+
+<table class="tight">
+  <thead><tr><th style="width:36mm">Service</th><th>Where it lives</th><th>What you must do</th></tr></thead>
+  <tbody>
+    <tr><td>Authentication and RBAC</td><td><code>modules/iam</code></td><td>Declare a permission dependency on every endpoint. CI fails an endpoint with none.</td></tr>
+    <tr><td>Organisation and tenancy</td><td><code>modules/organisation</code></td><td>Resolve <code>TenantContext</code>; let the base repository inject <code>company_id</code>.</td></tr>
+    <tr><td>Document numbering</td><td><code>modules/numbering</code></td><td>Ask the numbering engine for a document number. Never write a sequence in module code.</td></tr>
+    <tr><td>Workflow and approvals</td><td><code>modules/workflow</code></td><td>Create a workflow instance for every document, even when the rule is auto-approve.</td></tr>
+    <tr><td>Audit trail</td><td><code>modules/security</code>, <code>audit</code></td><td>Emit audit rows on create, update, submit, approve, reject, cancel, amend. Append-only.</td></tr>
+    <tr><td>Parameters</td><td><code>modules/parameters</code></td><td>Read configurable behaviour from parameters, not from constants in your code.</td></tr>
+    <tr><td>Reporting</td><td><code>modules/reporting</code></td><td>The one sanctioned place to join across module tables, read-only.</td></tr>
+  </tbody>
+</table>

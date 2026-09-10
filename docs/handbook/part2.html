@@ -1,0 +1,510 @@
+<!-- ═══════════════════════════ 4 ═══════════════════════════ -->
+<h2>4. Portal-wise pages and modules</h2>
+
+<p>Each portal below lists its sidebar groups exactly as they are defined in
+<code>frontend/src/config/navigation.ts</code>, with the screens under each. The status column
+is per group: <span class="pill done">Done</span> means wired to the backend,
+<span class="pill part">Part</span> means some screens still read a mock fixture,
+<span class="pill shell">Shell</span> means the whole group is mock.</p>
+
+<h3>4.1 Administration &amp; Platform Services &mdash; 39 screens <span class="own-tag">Lead</span></h3>
+
+<table class="tight">
+  <thead><tr><th style="width:32mm">Menu group</th><th>Screens</th><th class="ctr" style="width:16mm">Status</th></tr></thead>
+  <tbody>
+    <tr><td><b>Dashboard</b></td><td>Home dashboard <code>/</code></td><td class="ctr"><span class="pill done">Done</span></td></tr>
+    <tr><td><b>Organisation</b></td><td>Structure explorer, Company, Branches, Plants &amp; lines, Warehouses &amp; bins, Departments, Cost centres, Financial year &amp; periods, Currency &amp; rates <span style="color:#6a7180">(9)</span></td><td class="ctr"><span class="pill done">Done</span></td></tr>
+    <tr><td><b>Access Control</b></td><td>Users, Roles, Permission explorer, Delegations, Sessions &amp; devices, API keys, Segregation of duties, Login activity <span style="color:#6a7180">(8)</span></td><td class="ctr"><span class="pill done">Done</span></td></tr>
+    <tr><td><b>Workflow</b></td><td>Approvals inbox, Approval matrix, Workflow designer, Workflow monitor <span style="color:#6a7180">(4)</span></td><td class="ctr"><span class="pill done">Done</span></td></tr>
+    <tr><td><b>Platform Services</b></td><td>Document numbering <span class="pill done">done</span>, Notifications, Master data framework, Attachments &amp; DMS, Document repository, Import &amp; export, Collaboration, Barcode &amp; labels, Report engine <span style="color:#6a7180">(9)</span></td><td class="ctr"><span class="pill part">Part</span></td></tr>
+    <tr><td><b>Compliance &amp; Ops</b></td><td>Audit trail <span class="pill done">done</span>, Security policy <span class="pill done">done</span>, Logging &amp; monitoring, Administration reports, System parameters <span class="pill done">done</span>, Integrations, Background jobs, Backup &amp; restore, Licence <span style="color:#6a7180">(9)</span></td><td class="ctr"><span class="pill part">Part</span></td></tr>
+  </tbody>
+</table>
+
+<p><b>Remaining work:</b> 13 screens, all of them cross-cutting enablers that other portals
+consume &mdash; notifications, attachments, the import framework, the report engine, barcode and
+labels. This is why the lead owns this portal: finishing it unblocks everyone else.</p>
+
+<h3>4.2 Master Data &mdash; 38 screens <span class="own-tag">D2</span></h3>
+
+<table class="tight">
+  <thead><tr><th style="width:32mm">Menu group</th><th>Screens</th><th class="ctr" style="width:16mm">Status</th></tr></thead>
+  <tbody>
+    <tr><td><b>Business Partners</b></td><td>Customers, Suppliers, Transporters, Banks, Contact persons <span style="color:#6a7180">(5)</span></td><td class="ctr"><span class="pill done">Done</span></td></tr>
+    <tr><td><b>Product Engineering</b></td><td>Item Category, Product Category, Product Items, Company Items, Products, Bottle models, Capacities, Colours &amp; finishes, Lid &amp; cap types, Packaging materials <span style="color:#6a7180">(10)</span></td><td class="ctr"><span class="pill done">Done</span></td></tr>
+    <tr><td><b>Raw Material</b></td><td>Steel grades, Steel thickness <span style="color:#6a7180">(2)</span></td><td class="ctr"><span class="pill done">Done</span></td></tr>
+    <tr><td><b>Production</b></td><td>Machines, Production lines, Work centres <i>(read-only, owned by Engineering)</i>, Plants, Shifts, Holiday calendar, Planning policy <span style="color:#6a7180">(7)</span></td><td class="ctr"><span class="pill done">Done</span></td></tr>
+    <tr><td><b>Quality</b></td><td>Inspection parameters, Defect types <span style="color:#6a7180">(2)</span></td><td class="ctr"><span class="pill done">Done</span></td></tr>
+    <tr><td><b>HR</b></td><td>Employees <span style="color:#6a7180">(1)</span></td><td class="ctr"><span class="pill done">Done</span></td></tr>
+    <tr><td><b>Finance &amp; Tax</b></td><td>HSN / SAC codes, Tax rates, Payment terms, Currency &amp; rates, Cost centres <span style="color:#6a7180">(5)</span></td><td class="ctr"><span class="pill done">Done</span></td></tr>
+    <tr><td><b>Reference &amp; Geography</b></td><td>Units of measure, Reason codes, Countries, States, Cities <span style="color:#6a7180">(5)</span></td><td class="ctr"><span class="pill done">Done</span></td></tr>
+    <tr><td><b>Support screens</b></td><td>Masters overview, Duplicate finder, Import &amp; export, Supplier forms <span style="color:#6a7180">(4)</span></td><td class="ctr"><span class="pill shell">Shell</span></td></tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <div class="hd">The generic master pattern</div>
+  <p>22 of these screens are not hand-written. They are driven by a registry
+  (<code>mock/masterRegistry.ts</code>) rendered through one <code>SimpleMasterPage</code>
+  component. When you add a simple lookup master, add a registry entry &mdash; do not add a page.
+  Only masters with real behaviour (Customer, Supplier, Item, Machine, Planning policy) get their
+  own component.</p>
+</div>
+
+<h3>4.3 Procurement &mdash; 8 screens <span class="own-tag">Complete</span></h3>
+
+<p>A deliberately flat menu, in the exact order the work happens. Screens that support the chain
+but are not stages of it (rate contracts, imports, ASN, returns, supplier evaluation) stay
+reachable by URL and are opened from the screen that needs them.</p>
+
+<table class="tight">
+  <thead><tr><th>Screen</th><th style="width:44mm">Route</th><th>What it produces</th></tr></thead>
+  <tbody>
+    <tr><td>Dashboard</td><td><code>/procurement</code></td><td>Spend, open PR/PO, overdue receipts</td></tr>
+    <tr><td>Purchase Requisition</td><td><code>/procurement/requisitions</code></td><td>PR document, from MRP or manual</td></tr>
+    <tr><td>Request for Quotation</td><td><code>/procurement/rfq</code></td><td>RFQ to a supplier set</td></tr>
+    <tr><td>Vendor Quotations</td><td><code>/procurement/quotations</code></td><td>Supplier quote capture</td></tr>
+    <tr><td>Quotation Comparison</td><td><code>/procurement/comparison</code></td><td>Landed-cost comparison and recommendation</td></tr>
+    <tr><td>Purchase Order</td><td><code>/procurement/orders</code></td><td>PO, amendable with revision history</td></tr>
+    <tr><td>Goods Receipt Note</td><td><code>/procurement/grn</code></td><td>GRN, which posts stock and triggers incoming QC</td></tr>
+    <tr><td>Approvals</td><td><code>/procurement/approvals</code></td><td>Procurement slice of the approvals inbox</td></tr>
+  </tbody>
+</table>
+
+<h3>4.4 Inventory &amp; Stores &mdash; 31 screens <span class="own-tag">D1</span></h3>
+
+<table class="tight">
+  <thead><tr><th style="width:38mm">Area</th><th>Screens</th><th class="ctr" style="width:16mm">Status</th></tr></thead>
+  <tbody>
+    <tr><td><b>In the sidebar</b></td><td>Dashboard, Current Stock, Stock In, Stock Out, Stock Return, Stock Transfer, Batch &amp; Expiry, Low Stock Monitor, Stock Ledger, Category Ledger, Warehouse Setup <span style="color:#6a7180">(11)</span></td><td class="ctr"><span class="pill part">Part</span></td></tr>
+    <tr><td><b>Stock model</b></td><td>Stock, Ledger, Valuation, Ageing, ABC-XYZ, Reorder, Structure, Bin map, Warehouses <span style="color:#6a7180">(9)</span></td><td class="ctr"><span class="pill part">Part</span></td></tr>
+    <tr><td><b>Movements</b></td><td>Receipts, Putaway, Issues, Returns, Transfers, Goods in transit, Adjustments, Scrap, Job work, Requisitions, Reservations, Movement <span style="color:#6a7180">(12)</span></td><td class="ctr"><span class="pill part">Part</span></td></tr>
+    <tr><td><b>Identity &amp; trace</b></td><td>Batches, Serials, Traceability, Labels <span style="color:#6a7180">(4)</span></td><td class="ctr"><span class="pill part">Part</span></td></tr>
+    <tr><td><b>Counting</b></td><td>Counting, Count workspace, Verification, Variance <span style="color:#6a7180">(4)</span></td><td class="ctr"><span class="pill part">Part</span></td></tr>
+    <tr><td><b>Reports</b></td><td>Reports <span style="color:#6a7180">(1)</span></td><td class="ctr"><span class="pill shell">Shell</span></td></tr>
+  </tbody>
+</table>
+
+<p><b>Built:</b> the stock balance model, the stock ledger, the transaction engine
+(<code>txn_router</code>, <code>txn_doc_router</code>), cycle counting, ABC-XYZ analysis, stock
+reports, warehouse and bin setup. <b>Remaining, 21 screens:</b> issue, return, transfer,
+goods-in-transit, adjustment, scrap, put-away, job work, requisition, reservation, serials,
+traceability, labels, category ledger, verification, variance, dashboard and reports.</p>
+
+<div class="note ok">
+  <div class="hd">Why Inventory is the highest-leverage remaining portal</div>
+  <p>Nothing in Shop Floor Execution can be tested until material issue posts a real stock
+  movement, and nothing in Finance can be reconciled until valuation posts to the ledger.
+  Inventory is on the critical path for two other portals, which is why it starts in week 3 and
+  is owned full-time.</p>
+</div>
+
+<h3>4.5 Product Engineering &mdash; 13 screens <span class="own-tag">Complete</span></h3>
+
+<table class="tight">
+  <thead><tr><th style="width:32mm">Menu group</th><th>Screens</th></tr></thead>
+  <tbody>
+    <tr><td><b>Dashboard</b></td><td>Engineering dashboard</td></tr>
+    <tr><td><b>Documents</b></td><td>Engineering documents, Document types</td></tr>
+    <tr><td><b>Bill of Materials</b></td><td>BOM register, BOM explorer <i>(multi-level tree)</i></td></tr>
+    <tr><td><b>Routing</b></td><td>Manufacturing routing, Operations, Work centres, Tools &amp; dies</td></tr>
+    <tr><td><b>Cost &amp; Change</b></td><td>Cost roll-up, Engineering changes (ECN)</td></tr>
+    <tr><td><b>Reports</b></td><td>Engineering reports, Audit trail <i>(shared)</i></td></tr>
+  </tbody>
+</table>
+
+<p>Engineering owns the BOM, the routing and the work-centre record. The product master itself
+lives in Masters. Planning explodes the BOM; Shop Floor reads the routing. Both of those are
+consumers, so <b>the BOM and routing contracts must not change once MES starts in week 6.</b></p>
+
+<h3>4.6 Production Planning &mdash; 11 screens <span class="own-tag">D2</span></h3>
+
+<table class="tight">
+  <thead><tr><th>Screen</th><th style="width:38mm">Route</th><th class="ctr" style="width:16mm">Status</th><th style="width:52mm">Note</th></tr></thead>
+  <tbody>
+    <tr><td>Dashboard</td><td><code>/planning</code></td><td class="ctr"><span class="pill done">Done</span></td><td>Plan health, exceptions</td></tr>
+    <tr><td>Sales Forecast</td><td><code>/planning/forecast</code></td><td class="ctr"><span class="pill shell">Shell</span></td><td>Needs seasonality factors</td></tr>
+    <tr><td>Demand</td><td><code>/planning/demand</code></td><td class="ctr"><span class="pill part">Part</span></td><td>Backend exists, page is mock</td></tr>
+    <tr><td>Master Schedule</td><td><code>/planning/mps</code></td><td class="ctr"><span class="pill shell">Shell</span></td><td>Firms up net demand into a plan</td></tr>
+    <tr><td>MRP</td><td><code>/planning/mrp</code></td><td class="ctr"><span class="pill done">Done</span></td><td>The engine. BOM explosion, buy/make split</td></tr>
+    <tr><td>Capacity Planning</td><td><code>/planning/capacity</code></td><td class="ctr"><span class="pill done">Done</span></td><td>Work-centre load against calendar</td></tr>
+    <tr><td>Production Orders</td><td><code>/planning/orders</code></td><td class="ctr"><span class="pill shell">Shell</span></td><td>Release gate logic exists in tests</td></tr>
+    <tr><td>Schedule Board</td><td><code>/planning/schedule</code></td><td class="ctr"><span class="pill shell">Shell</span></td><td>Drag-and-drop sequencing</td></tr>
+    <tr><td>Material Reservation</td><td><code>/planning/reservations</code></td><td class="ctr"><span class="pill shell">Shell</span></td><td>Reserved-qty column already in DB</td></tr>
+    <tr><td>Production Calendar</td><td><code>/planning/calendar</code></td><td class="ctr"><span class="pill shell">Shell</span></td><td>Shift and holiday overlay</td></tr>
+    <tr><td>Reports</td><td><code>/planning/reports</code></td><td class="ctr"><span class="pill shell">Shell</span></td><td></td></tr>
+  </tbody>
+</table>
+
+<h3>4.7 Shop Floor Execution &mdash; 17 screens <span class="own-tag">D3 + D2</span></h3>
+
+<table class="tight">
+  <thead><tr><th style="width:30mm">Menu group</th><th>Screens</th><th style="width:48mm">Hardest part</th></tr></thead>
+  <tbody>
+    <tr><td><b>Orders</b></td><td>Production orders, Work orders, Work centre queue</td><td>Order-to-work-order explosion from routing</td></tr>
+    <tr><td><b>Execution</b></td><td>Production entry, Work in progress, Work instructions</td><td>Production entry: barcode, backflush, yield and scrap in one transaction</td></tr>
+    <tr><td><b>Machines</b></td><td>Machine status, Downtime, OEE</td><td>OEE: availability &times; performance &times; quality, per shift and machine</td></tr>
+    <tr><td><b>Losses</b></td><td>Scrap, Rework</td><td>Scrap SS has recoverable value &mdash; it is an inventory item, not a write-off</td></tr>
+    <tr><td><b>People</b></td><td>Shift management, Labour tracking</td><td>Feeds HRMS incentives and labour cost</td></tr>
+    <tr><td><b>Traceability</b></td><td>Traveller card, Production genealogy</td><td>Heat number to coil to blank to body to bottle to carton</td></tr>
+    <tr><td><b>Reports</b></td><td>Production reports, Audit trail <i>(shared)</i></td><td></td></tr>
+  </tbody>
+</table>
+
+<p>The whole portal is a shell today. It is also the largest single piece of remaining work, and
+it sits downstream of Planning production orders, Engineering routing and Inventory issues &mdash;
+which is exactly why it starts in week 6, not week 3.</p>
+
+<h3>4.8 Quality &mdash; 11 screens <span class="own-tag">Complete</span></h3>
+
+<p>Flat menu: Dashboard, Inspection Plans, Inspections, Defects &amp; Pareto, Non-Conformance
+(NCR), CAPA, Calibration, Supplier Quality, Customer Complaints, Audits, Reports. All eleven are
+wired. Quality is a gate in three separate flows &mdash; incoming on GRN, in-process on operation
+confirmation, final before packing &mdash; so treat its API as frozen.</p>
+
+<h3>4.9 Plant Maintenance &amp; EAM &mdash; 12 screens <span class="own-tag">D1</span></h3>
+
+<p>Flat menu: Dashboard, Asset Register, Preventive Plans, Work Orders, Breakdowns, Condition
+Monitoring, Spare Parts, Technicians, Safety Permits, Utilities, Shutdowns, Reports. Entirely a
+shell. Mostly master-plus-document work, with one genuinely hard screen: the preventive-plan
+scheduler, which must generate work orders on a calendar <i>and</i> a meter trigger.</p>
+
+<h3>4.10 Packing, Dispatch &amp; Logistics &mdash; 19 screens <span class="own-tag">Complete</span></h3>
+
+<table class="tight">
+  <thead><tr><th style="width:26mm">Menu group</th><th>Screens</th></tr></thead>
+  <tbody>
+    <tr><td><b>Packing</b></td><td>Packing orders, Packaging material, Cartons, Pallets, Labels</td></tr>
+    <tr><td><b>Dispatch</b></td><td>Dispatch planning, Pick lists, Vehicle loading, Vehicles</td></tr>
+    <tr><td><b>Logistics</b></td><td>Shipments, Shipment tracking, Proof of delivery, Returns, Freight &amp; cost, Transporter performance</td></tr>
+    <tr><td><b>Export</b></td><td>Export shipments, Export documents</td></tr>
+    <tr><td><b>Reports</b></td><td>Dispatch reports, Audit trail <i>(shared)</i></td></tr>
+  </tbody>
+</table>
+
+<h3>4.11 Finance &amp; Accounts &mdash; 12 screens <span class="own-tag">D4</span></h3>
+
+<p>Flat menu: Dashboard, Chart of Accounts, Journals &amp; Ledger, Statements, Receivables,
+Payables, Banking, Cost &amp; Variance, GST &amp; TDS, Fixed Assets, Budgets, Period Close.
+Entirely a shell, and the highest-risk portal in the plan because correctness is not negotiable
+and two of its inputs (sales invoicing, payroll) are themselves unbuilt.</p>
+
+<div class="note stop">
+  <div class="hd">Indian statutory logic is isolated, always</div>
+  <p>GST, e-invoice IRN, e-way bill, TDS, PF and ESI logic goes behind a <code>statutory/</code>
+  adapter, with rates and slabs held as configurable master data. Never hard-code a rate in
+  business logic. Rates change by government notification; code must not.</p>
+</div>
+
+<h3>4.12 HR, Payroll &amp; Workforce &mdash; 22 screens <span class="own-tag">D5 + D4</span></h3>
+
+<table class="tight">
+  <thead><tr><th style="width:32mm">Menu group</th><th>Screens</th></tr></thead>
+  <tbody>
+    <tr><td><b>People</b></td><td>Employees, Organisation structure</td></tr>
+    <tr><td><b>Recruitment</b></td><td>Manpower requisitions, Candidate pipeline</td></tr>
+    <tr><td><b>Time &amp; Attendance</b></td><td>Attendance, Overtime, Shifts &amp; roster, Leave</td></tr>
+    <tr><td><b>Payroll</b></td><td>Payroll run, Payslips, Salary structures, Statutory compliance</td></tr>
+    <tr><td><b>Workforce</b></td><td>Production incentives, Labour cost, Skill matrix, Contractor labour</td></tr>
+    <tr><td><b>Growth</b></td><td>Performance, Training</td></tr>
+    <tr><td><b>Self Service</b></td><td>My page, My team</td></tr>
+    <tr><td><b>Reports</b></td><td>HR reports, Audit trail <i>(shared)</i></td></tr>
+  </tbody>
+</table>
+
+<p>The biggest portal by screen count and the biggest by effort. Attendance import, the payroll
+engine and statutory returns are the three screens that decide whether this portal lands on time.</p>
+
+<h3>4.13 Analytics &amp; Insights &mdash; 18 screens <span class="own-tag">D3 + D4</span></h3>
+
+<p>Executive Overview, Dashboards, AI Insights, eight domain analytics pages (Production,
+Quality, Maintenance, Procurement, Inventory, Sales, Finance, Workforce), Forecasts, KPI library,
+Scorecards, Alerts &amp; Exceptions, Report Catalogue, Data sources, Access &amp; audit.</p>
+
+<p>Read-only across every module, built in the <code>reporting</code> module with explicit SQL.
+This is the one sanctioned place in the codebase where a query may join across module tables.
+Two permissions gate the sensitive pages: <code>BI.FINANCIAL.VIEW</code> and
+<code>BI.PEOPLE.VIEW</code>. It is scheduled last because a dashboard over an unbuilt module has
+nothing to show.</p>
+
+<h3>4.14 Deferred to release 2</h3>
+
+<table class="tight">
+  <thead><tr><th style="width:40mm">Portal</th><th>Scope</th><th style="width:44mm">Blocked by</th></tr></thead>
+  <tbody>
+    <tr><td><b>Sales &amp; CRM</b></td><td>Leads, enquiries, quotations, sales orders, invoices, complaints, customer ledger</td><td>SRS Volume 2 not written</td></tr>
+    <tr><td><b>Shop Floor Terminal</b></td><td>Scan-driven operator screens for line confirmation and material movement</td><td>Shop Floor Execution must exist first</td></tr>
+    <tr><td><b>Supplier Portal</b></td><td>RFQ response, PO acknowledgement, ASN, invoice status</td><td>External auth model undecided</td></tr>
+    <tr><td><b>Customer Portal</b></td><td>Order status, dispatch tracking, invoices, complaints</td><td>Depends on Sales &amp; CRM</td></tr>
+  </tbody>
+</table>
+
+<div class="note warn">
+  <div class="hd">Sales &amp; CRM leaves two holes you will hit in release 1</div>
+  <p>Planning normally nets demand against <b>sales orders</b>, and Finance receivables normally
+  starts from a <b>sales invoice</b>. Neither exists. For release 1: Planning takes demand from
+  manual entry and the forecast (the demand screen already supports this), and Finance raises the
+  sales invoice from the dispatch shipment instead of from a sales order. Document both as
+  temporary, in <code>docs/srs/open-questions.md</code>.</p>
+</div>
+
+<!-- ═══════════════════════════ 5 ═══════════════════════════ -->
+<h2>5. Page-to-page connections</h2>
+
+<p>A screen is rarely a destination. Almost every screen in this product is reached <i>from</i>
+another screen, carrying a document reference with it. The chains below are the real ones &mdash;
+taken from the navigation comments and the cross-page navigation calls in the page components.
+Learn your portal's chain before you write a line of code, because the chain is what the user
+experiences.</p>
+
+<h3>5.1 Procurement</h3>
+<div class="chain">
+  <span class="s">Purchase Requisition<small>/procurement/requisitions</small></span><span class="a">&rarr;</span>
+  <span class="s gate">Approve</span><span class="a">&rarr;</span>
+  <span class="s">RFQ<small>/procurement/rfq</small></span><span class="a">&rarr;</span>
+  <span class="s">Vendor Quotations<small>/procurement/quotations</small></span><span class="a">&rarr;</span>
+  <span class="s">Comparison<small>/procurement/comparison</small></span><span class="a">&rarr;</span>
+  <span class="s gate">Approve</span><span class="a">&rarr;</span>
+  <span class="s">Purchase Order<small>/procurement/orders</small></span><span class="a">&rarr;</span>
+  <span class="s">GRN<small>/procurement/grn</small></span><span class="a">&rarr;</span>
+  <span class="s ext">Incoming QC<small>/quality/inspections</small></span>
+</div>
+<p>Side branches: a rejected GRN line opens <b>Purchase return</b>; an approved GRN posts to
+<b>Stock In</b>; MRP creates the PR without a human typing it.</p>
+
+<h3>5.2 Production Planning</h3>
+<div class="chain">
+  <span class="s">Sales Forecast<small>/planning/forecast</small></span><span class="a">&rarr;</span>
+  <span class="s">Demand<small>/planning/demand</small></span><span class="a">&rarr;</span>
+  <span class="s">Master Schedule<small>/planning/mps</small></span><span class="a">&rarr;</span>
+  <span class="s">MRP<small>/planning/mrp</small></span><span class="a">&rarr;</span>
+  <span class="s">Capacity<small>/planning/capacity</small></span><span class="a">&rarr;</span>
+  <span class="s">Production Orders<small>/planning/orders</small></span><span class="a">&rarr;</span>
+  <span class="s">Schedule Board<small>/planning/schedule</small></span>
+</div>
+<p>MRP is the hub, and it reads from four other portals. Its outputs split two ways: a
+<b>make</b> line becomes a production order, a <b>buy</b> line becomes a purchase requisition in
+Procurement. Material reservation locks stock against the released order.</p>
+<pre class="dia">                    MASTERS            ENGINEERING          INVENTORY         PROCUREMENT
+                 item · UOM · plant    BOM · routing        on-hand ·         open PO =
+                 shift · calendar      work centres         reservations      scheduled receipt
+                        │                    │                   │                  │
+                        └────────────┬───────┴─────────┬─────────┴──────┬───────────┘
+                                     ▼                 ▼                ▼
+   Forecast ──► Demand ──► MPS ──►  ══════════════ M R P ══════════════  ──► buy: Purchase Requisition
+                            firm     BOM explosion · netting · lot size        make: Production Order
+                            orders            │                                        │
+                                              ▼                                        ▼
+                                     Capacity & Schedule Board ──────────► SHOP FLOOR EXECUTION</pre>
+
+<h3>5.3 Inventory &amp; Stores</h3>
+<div class="chain">
+  <span class="s ext">GRN<small>procurement</small></span><span class="a">&rarr;</span>
+  <span class="s">Stock In<small>/inventory/receipts</small></span><span class="a">&rarr;</span>
+  <span class="s gate">QC release</span><span class="a">&rarr;</span>
+  <span class="s">Put-away<small>/inventory/putaway</small></span><span class="a">&rarr;</span>
+  <span class="s">Current Stock<small>/inventory/stock</small></span><span class="a">&rarr;</span>
+  <span class="s">Stock Out<small>/inventory/issues</small></span><span class="a">&rarr;</span>
+  <span class="s ext">Production<small>/production/entry</small></span>
+</div>
+<p>Every one of those movements writes one row to the <b>Stock Ledger</b>
+(<code>/inventory/ledger</code>), which is the audit spine of the portal: if a movement is not in
+the ledger, it did not happen. Batch and serial screens hang off the ledger and feed
+<b>Traceability</b>. Low Stock Monitor generates the requisitions that start section 5.1.</p>
+
+<h3>5.4 Shop Floor Execution</h3>
+<div class="chain">
+  <span class="s ext">Production Order<small>planning</small></span><span class="a">&rarr;</span>
+  <span class="s">Work Orders<small>/production/work-orders</small></span><span class="a">&rarr;</span>
+  <span class="s">Work Centre Queue<small>/production/queue</small></span><span class="a">&rarr;</span>
+  <span class="s ext">Material Issue<small>inventory</small></span><span class="a">&rarr;</span>
+  <span class="s">Production Entry<small>/production/entry</small></span><span class="a">&rarr;</span>
+  <span class="s gate">In-process QC</span><span class="a">&rarr;</span>
+  <span class="s">WIP<small>/production/wip</small></span><span class="a">&rarr;</span>
+  <span class="s ext">Packing<small>dispatch</small></span>
+</div>
+<p>Production entry is the busiest screen in the product and the one with the most side effects.
+A single confirmation writes output, consumes material by backflush, records scrap and rework,
+stamps the traveller card, and updates OEE. Get its transaction boundary right and the rest of
+the portal is straightforward.</p>
+
+<h3>5.5 Packing, Dispatch &amp; Logistics</h3>
+<div class="chain">
+  <span class="s">Packing Order<small>/dispatch/packing-orders</small></span><span class="a">&rarr;</span>
+  <span class="s">Cartons<small>/dispatch/cartons</small></span><span class="a">&rarr;</span>
+  <span class="s">Pallets<small>/dispatch/pallets</small></span><span class="a">&rarr;</span>
+  <span class="s">Labels<small>/dispatch/labels</small></span><span class="a">&rarr;</span>
+  <span class="s">Dispatch Plan<small>/dispatch/planning</small></span><span class="a">&rarr;</span>
+  <span class="s">Pick List<small>/dispatch/pick-lists</small></span><span class="a">&rarr;</span>
+  <span class="s">Loading<small>/dispatch/loading</small></span><span class="a">&rarr;</span>
+  <span class="s">Shipment<small>/dispatch/shipments</small></span><span class="a">&rarr;</span>
+  <span class="s">POD<small>/dispatch/pod</small></span>
+</div>
+<p>Export orders branch at Shipment into <b>Export shipments</b> and <b>Export documents</b>.
+Freight cost and transporter performance are fed by the completed shipment, not entered
+separately.</p>
+
+<h3>5.6 Quality, which is a gate in three places</h3>
+<pre class="dia">   GRN posted ─────────────► Incoming inspection ──► Accept ──► Stock In (usable)
+                                    │                └► Reject ──► Purchase return / Debit note
+                                    │
+   Operation confirmed ────► In-process inspection ─► Pass ────► next operation
+                                    │                └► Fail ──► Rework  or  Scrap
+                                    │
+   Order complete ─────────► Final inspection ──────► Pass ────► Packing
+                                    │                └► Fail ──► NCR ──► CAPA
+                                    ▼
+                          Defects & Pareto · Supplier Quality · Audits</pre>
+
+<h3>5.7 Finance and HR, which are mostly consumers</h3>
+<table class="tight">
+  <thead><tr><th style="width:44mm">Screen</th><th>Is fed by</th></tr></thead>
+  <tbody>
+    <tr><td>Payables <code>/finance/payables</code></td><td>Three-way match of PO, GRN and purchase invoice</td></tr>
+    <tr><td>Receivables <code>/finance/receivables</code></td><td>Sales invoice raised from the dispatch shipment</td></tr>
+    <tr><td>Cost &amp; Variance <code>/finance/costing</code></td><td>Engineering cost roll-up as standard, MES actuals as variance</td></tr>
+    <tr><td>Journals <code>/finance/journals</code></td><td>Inventory valuation, payroll JV, depreciation run</td></tr>
+    <tr><td>Production Incentives <code>/hrms/incentives</code></td><td>MES labour tracking and confirmed output</td></tr>
+    <tr><td>Labour Cost <code>/hrms/labour-cost</code></td><td>MES labour hours priced by salary structure</td></tr>
+    <tr><td>Payroll Run <code>/hrms/payroll</code></td><td>Attendance, overtime, leave, incentives, salary structure, statutory slabs</td></tr>
+  </tbody>
+</table>
+
+<!-- ═══════════════════════════ 6 ═══════════════════════════ -->
+<h2>6. Step-by-step process flows</h2>
+
+<p>Eight flows. These are what you demonstrate at UAT, so they are also what you should be able
+to click through end to end at the close of every phase.</p>
+
+<h3>6.1 Procure to receipt</h3>
+<ol class="steps">
+  <li><b>Requirement appears.</b> MRP produces a buy suggestion, or a storekeeper raises a manual requisition from the Low Stock Monitor.<span class="who">Planner / Storekeeper &middot; /planning/mrp or /inventory/reorder</span></li>
+  <li><b>Purchase requisition is created</b> with item, quantity, required-by date and a reason.<span class="who">Buyer &middot; /procurement/requisitions</span></li>
+  <li><b>PR is approved</b> against the approval matrix. Below the value threshold this is auto-approve, and it still creates a workflow instance.<span class="who">Purchase manager &middot; /workflow/inbox</span></li>
+  <li><b>RFQ is issued</b> to a supplier set drawn from the item's approved suppliers.<span class="who">Buyer &middot; /procurement/rfq</span></li>
+  <li><b>Supplier quotations are captured</b>, one per supplier, with rate, tax, freight and lead time.<span class="who">Buyer &middot; /procurement/quotations</span></li>
+  <li><b>Quotations are compared on landed cost</b>, not on rate. A recommendation is recorded with a reason.<span class="who">Buyer &middot; /procurement/comparison</span></li>
+  <li><b>Purchase order is raised and approved.</b> The number comes from the numbering engine. After approval, changes go through amendment with a revision history, never in-place edit.<span class="who">Buyer, then approver &middot; /procurement/orders</span></li>
+  <li><b>Material arrives; GRN is posted</b> against the PO, with batch or heat number captured for steel.<span class="who">Storekeeper &middot; /procurement/grn</span></li>
+  <li><b>Incoming inspection.</b> Accepted quantity becomes usable stock; rejected quantity goes to a purchase return and a debit note.<span class="who">QC inspector &middot; /quality/inspections</span></li>
+  <li><b>Put-away</b> moves accepted stock from the receiving bin to its storage bin. The stock ledger now shows it as available.<span class="who">Storekeeper &middot; /inventory/putaway</span></li>
+</ol>
+
+<h3>6.2 Plan to production order</h3>
+<ol class="steps">
+  <li><b>Forecast is entered</b> by month and SKU, with seasonality &mdash; demand is heavy in summer and the gifting season.<span class="who">Planner &middot; /planning/forecast</span></li>
+  <li><b>Demand is consolidated</b> from the forecast plus firm orders (manual entry in release 1, sales orders in release 2).<span class="who">Planner &middot; /planning/demand</span></li>
+  <li><b>Master schedule is firmed</b> for the planning horizon, bucketed by week.<span class="who">Planner &middot; /planning/mps</span></li>
+  <li><b>MRP runs.</b> It explodes the BOM, nets against on-hand and reservations, treats open POs as scheduled receipts, applies lot-sizing and safety stock from the planning policy, and returns a buy list and a make list. This is a long-running job: it returns <code>202 Accepted</code> with a job uid.<span class="who">Planner &middot; /planning/mrp</span></li>
+  <li><b>Capacity is checked</b> per work centre against the shift and holiday calendar. Overload is resolved by moving dates or adding a shift, before release.<span class="who">Planner &middot; /planning/capacity</span></li>
+  <li><b>Production orders are created</b> from the make lines, and purchase requisitions from the buy lines.<span class="who">Planner &middot; /planning/orders</span></li>
+  <li><b>Orders are sequenced</b> on the schedule board and material is reserved against them.<span class="who">Planner &middot; /planning/schedule, /planning/reservations</span></li>
+  <li><b>Order is released to the shop floor.</b> Release is gated: no release without a valid BOM, a valid routing and reserved or available material.<span class="who">Planner &middot; /planning/orders</span></li>
+</ol>
+
+<h3>6.3 Order to output</h3>
+<ol class="steps">
+  <li><b>Production order is received</b> on the shop floor and exploded into work orders, one per routing operation.<span class="who">Production supervisor &middot; /production/orders</span></li>
+  <li><b>Work orders queue at their work centre</b> in schedule sequence.<span class="who">Supervisor &middot; /production/queue</span></li>
+  <li><b>Material is issued</b> against the order from the raw material store.<span class="who">Storekeeper &middot; /inventory/issues</span></li>
+  <li><b>Operator confirms the operation</b>: good quantity, scrap quantity, rework quantity, machine, operator and time. Consumption is backflushed from the BOM.<span class="who">Operator &middot; /production/entry</span></li>
+  <li><b>In-process inspection</b> at the operations that require it. A fail routes to rework or scrap, and scrap SS returns to stock as a recoverable item.<span class="who">QC inspector &middot; /quality/inspections</span></li>
+  <li><b>Repeat steps 4 and 5</b> down the routing: cutting, drawing, forming, necking, threading, welding, vacuum, leak test, polishing, coating, printing, assembly.<span class="who">Operators &middot; /production/entry</span></li>
+  <li><b>Downtime and losses are recorded</b> as they happen, which is what makes OEE real rather than decorative.<span class="who">Operator &middot; /production/downtime, /production/scrap</span></li>
+  <li><b>Final inspection</b>, including the temperature-retention test on a sample plan and a leak test at 100%.<span class="who">QC inspector &middot; /quality/inspections</span></li>
+  <li><b>Finished goods are received</b> into the FG store and the order is closed. The traveller card and genealogy now hold the full chain.<span class="who">Supervisor &middot; /production/wip, /production/genealogy</span></li>
+</ol>
+
+<h3>6.4 Pack to dispatch</h3>
+<ol class="steps">
+  <li><b>Packing order is created</b> for the finished goods against a customer requirement.<span class="who">Packing supervisor &middot; /dispatch/packing-orders</span></li>
+  <li><b>Bottles are packed</b> into inner boxes, then cartons, then pallets. Each level gets a barcode label.<span class="who">Packer &middot; /dispatch/cartons, /dispatch/pallets, /dispatch/labels</span></li>
+  <li><b>Dispatch plan is built</b> for the day, grouping shipments by route and vehicle.<span class="who">Dispatch officer &middot; /dispatch/planning</span></li>
+  <li><b>Pick list is generated</b> and picked from the FG store.<span class="who">Storekeeper &middot; /dispatch/pick-lists</span></li>
+  <li><b>Vehicle is loaded</b> against the loading sheet, carton by carton.<span class="who">Loader &middot; /dispatch/loading</span></li>
+  <li><b>Shipment is created</b> with the delivery challan and, for domestic movement, the e-way bill.<span class="who">Dispatch officer &middot; /dispatch/shipments</span></li>
+  <li><b>Export orders</b> additionally raise export documents and a container-level packing list.<span class="who">Export executive &middot; /dispatch/exports, /dispatch/export-documents</span></li>
+  <li><b>Delivery is tracked and proof of delivery captured.</b> Freight cost closes against the shipment.<span class="who">Dispatch officer &middot; /dispatch/tracking, /dispatch/pod, /dispatch/freight</span></li>
+</ol>
+
+<h3>6.5 The other four flows, in brief</h3>
+<table class="tight">
+  <thead><tr><th style="width:34mm">Flow</th><th>Steps</th></tr></thead>
+  <tbody>
+    <tr><td><b>Record to report</b><br><i>Finance</i></td><td>Purchase invoice arrives &rarr; three-way match against PO and GRN &rarr; payable posted &rarr; payment released &rarr; bank reconciliation. In parallel: shipment &rarr; sales invoice &rarr; receivable &rarr; collection &rarr; customer ledger. Then: inventory valuation posts to the GL, payroll posts a JV, depreciation runs, GST and TDS returns are prepared, period is closed, and the trial balance, P&amp;L and balance sheet are produced.</td></tr>
+    <tr><td><b>Hire to pay</b><br><i>HRMS</i></td><td>Manpower requisition &rarr; candidate pipeline &rarr; employee created &rarr; salary structure assigned &rarr; attendance captured daily &rarr; overtime and leave applied &rarr; incentives computed from confirmed output &rarr; payroll run &rarr; payslips published &rarr; statutory returns filed (PF, ESI, TDS) &rarr; payroll JV posted to Finance.</td></tr>
+    <tr><td><b>Maintain the plant</b><br><i>Maintenance</i></td><td>Asset registered &rarr; preventive plan defined on calendar or meter &rarr; work order generated automatically or from a breakdown report &rarr; safety permit issued &rarr; spares issued from inventory &rarr; work completed and cost booked &rarr; condition readings trended &rarr; shutdown planned for the big jobs.</td></tr>
+    <tr><td><b>Set up the system</b><br><i>Admin</i></td><td>Company and branches &rarr; plants, lines, warehouses and bins &rarr; departments and cost centres &rarr; financial year and periods &rarr; roles and permissions &rarr; users, with data scope &rarr; document numbering series &rarr; approval matrix and workflows &rarr; masters loaded by Excel import &rarr; opening stock and opening balances.</td></tr>
+  </tbody>
+</table>
+
+<!-- ═══════════════════════════ 7 ═══════════════════════════ -->
+<h2>7. Overall project workflow</h2>
+
+<p>This is the whole business on one page, from the customer enquiry to the money in the bank.
+Everything in sections 4 to 6 is a slice of this diagram. It is taken from SRS Volume 0 &sect;2.3,
+which is the approved baseline.</p>
+
+<pre class="dia"> CUSTOMER                SALES              PLANNING           PROCUREMENT
+    │                      │                   │                    │
+ Enquiry ─────────────► Lead                   │                    │
+    │                   Opportunity            │                    │
+    │ ◄──────────────── Quotation              │                    │
+ PO issued ──────────► Sales Order ──────► Demand ──► MRP ──► Purchase Requisition
+                          │                   │                    │
+                          │                MPS/Prod                RFQ
+                          │                Schedule                 │
+                          │                   │              Supplier Quotation
+                          │                   │                     │
+                          │                   │              Comparison + Approval
+                          │                   │                     │
+                          │                   │              Purchase Order ──► SUPPLIER
+                          │                   │                                    │
+ STORES  ◄──────────────────────────────────────────────────── Material Despatch ──┘
+    │
+  GRN ──► Incoming QC ──► Accept ──► Raw Material Store
+    │           └──────► Reject ──► Debit Note / Return to Supplier
+    │
+    ▼
+ PRODUCTION
+    │
+ Production Order ──► Work Order (per operation) ──► Material Issue
+    │                                                     │
+    │                                        Cutting → Drawing → Forming →
+    │                                        Necking → Threading → Welding →
+    │                                        Vacuum → Leak Test → Polishing
+    │                                                     │
+    │                                              In-process QC
+    │                                                     │
+    │                                        Coating/Painting → Printing/Laser
+    │                                                     │
+    │                                              Assembly → Final QC
+    ▼                                                     │
+ PACKING ◄────────────────────────────────────────────────┘
+    │
+ Inner box → Carton → Pallet → Barcode/Label ──► Finished Goods Store
+    │
+    ▼
+ DISPATCH
+    │
+ Dispatch Plan ──► Vehicle ──► Loading ──► Delivery Challan ──► E-Way Bill ──► Shipment
+    │                                                                            │
+    │                                                                     Delivery + POD
+    ▼
+ FINANCE
+    │
+ Sales Invoice ──► Receivable ──► Collection ──► Customer Ledger
+ Purchase Invoice ──► 3-way match (PO/GRN/Invoice) ──► Payable ──► Payment
+    │
+ GST returns · TDS · Costing · Trial Balance · P&L · Balance Sheet</pre>
+
+<div class="note">
+  <div class="hd">What the product is, physically</div>
+  <p>A vacuum-insulated bottle is an assembly, and the data model reflects it: an outer body and
+  an inner body, each drawn from steel coil, joined by bottom welding, then vacuum-drawn and
+  sealed, leak-tested, polished, coated, printed and assembled with a lid. One bottle model
+  &times; capacity &times; colour &times; lid type &times; branding produces hundreds of SKUs from a
+  few base bodies &mdash; which is why the product master is a variant model and not a flat SKU
+  list, and why a body is generic stock until the coating operation commits it to one customer's
+  branding.</p>
+</div>
