@@ -1,0 +1,256 @@
+<!-- ═══════════════════════════ 8 ═══════════════════════════ -->
+<h2>8. Dependencies between portals</h2>
+
+<p>Dependencies decide the build order, and getting them wrong is the most expensive mistake
+available to us. A portal built before its upstream module exists gets built twice.</p>
+
+<h3>8.1 The dependency that applies to everything</h3>
+
+<p>Every document in every portal depends on all seven core framework services: authentication
+and RBAC, organisation and tenancy, document numbering, workflow and approvals, audit,
+notifications, and attachments. Six of the seven are built. <b>Notifications and attachments are
+the two gaps</b>, and they are the first thing the lead finishes, in weeks 1 to 6, because
+everything downstream needs them.</p>
+
+<h3>8.2 Portal dependency matrix</h3>
+
+<table>
+  <thead><tr><th style="width:42mm">Portal</th><th>Depends on</th><th style="width:38mm">Hard blocker?</th></tr></thead>
+  <tbody>
+    <tr><td><b>Master Data</b></td><td>Core framework only</td><td>No &mdash; can start any time</td></tr>
+    <tr><td><b>Procurement</b></td><td>Masters (supplier, item, UOM, tax, payment terms), Inventory (GRN posts stock)</td><td>Both already built</td></tr>
+    <tr><td><b>Inventory &amp; Stores</b></td><td>Masters (item, warehouse, bin), Procurement (GRN)</td><td>Both already built</td></tr>
+    <tr><td><b>Product Engineering</b></td><td>Masters (product items, work centres)</td><td>Already built</td></tr>
+    <tr><td><b>Production Planning</b></td><td>Engineering (BOM, routing, work centres), Masters (item, shift, holiday calendar, planning policy), Inventory (on-hand, reservations), Procurement (open POs as scheduled receipts)</td><td><b>Yes</b> &mdash; needs Inventory reservations</td></tr>
+    <tr><td><b>Shop Floor Execution</b></td><td>Planning (production orders), Engineering (routing, operations), Inventory (material issue, FG receipt), Quality (in-process inspection), HRMS (shifts, labour)</td><td><b>Yes</b> &mdash; needs Planning orders and Inventory issue</td></tr>
+    <tr><td><b>Quality</b></td><td>Procurement (GRN), Shop Floor (operations), Masters (parameters, defect types)</td><td>Built; final inspection needs MES</td></tr>
+    <tr><td><b>Plant Maintenance</b></td><td>Masters (machine), Inventory (spare parts issue), HRMS (technicians)</td><td>Soft &mdash; spares needs Inventory issue</td></tr>
+    <tr><td><b>Packing &amp; Dispatch</b></td><td>Shop Floor (FG output), Inventory (FG stock), Masters (transporter), Sales (orders)</td><td>Built against stock, not MES</td></tr>
+    <tr><td><b>Finance &amp; Accounts</b></td><td>Procurement (invoice, three-way match), Inventory (valuation to GL), Dispatch (sales invoice), HRMS (payroll JV), Masters (HSN, tax)</td><td>Soft &mdash; can build COA and journals first</td></tr>
+    <tr><td><b>HR &amp; Payroll</b></td><td>Masters (employee), Shop Floor (labour hours, incentive output), Finance (payroll JV)</td><td>Soft &mdash; payroll before incentives</td></tr>
+    <tr><td><b>Analytics &amp; Insights</b></td><td>Every module above, read-only</td><td><b>Yes</b> &mdash; must be last</td></tr>
+    <tr><td><b>Sales &amp; CRM</b></td><td>Masters (customer), Planning (demand), Dispatch, Finance</td><td><b>Blocked</b> &mdash; no approved SRS</td></tr>
+  </tbody>
+</table>
+
+<h3>8.3 The four dependencies that actually shape the schedule</h3>
+
+<pre class="dia">  CORE FRAMEWORK (6 of 7 done; notifications + attachments in wk 1-6)
+        │
+        ├─► MASTERS ─► PROCUREMENT ─┐
+        │      │                    │
+        │      └─► ENGINEERING ─┐   │
+        │                       │   │
+        │                       ▼   ▼
+        ├─────────────────►  INVENTORY  ─────┐   ①  reservations, issue
+        │                       │            │
+        │                       ▼            │
+        │                   PLANNING  ───────┤   ②  production orders
+        │                       │            │
+        │                       ▼            ▼
+        │                  SHOP FLOOR EXECUTION   ③  labour, output, genealogy
+        │                       │            │
+        │            ┌──────────┼────────────┤
+        │            ▼          ▼            ▼
+        │        QUALITY   DISPATCH     MAINTENANCE
+        │            │          │            │
+        ├─► HRMS ────┴──────────┼────────────┘
+        │     │                 │
+        │     ▼                 ▼
+        └─► FINANCE ◄───────────┘
+              │
+              ▼
+         ANALYTICS & INSIGHTS   ④  needs every module above
+
+  ① Inventory reservations gate Planning       ③ MES labour gates HRMS incentives
+  ② Planning orders gate Shop Floor            ④ Everything gates Analytics</pre>
+
+<div class="note">
+  <div class="hd">How to work across a dependency without waiting</div>
+  <p>Two rules from <code>CLAUDE.md</code> make parallel work possible. <b>Reading</b> across
+  modules goes through the other module's published application service &mdash; never import
+  another module's SQLAlchemy models, and never join across module tables in a write path.
+  <b>Writing</b> across modules goes through domain events over the transactional outbox: an
+  approved GRN does not call the inventory repository, it emits
+  <code>procurement.grn.approved</code> and inventory subscribes. So agree the event name and
+  payload on day one, and both sides can then build in parallel against it.</p>
+</div>
+
+<!-- ═══════════════════════════ 9 ═══════════════════════════ -->
+<h2>9. Development sequence</h2>
+
+<p>Six phases. They overlap on purpose &mdash; the manufacturing spine is serial, but Finance and
+HR are independent of it and run as a parallel track from week 3, which is what keeps the total
+at 18 weeks instead of 26.</p>
+
+<table>
+  <thead><tr><th style="width:12mm">Phase</th><th style="width:52mm">What</th><th class="ctr" style="width:16mm">Weeks</th><th>Why here and not elsewhere</th></tr></thead>
+  <tbody>
+    <tr><td class="ctr"><b>0</b></td><td><b>Ramp-up and foundation</b><br>Environment, codebase tour, standards, first small tickets</td><td class="ctr">1&ndash;2</td><td>Five freshers cannot be productive on a 253-screen codebase on day one. Two weeks of deliberate ramp-up saves a month of rework.</td></tr>
+    <tr><td class="ctr"><b>1</b></td><td><b>Complete the operational spine</b><br>Platform services, Master Data, Inventory, Production Planning</td><td class="ctr">3&ndash;11</td><td>Inventory and Planning are on the critical path for Shop Floor. Platform services unblock everyone. Nothing downstream is safe to start until these are real.</td></tr>
+    <tr><td class="ctr"><b>2</b></td><td><b>Manufacturing execution</b><br>Shop Floor Execution, then Plant Maintenance</td><td class="ctr">6&ndash;18</td><td>Starts the moment Planning can release an order and Inventory can issue material. Maintenance follows because it consumes spares from Inventory and technicians from HR.</td></tr>
+    <tr><td class="ctr"><b>3</b></td><td><b>Commercial and people</b><br>Finance &amp; Accounts, HR &amp; Payroll</td><td class="ctr">3&ndash;16</td><td>Runs in parallel with phases 1 and 2 because neither depends on the manufacturing spine to <i>start</i>. Both are long, so they start early and finish late.</td></tr>
+    <tr><td class="ctr"><b>4</b></td><td><b>Analytics and hardening</b><br>Analytics &amp; Insights, plus hardening the complete portals</td><td class="ctr">14&ndash;18</td><td>A dashboard over an unbuilt module shows nothing. Analytics can only be honest once its sources exist.</td></tr>
+    <tr><td class="ctr"><b>5</b></td><td><b>Integration, UAT, migration, go-live</b></td><td class="ctr">15&ndash;18</td><td>Cross-portal flows, opening balances, opening stock, user training, cutover.</td></tr>
+  </tbody>
+</table>
+
+<h3>9.1 Recommended order of implementation, within any portal</h3>
+
+<p>This order is not optional. Every fresher who works back-to-front loses two days.</p>
+
+<ol class="steps">
+  <li><b>Read the SRS volume, or write the functional baseline note if none exists.</b> Cite the requirement IDs. If the specification is silent, ask &mdash; do not invent a business rule.</li>
+  <li><b>Design the data model.</b> Standard columns, soft delete with the <code>deleted_key</code> companion, correct decimal scales, indexes. Get it reviewed <i>before</i> writing the migration.</li>
+  <li><b>Write the Alembic migration</b> and prove it runs up and down against a seeded database.</li>
+  <li><b>Build the domain layer.</b> Entities, value objects, the state machine, business rules. No FastAPI import, no SQLAlchemy import, no I/O. Unit-test the rules here &mdash; this is where coverage is cheap.</li>
+  <li><b>Build the application service</b>: use cases, orchestration, DTO mapping. One aggregate per transaction; if you must touch two, modify one and emit an event.</li>
+  <li><b>Build the repository and models</b> in <code>infrastructure/</code>.</li>
+  <li><b>Expose the API.</b> Pydantic v2 request and response schemas, router, and a declared permission dependency on every endpoint.</li>
+  <li><b>Write the integration test</b> against real MySQL in Docker, never SQLite. Include the tenancy test and the 403-without-permission test.</li>
+  <li><b>Now wire the front end.</b> Replace the mock import with the API client, keep the layout, delete the mock fixture in the same commit.</li>
+  <li><b>Walk the flow end to end</b> in the browser, from the screen that precedes yours to the screen that follows it.</li>
+</ol>
+
+<!-- ═══════════════════════════ 10 ═══════════════════════════ -->
+<h2>10. Team allocation</h2>
+
+<p>Six people: the lead plus five developers. Fill in the Name column at the first standup so
+this table is the single answer to "who owns that screen".</p>
+
+<table>
+  <thead><tr>
+    <th style="width:14mm">Code</th><th style="width:26mm">Name</th><th style="width:40mm">Primary portal</th>
+    <th style="width:36mm">Then</th><th>Why this pairing</th>
+  </tr></thead>
+  <tbody>
+    <tr><td class="ctr"><b>Lead</b></td><td style="color:#9aa1ad">&mdash;&mdash;&mdash;&mdash;&mdash;</td><td><b>Administration &amp; Platform Services</b><br><i>13 screens</i></td><td>Integration, release, UAT<br><i>wk 13&ndash;18</i></td><td>Platform services unblock every other portal, and they are where architectural decisions concentrate. Half your time; the other half is review, coordination and unblocking.</td></tr>
+    <tr><td class="ctr"><b>D1</b></td><td style="color:#9aa1ad">&mdash;&mdash;&mdash;&mdash;&mdash;</td><td><b>Inventory &amp; Stores</b><br><i>21 screens</i></td><td>Plant Maintenance &amp; EAM<br><i>12 screens, wk 12&ndash;18</i></td><td>Maintenance spares are issued from Inventory. Whoever built the issue transaction should build the screen that consumes it.</td></tr>
+    <tr><td class="ctr"><b>D2</b></td><td style="color:#9aa1ad">&mdash;&mdash;&mdash;&mdash;&mdash;</td><td><b>Master Data</b> (4) then<br><b>Production Planning</b> (8)</td><td>Shop Floor Execution<br><i>with D3, wk 12&ndash;14</i></td><td>Masters is the gentlest start in the codebase &mdash; a good first three weeks. Planning then follows naturally, and its production orders are what Shop Floor consumes, so D2 moves to MES already knowing the contract.</td></tr>
+    <tr><td class="ctr"><b>D3</b></td><td style="color:#9aa1ad">&mdash;&mdash;&mdash;&mdash;&mdash;</td><td><b>Shop Floor Execution</b><br><i>17 screens, lead developer</i></td><td>Analytics &amp; Insights<br><i>with D4, wk 15&ndash;18</i></td><td>The largest single piece of work, so it gets the longest run. Weeks 3&ndash;5 are spent hardening Procurement and Engineering, which is the fastest way to learn the patterns MES must follow.</td></tr>
+    <tr><td class="ctr"><b>D4</b></td><td style="color:#9aa1ad">&mdash;&mdash;&mdash;&mdash;&mdash;</td><td><b>Finance &amp; Accounts</b><br><i>12 screens</i></td><td>Analytics: Finance and Sales<br><i>wk 14&ndash;18</i></td><td>Finance needs one owner for the whole double-entry model &mdash; splitting it across two people produces two chart-of-accounts designs. Extra review time from the lead is budgeted here.</td></tr>
+    <tr><td class="ctr"><b>D5</b></td><td style="color:#9aa1ad">&mdash;&mdash;&mdash;&mdash;&mdash;</td><td><b>HR, Payroll &amp; Workforce</b><br><i>22 screens</i></td><td>UAT and training material<br><i>wk 17&ndash;18</i></td><td>Biggest portal by screen count, and largely self-contained, so one person can hold the whole picture. D4 joins from week 14 for the payroll journal voucher, which is where HR meets Finance.</td></tr>
+  </tbody>
+</table>
+
+<h3>10.1 Screen-level allocation for the two shared portals</h3>
+
+<table class="tight">
+  <thead><tr><th style="width:16mm">Portal</th><th style="width:14mm">Owner</th><th>Screens</th></tr></thead>
+  <tbody>
+    <tr><td rowspan="2"><b>Shop Floor Execution</b></td><td class="ctr"><b>D3</b></td><td>Production orders, Work orders, Work centre queue, <b>Production entry</b>, WIP, Machine status, Downtime, <b>OEE</b>, Traveller card, Genealogy, Dashboard</td></tr>
+    <tr><td class="ctr"><b>D2</b></td><td>Work instructions, Scrap, Rework, Shift management, Labour tracking, Production reports</td></tr>
+    <tr><td rowspan="2"><b>Analytics &amp; Insights</b></td><td class="ctr"><b>D3</b></td><td>Executive overview, Production, Quality, Maintenance, Inventory analytics, Alerts &amp; exceptions, KPI library, Data sources</td></tr>
+    <tr><td class="ctr"><b>D4</b></td><td>Dashboards, AI insights, Procurement, Sales, Finance, Workforce analytics, Forecasts, Scorecards, Report catalogue, Access &amp; audit</td></tr>
+  </tbody>
+</table>
+
+<div class="note warn">
+  <div class="hd">One module per branch</div>
+  <p>Branch per module, not per day and not per three modules. Two people must never be editing
+  the same module's <code>domain/</code> in the same week &mdash; that is what the screen-level
+  split above exists to prevent. Cite requirement IDs in the commit message.</p>
+</div>
+
+<!-- ═══════════════════════════ 11 ═══════════════════════════ -->
+<h2>11. Responsibilities of each team member</h2>
+
+<h3>11.1 Lead <span class="own-tag">you</span></h3>
+<table class="tight">
+  <thead><tr><th style="width:34mm">Area</th><th>Responsibility</th></tr></thead>
+  <tbody>
+    <tr><td><b>Build</b></td><td>Administration &amp; Platform Services: notifications, attachments and DMS, document repository, import and export framework, collaboration, barcode and labels, report engine, master data framework, monitoring, jobs, backup, licence, integrations. 13 screens, half-time, weeks 1 to 12.</td></tr>
+    <tr><td><b>Architecture</b></td><td>Own the data model review for every portal before its migration is written. Own the ADR register. Say no to a new dependency. Decide every cross-module event name and payload.</td></tr>
+    <tr><td><b>Review</b></td><td>Review every pull request. Nothing merges without your approval. Budget 1.5 hours a day for this and protect it &mdash; with five freshers, review is not overhead, it is how the codebase stays coherent.</td></tr>
+    <tr><td><b>Specification</b></td><td>Write the functional baseline note for each portal that has no SRS volume (section 15.1). Keep <code>open-questions.md</code> current. Take every "the spec is silent" question to the client and come back with an answer, not a guess.</td></tr>
+    <tr><td><b>Coordination</b></td><td>Daily 15-minute standup. Weekly Friday demo of working software. Weekly re-forecast against section 13. Unblock before you build &mdash; a blocked developer costs more than your half-day of code.</td></tr>
+    <tr><td><b>Release</b></td><td>CI, migrations, environments, cutover plan, opening balances, opening stock, training material, go-live.</td></tr>
+  </tbody>
+</table>
+
+<h3>11.2 Every developer, D1 to D5</h3>
+<table class="tight">
+  <thead><tr><th style="width:34mm">Area</th><th>Responsibility</th></tr></thead>
+  <tbody>
+    <tr><td><b>Own your portal end to end</b></td><td>Data model, migration, domain, application service, repository, API, tests, and the screen. You are not a front-end developer or a back-end developer on this team. You own vertical slices.</td></tr>
+    <tr><td><b>Follow the ten-point checklist</b></td><td>Section 14. A transaction document missing any of the ten is not done, however good the screen looks.</td></tr>
+    <tr><td><b>Test what you build</b></td><td>Unit test for every business rule and state transition. Integration test for every endpoint against real MySQL. The tenancy test and the 403 test are not optional.</td></tr>
+    <tr><td><b>Never invent a business rule</b></td><td>If the SRS is silent, raise it with the lead the same day and record it in <code>open-questions.md</code>. Manufacturing and statutory logic guessed wrong is worse than absent.</td></tr>
+    <tr><td><b>Delete the mock</b></td><td>When your screen goes live against the API, delete its fixture in the same commit. A mock left behind becomes a second source of truth.</td></tr>
+    <tr><td><b>Demo on Friday</b></td><td>Show working software in the browser, not a pull request. If you cannot demo it, it is not done.</td></tr>
+    <tr><td><b>Ask on day one, not day three</b></td><td>You are all new to this. The expensive failure mode is a fresher quietly guessing for three days. A question costs ten minutes.</td></tr>
+  </tbody>
+</table>
+
+<h3>11.3 Individual accountabilities</h3>
+<table class="tight">
+  <thead><tr><th style="width:14mm">Who</th><th>Accountable for, specifically</th></tr></thead>
+  <tbody>
+    <tr><td class="ctr"><b>D1</b></td><td>The stock ledger stays the single truth for quantity and value: every movement writes exactly one ledger row, and valuation reconciles to the general ledger. Maintenance work orders generate correctly from both calendar and meter triggers.</td></tr>
+    <tr><td class="ctr"><b>D2</b></td><td>The generic master registry stays the way simple masters are added. MRP output reconciles to demand: no phantom shortages, no double-counted scheduled receipts. The production-order release gate never releases without BOM, routing and material.</td></tr>
+    <tr><td class="ctr"><b>D3</b></td><td>Production entry is one atomic transaction: output, backflushed consumption, scrap and rework either all post or none do. OEE matches a hand calculation for one machine over one shift. Genealogy resolves heat number to bottle in both directions.</td></tr>
+    <tr><td class="ctr"><b>D4</b></td><td>Debits equal credits, always. The three-way match cannot be bypassed. GST and TDS rates live in master data behind the <code>statutory/</code> adapter, never in code. The trial balance ties to the sum of ledger rows.</td></tr>
+    <tr><td class="ctr"><b>D5</b></td><td>The payroll run is reproducible and reversible, and every payslip figure is traceable to attendance, structure and slab. Statutory returns match the filed formats. No salary or bank detail ever reaches a log or an audit row.</td></tr>
+  </tbody>
+</table>
+
+<!-- ═══════════════════════════ 12 ═══════════════════════════ -->
+<h2>12. Duration estimates</h2>
+
+<p>Person-days of remaining effort, by portal, using the type rates from section 1.3. Calendar
+weeks assume the owner works on it as their primary task, with the usual meeting and review
+overhead already absorbed.</p>
+
+<table>
+  <thead><tr>
+    <th style="width:48mm">Portal / workstream</th><th class="ctr" style="width:15mm">Screens left</th>
+    <th class="ctr" style="width:17mm">Person-days</th><th class="ctr" style="width:20mm">Owner</th>
+    <th class="ctr" style="width:15mm">Weeks</th><th>Dominant cost</th>
+  </tr></thead>
+  <tbody>
+    <tr><td>Ramp-up and foundation</td><td class="ctr">&mdash;</td><td class="ctr num">&mdash;</td><td class="ctr">All</td><td class="ctr">1&ndash;2</td><td>Learning, not building</td></tr>
+    <tr><td><b>Administration &amp; Platform</b></td><td class="ctr">13</td><td class="ctr num">30</td><td class="ctr">Lead</td><td class="ctr">1&ndash;12</td><td>Import framework, report engine, notifications</td></tr>
+    <tr><td><b>Master Data</b></td><td class="ctr">4</td><td class="ctr num">10</td><td class="ctr">D2</td><td class="ctr">3&ndash;5</td><td>Duplicate finder, Excel import</td></tr>
+    <tr><td><b>Inventory &amp; Stores</b></td><td class="ctr">21</td><td class="ctr num">40</td><td class="ctr">D1</td><td class="ctr">3&ndash;11</td><td>Issue, transfer, traceability, job work</td></tr>
+    <tr><td><b>Production Planning</b></td><td class="ctr">8</td><td class="ctr num">25</td><td class="ctr">D2</td><td class="ctr">6&ndash;11</td><td>MPS, schedule board, forecast seasonality</td></tr>
+    <tr><td><b>Shop Floor Execution</b></td><td class="ctr">17</td><td class="ctr num">50</td><td class="ctr">D3 + D2</td><td class="ctr">6&ndash;14</td><td>Production entry, OEE, genealogy</td></tr>
+    <tr><td><b>Plant Maintenance &amp; EAM</b></td><td class="ctr">12</td><td class="ctr num">32</td><td class="ctr">D1</td><td class="ctr">12&ndash;18</td><td>Preventive-plan scheduler</td></tr>
+    <tr><td><b>Finance &amp; Accounts</b></td><td class="ctr">12</td><td class="ctr num">45</td><td class="ctr">D4</td><td class="ctr">3&ndash;13</td><td>GST and TDS, statements, three-way match</td></tr>
+    <tr><td><b>HR, Payroll &amp; Workforce</b></td><td class="ctr">22</td><td class="ctr num">58</td><td class="ctr">D5 + D4</td><td class="ctr">3&ndash;16</td><td>Payroll engine, attendance import, statutory</td></tr>
+    <tr><td><b>Analytics &amp; Insights</b></td><td class="ctr">18</td><td class="ctr num">35</td><td class="ctr">D3 + D4</td><td class="ctr">14&ndash;18</td><td>Cross-module SQL in the reporting module</td></tr>
+    <tr><td>Hardening: Procurement, Engineering,<br>Quality, Packing &amp; Dispatch</td><td class="ctr">&mdash;</td><td class="ctr num">18</td><td class="ctr">Rotating</td><td class="ctr">3&ndash;5, 18</td><td>Missing tests, edge cases, print templates</td></tr>
+    <tr><td>Integration, UAT, data migration, go-live</td><td class="ctr">&mdash;</td><td class="ctr num">40</td><td class="ctr">All</td><td class="ctr">15&ndash;18</td><td>Cross-portal flows, opening balances, training</td></tr>
+    <tr class="tot"><td>Release 1 total</td><td class="ctr">127</td><td class="ctr num">383</td><td class="ctr">6 people</td><td class="ctr">18</td><td>&nbsp;</td></tr>
+  </tbody>
+</table>
+
+<h3>12.1 Does the arithmetic close?</h3>
+
+<table class="tight">
+  <thead><tr><th style="width:44mm">Check</th><th class="ctr" style="width:26mm">Person-days</th><th>Working</th></tr></thead>
+  <tbody>
+    <tr><td>Work required</td><td class="ctr num">383</td><td>Sum of the table above</td></tr>
+    <tr><td>Lead capacity</td><td class="ctr num">45</td><td>18 weeks at 50% of a 5-day week</td></tr>
+    <tr><td>Developer capacity</td><td class="ctr num">400</td><td>5 developers &times; 16 build weeks (3&ndash;18) &times; 5 days</td></tr>
+    <tr class="tot"><td>Total capacity</td><td class="ctr num">445</td><td>16% slack over the requirement</td></tr>
+  </tbody>
+</table>
+
+<p>16% slack is the right amount for a mostly-fresher team. It absorbs the two things that always
+happen: rework after review, and one portal turning out harder than it looked. It does not absorb
+scope growth, which is why section 15 matters.</p>
+
+<h3>12.2 The confidence band</h3>
+
+<table class="tight">
+  <thead><tr><th style="width:26mm">Scenario</th><th class="ctr" style="width:20mm">Go-live</th><th>What has to be true</th></tr></thead>
+  <tbody>
+    <tr><td><b>Optimistic</b></td><td class="ctr"><b>16 weeks</b></td><td>The team ramps faster than budgeted, no specification gaps block Finance or HR, and the mock fixtures turn out to be accurate contracts.</td></tr>
+    <tr><td><b>Plan</b></td><td class="ctr"><b>18 weeks</b></td><td>The schedule in section 13, as written. This is the number to commit to.</td></tr>
+    <tr><td><b>Realistic worst case</b></td><td class="ctr"><b>21 weeks</b></td><td>Payroll or GST needs a rebuild after review, or two developers lose a week each to the same misunderstood pattern.</td></tr>
+  </tbody>
+</table>
+
+<p><b>Release 2</b> &mdash; Sales &amp; CRM, the Shop Floor Terminal, the Supplier and Customer
+portals, and the mobile app &mdash; is a further <b>8 to 10 weeks</b> after go-live, and cannot be
+scheduled until SRS Volume 2 is written and approved.</p>
