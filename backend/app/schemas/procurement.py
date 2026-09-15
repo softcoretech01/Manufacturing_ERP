@@ -399,3 +399,115 @@ class SupplierInvoiceSchema(ProcBase):
     modifiedAt: Optional[datetime] = None
     lines: List[SupplierInvoiceLineSchema] = []
     exceptions: List[SupplierInvoiceExceptionSchema] = []
+
+
+# --- Purchase return (rejected/damaged material out) -----------------------------
+
+class PurchaseReturnLineSchema(ProcBase):
+    uid: Optional[Union[int, str]] = None
+    grnLineRef: Optional[int] = None         # GrnLine.Id this return draws from
+    poLineRef: Optional[int] = None
+    itemCode: str
+    itemName: str
+    uom: str
+    batchNo: Optional[str] = None
+    heatNo: Optional[str] = None
+    rate: float = 0
+    returnQty: float = 0
+    fromStock: bool = False                  # True → posts an OUT movement; False → rejected-at-GRN, paper only
+    stockStatus: str = "AVAILABLE"
+    maxReturnable: float = 0
+    taxPct: float = 0
+    taxableAmount: float = 0
+    taxAmount: float = 0
+    lineTotal: float = 0
+    reasonCode: Optional[str] = None
+    remarks: Optional[str] = None
+
+class PurchaseReturnSchema(ProcBase):
+    uid: Optional[Union[int, str]] = None
+    docNo: Optional[str] = None              # None → SP auto-generates PRET/26-27/#####
+    docDate: date
+    status: str = "DRAFT"
+    grnNo: str
+    poNo: Optional[str] = None
+    supplierUid: str
+    supplierName: str
+    warehouse: str
+    returnType: str = "REJECTION"            # REJECTION|EXCESS|DAMAGE|WRONG_ITEM|QUALITY_FAILURE|EXPIRY
+    reasonCode: Optional[str] = None
+    disposition: str = "RETURN_TO_SUPPLIER"
+    transporterName: Optional[str] = None
+    vehicleNo: Optional[str] = None
+    ewayBillNo: Optional[str] = None
+    ewayBillDate: Optional[date] = None
+    replacementExpected: bool = False
+    replacementPoNo: Optional[str] = None
+    taxableAmount: float = 0                  # server-computed from the lines
+    taxAmount: float = 0
+    totalAmount: float = 0
+    debitNoteId: Optional[int] = None
+    debitNoteNo: Optional[str] = None
+    stockPostedAt: Optional[datetime] = None
+    approvedAt: Optional[datetime] = None
+    remarks: Optional[str] = None
+    version: int = 1
+    attachments: int = 0
+    comments: int = 0
+    createdBy: Optional[str] = None
+    createdAt: Optional[datetime] = None
+    modifiedAt: Optional[datetime] = None
+    lines: List[PurchaseReturnLineSchema] = []
+
+
+# --- Supplier debit note (financial claim on the supplier) -----------------------
+
+class DebitNoteLineSchema(ProcBase):
+    uid: Optional[Union[int, str]] = None
+    itemCode: Optional[str] = None
+    itemName: Optional[str] = None
+    uom: Optional[str] = None
+    quantity: float = 0
+    rate: float = 0
+    hsnCode: Optional[str] = None
+    taxPct: float = 0
+    taxableAmount: float = 0
+    taxAmount: float = 0
+    lineTotal: float = 0
+    sourceReference: Optional[str] = None
+    remarks: Optional[str] = None
+
+class DebitNoteSchema(ProcBase):
+    uid: Optional[Union[int, str]] = None
+    docNo: Optional[str] = None              # None → SP auto-generates DN/26-27/#####
+    docDate: date
+    status: str = "DRAFT"
+    debitNoteType: str = "GOODS_RETURN"      # GOODS_RETURN|RATE_DIFFERENCE|SHORT_QUANTITY|QUALITY_PENALTY|LATE_DELIVERY_LD|FREIGHT_CLAIM|JOB_WORK_LOSS|OTHER
+    supplierUid: str
+    supplierName: str
+    purchaseReturnId: Optional[int] = None
+    returnNo: Optional[str] = None
+    grnNo: Optional[str] = None
+    poNo: Optional[str] = None
+    supplierInvoiceId: Optional[int] = None
+    supplierInvoiceNo: Optional[str] = None
+    originalInvoiceNo: Optional[str] = None
+    isPendingInvoice: bool = False
+    reasonCode: Optional[str] = None
+    narration: Optional[str] = None
+    taxableAmount: float = 0                  # server-computed from the lines
+    cgstAmount: float = 0
+    sgstAmount: float = 0
+    igstAmount: float = 0
+    taxAmount: float = 0
+    totalAmount: float = 0
+    supplierAckStatus: Optional[str] = None
+    approvedAt: Optional[datetime] = None
+    remarks: Optional[str] = None
+    version: int = 1
+    attachments: int = 0
+    comments: int = 0
+    createdBy: Optional[str] = None
+    createdAt: Optional[datetime] = None
+    modifiedAt: Optional[datetime] = None
+    lines: List[DebitNoteLineSchema] = []

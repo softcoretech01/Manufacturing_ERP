@@ -58,3 +58,26 @@ export const matchInvoice = (id: string, remarks?: string) =>
  *  block approval unless an override reason is supplied. */
 export const approveInvoice = (id: string, override?: boolean, reason?: string) =>
   api.post<any>(`/procurement/invoices/${id}/approve`, { override: !!override, reason: reason || null })
+
+// --- Purchase return (rejected/damaged material out) ---
+export const getPurchaseReturns = () => api.get<any>('/procurement/purchase-returns').then(res => Array.isArray(res) ? res : res.data || [])
+export const getPurchaseReturn = (id: string) => api.get<any>(`/procurement/purchase-returns/${id}`)
+export const createPurchaseReturn = (data: any) => api.post<any>('/procurement/purchase-returns', data)
+export const updatePurchaseReturn = (id: string, data: any) => api.put<any>(`/procurement/purchase-returns/${id}`, data)
+export const deletePurchaseReturn = (id: string) => api.del(`/procurement/purchase-returns/${id}`)
+/** Approve a return: posts the stock-out for stocked lines (rejected-at-GRN
+ *  material posts nothing — it never entered stock), rolls the returned quantity
+ *  onto the GRN and PO, and auto-drafts the supplier debit note. */
+export const approvePurchaseReturn = (id: string) =>
+  api.post<any>(`/procurement/purchase-returns/${id}/approve`, {})
+export const dispatchPurchaseReturn = (id: string, vehicleNo?: string, ewayBillNo?: string) =>
+  api.post<any>(`/procurement/purchase-returns/${id}/dispatch`, { vehicleNo: vehicleNo || null, ewayBillNo: ewayBillNo || null })
+
+// --- Supplier debit note (financial claim; auto-drafted from an approved return) ---
+export const getDebitNotes = () => api.get<any>('/procurement/debit-notes').then(res => Array.isArray(res) ? res : res.data || [])
+export const getDebitNote = (id: string) => api.get<any>(`/procurement/debit-notes/${id}`)
+export const createDebitNote = (data: any) => api.post<any>('/procurement/debit-notes', data)
+export const updateDebitNote = (id: string, data: any) => api.put<any>(`/procurement/debit-notes/${id}`, data)
+export const deleteDebitNote = (id: string) => api.del(`/procurement/debit-notes/${id}`)
+/** Approve (issue) a debit note — the financial claim on the supplier. */
+export const approveDebitNote = (id: string) => api.post<any>(`/procurement/debit-notes/${id}/approve`, {})

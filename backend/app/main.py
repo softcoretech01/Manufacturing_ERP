@@ -82,6 +82,8 @@ from app.routers.purchase_order import router as purchase_order_router
 
 from app.routers.grn import router as grn_router
 from app.routers.invoice import router as invoice_router
+from app.routers.purchase_return import router as purchase_return_router
+from app.routers.debit_note import router as debit_note_router
 from app.routers.analytics import router as analytics_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.settings import router as settings_router
@@ -215,6 +217,8 @@ def create_app() -> FastAPI:
     app.include_router(purchase_order_router, prefix="/api/v1")
     app.include_router(grn_router, prefix="/api/v1")
     app.include_router(invoice_router, prefix="/api/v1")
+    app.include_router(purchase_return_router, prefix="/api/v1")
+    app.include_router(debit_note_router, prefix="/api/v1")
     app.include_router(packing_order_router, prefix="/api/v1")
     app.include_router(pack_material_router, prefix="/api/v1")
     app.include_router(carton_router, prefix="/api/v1")
