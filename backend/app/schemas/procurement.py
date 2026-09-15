@@ -511,3 +511,52 @@ class DebitNoteSchema(ProcBase):
     createdAt: Optional[datetime] = None
     modifiedAt: Optional[datetime] = None
     lines: List[DebitNoteLineSchema] = []
+
+
+# --- Quotation comparison (scored, persisted; Ch 5) ------------------------------
+
+class ComparisonVendorSchema(ProcBase):
+    uid: Optional[Union[int, str]] = None
+    quotationUid: str
+    quotationNo: Optional[str] = None
+    supplierUid: Optional[str] = None
+    supplierName: Optional[str] = None
+    quotationStatus: Optional[str] = None
+    landedValue: float = 0                    # incl tax, for display
+    comparisonBase: float = 0                 # ex creditable GST, for scoring
+    leadTimeDays: int = 0
+    priceScore: float = 0
+    deliveryScore: float = 0
+    qualityScore: float = 0
+    totalScore: float = 0
+    rank: int = 0
+    isRecommended: bool = False
+    isAwarded: bool = False
+    byItem: Optional[dict] = None             # {itemCode: {rate,taxPct,landedRate,qty,lineTotal}}
+
+class ComparisonSchema(ProcBase):
+    uid: Optional[Union[int, str]] = None
+    docNo: Optional[str] = None               # None → SP auto-generates CMP/26-27/#####
+    docDate: date
+    rfqNo: str
+    title: Optional[str] = None
+    buyer: Optional[str] = None
+    weights: Optional[dict] = None            # frozen {price,delivery,quality}
+    status: str = "RECOMMENDED"
+    recommendedQuotationUid: Optional[str] = None
+    recommendedSupplier: Optional[str] = None
+    rationale: Optional[str] = None
+    highestValue: float = 0
+    lowestValue: float = 0
+    savingsVsHighest: float = 0
+    awardedQuotationUid: Optional[str] = None
+    awardedSupplier: Optional[str] = None
+    awardValue: float = 0
+    deviationReasonCode: Optional[str] = None
+    deviationJustification: Optional[str] = None
+    remarks: Optional[str] = None
+    version: int = 1
+    createdBy: Optional[str] = None
+    createdAt: Optional[datetime] = None
+    modifiedAt: Optional[datetime] = None
+    vendors: List[ComparisonVendorSchema] = []

@@ -109,6 +109,9 @@ _MODULES: dict[str, dict[str, tuple[str, ...]]] = {
         "PR": ("VIEW", "CREATE", "EDIT", "DELETE", "SUBMIT", "APPROVE"),
         "RFQ": ("VIEW", "CREATE", "EDIT", "DELETE"),
         "QUOTATION": ("VIEW", "CREATE", "EDIT", "DELETE", "SELECT"),
+        # Quotation comparison: build the scored comparison, award a supplier
+        # (advisory recommendation, never auto-award), approve the award.
+        "COMPARISON": ("VIEW", "CREATE", "CONFIGURE_WEIGHTS", "AWARD", "APPROVE"),
         "PO": ("VIEW", "CREATE", "EDIT", "DELETE", "SUBMIT", "APPROVE", "RELEASE"),
         "GRN": ("VIEW", "CREATE", "EDIT", "DELETE", "POST"),
         "IQC": ("VIEW", "CREATE", "EDIT", "DELETE"),
@@ -150,6 +153,8 @@ _LABELS = {
     "MATCH": "Run 3-way match on",
     "DISPATCH": "Dispatch",
     "PRINT": "Print",
+    "AWARD": "Award",
+    "CONFIGURE_WEIGHTS": "Configure scoring weights for",
 }
 
 _SENSITIVE = {"SYSTEM.FINANCIAL_YEAR.REOPEN", "SYSTEM.CROSS_COMPANY_READ.VIEW"}

@@ -81,3 +81,19 @@ export const updateDebitNote = (id: string, data: any) => api.put<any>(`/procure
 export const deleteDebitNote = (id: string) => api.del(`/procurement/debit-notes/${id}`)
 /** Approve (issue) a debit note — the financial claim on the supplier. */
 export const approveDebitNote = (id: string) => api.post<any>(`/procurement/debit-notes/${id}/approve`, {})
+
+// --- Quotation comparison (scored, persisted) ---
+export const getComparisons = () => api.get<any>('/procurement/comparisons').then(res => Array.isArray(res) ? res : res.data || [])
+export const getComparison = (id: string) => api.get<any>(`/procurement/comparisons/${id}`)
+/** Build + persist a scored comparison from an RFQ's quotations (landed cost ex-GST,
+ *  weighted RATIO_MIN scoring, ranked recommendation). */
+export const buildComparison = (rfqNo: string, weights?: Record<string, number>) =>
+  api.post<any>('/procurement/comparisons', { rfqNo, weights: weights || null })
+/** Award a comparison to a quotation. Awarding off the recommended vendor requires
+ *  a deviation reason code. Also drives the underlying quotation selection. */
+export const awardComparison = (id: string, quotationUid: string, deviationReasonCode?: string, deviationJustification?: string) =>
+  api.post<any>(`/procurement/comparisons/${id}/award`, {
+    quotationUid, deviationReasonCode: deviationReasonCode || null, deviationJustification: deviationJustification || null,
+  })
+export const approveComparison = (id: string) => api.post<any>(`/procurement/comparisons/${id}/approve`, {})
+export const deleteComparison = (id: string) => api.del(`/procurement/comparisons/${id}`)
