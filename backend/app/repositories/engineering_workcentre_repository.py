@@ -4,6 +4,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from app.utils.dbtypes import as_bool
 
+#: Work-centre usage, in one place. Kept as a constant so the definition is
+#: reviewable on its own and can be asserted in tests.
+LIVE_ROUTING_USAGE_SQL = (
+    "SELECT COUNT(*) FROM ERP_Product.EngineeringRoutingOperation o"
+    " JOIN ERP_Product.EngineeringRouting r ON r.Id = o.RoutingId"
+    " WHERE o.WorkCentreCode = :code"
+    " AND UPPER(r.Status) IN ('ACTIVE', 'APPROVED')"
+    " AND r.DeletedAt IS NULL"
+)
+
+
 class EngineeringWorkCentreRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -59,30 +70,34 @@ class EngineeringWorkCentreRepository:
         data["uid"] = uid
         return await self._execute_sp("UPDATE", data, user)
 
-    async def count_references(self, uid: str) -> int:
-        """How many active operations still run on this work centre.
-
-        Resolved in two steps on purpose: EngineeringOperation and
-        EngineeringWorkCentre carry different collations, so joining their text
-        columns directly raises "Illegal mix of collations".
-        """
-        code = (
+    async def get_code(self, uid: str) -> Optional[str]:
+        """The business code of a work centre, or None when the row is gone."""
+        return (
             await self.session.execute(
                 text("SELECT Code FROM ERP_Product.EngineeringWorkCentre WHERE Id = :uid"),
                 {"uid": uid},
             )
         ).scalar()
-        if not code:
-            return 0
+
+    async def count_live_routing_usage(self, code: str) -> int:
+        """Routing operation lines that run on this work centre in a live routing.
+
+        This is *the* definition of "used by" for a work centre, and it is the
+        same one the Work centres grid and the work-centre load report apply: a
+        line counts when its routing is ACTIVE or APPROVED and not soft-deleted.
+        Draft, pending-approval and superseded routings do not hold a centre open.
+
+        A standard operation's default work centre is deliberately **not**
+        counted. A standard operation is a template in the operation library; it
+        commits no capacity until a routing step is built from it, and it can be
+        repointed at another centre without touching any routing.
+
+        The join is on RoutingId, an integer, so the collation difference between
+        the engineering text columns cannot surface here.
+        """
         return int(
             (
-                await self.session.execute(
-                    text(
-                        "SELECT COUNT(*) FROM ERP_Product.EngineeringOperation"
-                        " WHERE DefaultWorkCentre = :code AND IsActive = 1"
-                    ),
-                    {"code": code},
-                )
+                await self.session.execute(text(LIVE_ROUTING_USAGE_SQL), {"code": code})
             ).scalar()
             or 0
         )

@@ -1,208 +1,188 @@
-import { useMemo, useState } from 'react'
-import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { Badge } from '@/components/ui/Badge'
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
-import { DataTable, type Column } from '@/components/ui/DataTable'
-import { Select } from '@/components/ui/Input'
-import { PageHeader } from '@/components/ui/Misc'
-import { Tabs } from '@/components/ui/Tabs'
-import { useToast } from '@/components/ui/Toast'
-import { Duration, MachineDot, MesChartTip, OeeBar } from '@/components/mes/MesShell'
-import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
+import { Alert, PageHeader } from '@/components/ui/Misc'
 import { formatQty } from '@/lib/format'
 import { cn } from '@/lib/cn'
-import { useCollection } from '@/store/data'
-import { machines as seedMachines, oeeTrend } from '@/mock/mes'
-import { oeeOf } from './Machines'
-import type { Machine } from '@/types/mes'
+import { ProblemError } from '@/api/client'
+import { shopFloorApi, type EffectivenessResult } from '@/api/shopfloor'
 
 /**
- * OEE — availability × performance × quality. Kept deliberately transparent:
- * every figure on this page can be traced to the run minutes, the piece counts
- * and the downtime events that produced it.
+ * Overall equipment effectiveness — or as much of it as the data supports.
+ *
+ * OEE is availability times performance times quality. Two of those three can
+ * be measured here from rows the floor posted, and one cannot: availability
+ * needs running time over planned time, and this system records neither
+ * reason-coded downtime nor a planned production calendar.
+ *
+ * So this page publishes quality and performance, and says plainly that
+ * availability and therefore OEE are not available. It does not multiply the
+ * two factors it has and call the result OEE — that would flatter the line by
+ * exactly the amount of downtime nobody is recording.
  */
+
+const EMPTY: EffectivenessResult = {
+  from: null,
+  workCentres: [],
+  overall: {
+    qualityPct: null,
+    performancePct: null,
+    availabilityPct: null,
+    oeePct: null,
+    goodQty: 0,
+    runMinutes: 0,
+    standardMinutes: 0,
+  },
+  cannotCompute: [],
+}
+
 export function OeePage() {
-  const toast = useToast()
-  const seed = useMemo(() => seedMachines, [])
-  const { rows: machines } = useCollection<Machine>('mes:machine', seed)
+  const [data, setData] = useState<EffectivenessResult>(EMPTY)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const [period, setPeriod] = useState<'shift' | 'week'>('shift')
-  const [line, setLine] = useState('all')
+  useEffect(() => {
+    shopFloorApi
+      .effectiveness()
+      .then((res) => {
+        setData(res)
+        setError(null)
+      })
+      .catch((err) => {
+        setError(err instanceof ProblemError ? err.problem.detail : 'Could not reach the backend.')
+        setData(EMPTY)
+      })
+      .finally(() => setLoading(false))
+  }, [])
 
-  const filtered = machines.filter((m) => (line === 'all' ? true : m.line === line) && m.plannedMinutes > 0)
-  const lines = [...new Set(machines.map((m) => m.line))]
-
-  /** Plant OEE is computed from the totals, not by averaging machine OEEs. */
-  const plant = useMemo(() => {
-    const planned = filtered.reduce((s, m) => s + m.plannedMinutes, 0)
-    const down = filtered.reduce((s, m) => s + m.downMinutes, 0)
-    const run = filtered.reduce((s, m) => s + m.runMinutes, 0)
-    const ideal = filtered.reduce((s, m) => s + (m.totalPieces * m.idealCycleSeconds) / 60, 0)
-    const total = filtered.reduce((s, m) => s + m.totalPieces, 0)
-    const good = filtered.reduce((s, m) => s + m.goodPieces, 0)
-    const availability = planned ? ((planned - down) / planned) * 100 : 0
-    const performance = run ? Math.min(100, (ideal / run) * 100) : 0
-    const quality = total ? (good / total) * 100 : 0
-    return { availability, performance, quality, oee: (availability * performance * quality) / 10_000, planned, down, run, total, good }
-  }, [filtered])
-
-  const worst = [...filtered].sort((a, b) => oeeOf(a).oee - oeeOf(b).oee).slice(0, 3)
-
-  const columns: Column<Machine>[] = [
-    { key: 'code', header: 'Machine', sortable: true, width: '13rem', render: (m) => (
-      <div className="flex items-center gap-2">
-        <MachineDot state={m.state} />
-        <div className="min-w-0">
-          <p className="font-mono text-xs font-medium text-fg">{m.code}</p>
-          <p className="truncate text-2xs text-fg-subtle" title={String(m.name ?? "")}>{m.name}</p>
-        </div>
-      </div>
-    ) },
-    { key: 'workCentre', header: 'Work centre', sortable: true },
-    { key: 'plannedMinutes', header: 'Planned', width: '7rem', render: (m) => <Duration minutes={m.plannedMinutes} /> },
-    { key: 'downMinutes', header: 'Down', width: '7rem', sortable: true, render: (m) => (m.downMinutes ? <span className="text-danger"><Duration minutes={m.downMinutes} /></span> : <span className="text-2xs text-success">none</span>) },
-    { key: 'availability', header: 'Availability', align: 'right', width: '8rem', sortable: true, accessor: (m) => oeeOf(m).availability, render: (m) => {
-      const v = oeeOf(m).availability
-      return <span className={cn('tabular', v < 85 ? 'text-warning' : '')}>{v.toFixed(1)}%</span>
-    } },
-    { key: 'performance', header: 'Performance', align: 'right', width: '8.5rem', sortable: true, accessor: (m) => oeeOf(m).performance, render: (m) => {
-      const v = oeeOf(m).performance
-      return <span className={cn('tabular', v < 85 ? 'text-warning' : '')}>{v.toFixed(1)}%</span>
-    } },
-    { key: 'quality', header: 'Quality', align: 'right', width: '7rem', sortable: true, accessor: (m) => oeeOf(m).quality, render: (m) => {
-      const v = oeeOf(m).quality
-      return <span className={cn('tabular', v < 97 ? 'text-warning' : '')}>{v.toFixed(1)}%</span>
-    } },
-    { key: 'oee', header: 'OEE', align: 'right', width: '7rem', sortable: true, accessor: (m) => oeeOf(m).oee, render: (m) => {
-      const v = oeeOf(m).oee
-      return <span className={cn('font-medium tabular', v >= 85 ? 'text-success' : v >= 70 ? 'text-warning' : 'text-danger')}>{v.toFixed(1)}%</span>
-    } },
-    { key: 'goodPieces', header: 'Good pieces', align: 'right', sortable: true, render: (m) => <span className="tabular">{formatQty(m.goodPieces)}</span> },
-  ]
-
-  function doExport(format: ExportFormat) {
-    try {
-      const n = exportRows(format, 'oee-report', 'OEE by machine', columnsFromTable(columns), filtered)
-      toast.success('Export ready', `${n} rows written as ${format === 'xlsx' ? 'Excel' : format.toUpperCase()}.`)
-    } catch (e) {
-      toast.error('Export failed', e instanceof Error ? e.message : 'Unknown error.')
-    }
-  }
+  /** Over 100% means the standard or the time capture is wrong, not that the line is fast. */
+  const suspect = data.workCentres.filter((w) => (w.performancePct ?? 0) > 100)
 
   return (
     <div>
       <PageHeader
-        title="OEE"
-        breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Shop floor', to: '/production' }, { label: 'OEE' }]}
-        tabs={
-          <Tabs
-            variant="pill"
-            active={period}
-            onChange={(v) => setPeriod(v as typeof period)}
-            tabs={[{ id: 'shift', label: 'This shift' }, { id: 'week', label: 'Last 7 days' }]}
-          />
-        }
+        title="Equipment effectiveness"
+        breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Shop floor', to: '/production' }, { label: 'Effectiveness' }]}
       />
 
-      <div className="mb-3 flex flex-wrap items-center gap-3">
-        <Select
-          sizeVariant="sm"
-          containerClassName="w-44"
-          value={line}
-          onChange={(e) => setLine(e.target.value)}
-          options={[{ value: 'all', label: 'All lines' }, ...lines.map((l) => ({ value: l, label: l }))]}
-        />
-        <p className="text-xs text-fg-muted">
-          OEE = availability × performance × quality. World class is around 85%; below 70% usually means one specific machine,
-          not a general problem.
-        </p>
+      {error && (
+        <Alert tone="danger" title="Effectiveness could not be calculated" className="mb-4">
+          {error}
+        </Alert>
+      )}
+
+      {loading && <p className="mb-4 text-xs text-fg-muted">Reading the entries…</p>}
+
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Factor label="Quality" value={data.overall.qualityPct} note="good over everything booked" />
+        <Factor label="Performance" value={data.overall.performancePct} note="standard time over actual time" warn={(data.overall.performancePct ?? 0) > 100} />
+        <Factor label="Availability" value={null} note="cannot be measured" />
+        <Factor label="OEE" value={null} note="needs all three factors" />
       </div>
 
-      <div className="mb-4 grid gap-4 lg:grid-cols-3">
-        <Card>
-          <CardHeader title={line === 'all' ? 'Plant OEE' : `${line} OEE`} description="Computed from the totals, not an average of machines" />
-          <CardBody>
-            <OeeBar availability={plant.availability} performance={plant.performance} quality={plant.quality} />
-            <div className="mt-3 grid gap-2 border-t border-border pt-3 text-2xs text-fg-muted sm:grid-cols-2">
-              <p>Planned <span className="block font-medium tabular text-fg">{Math.round(plant.planned)} min</span></p>
-              <p>Lost to stops <span className="block font-medium tabular text-danger">{Math.round(plant.down)} min</span></p>
-              <p>Pieces made <span className="block font-medium tabular text-fg">{formatQty(plant.total)}</span></p>
-              <p>Good first time <span className="block font-medium tabular text-success">{formatQty(plant.good)}</span></p>
-            </div>
-          </CardBody>
-        </Card>
-
-        <Card className="lg:col-span-2">
-          <CardHeader title="Seven-day trend" description="The three factors and the resulting OEE" />
-          <CardBody className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={oeeTrend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" vertical={false} />
-                <XAxis dataKey="period" tick={{ fontSize: 11, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} />
-                <YAxis domain={[50, 100]} tick={{ fontSize: 11, fill: 'rgb(var(--fg-muted))' }} axisLine={false} tickLine={false} width={34} />
-                <Tooltip content={<MesChartTip suffix="%" />} />
-                <Legend wrapperStyle={{ fontSize: 11 }} iconSize={8} />
-                <Line type="monotone" dataKey="availability" name="Availability" stroke="#3b82f6" strokeWidth={1.5} dot={false} />
-                <Line type="monotone" dataKey="performance" name="Performance" stroke="#06b6d4" strokeWidth={1.5} dot={false} />
-                <Line type="monotone" dataKey="quality" name="Quality" stroke="#10b981" strokeWidth={1.5} dot={false} />
-                <Line type="monotone" dataKey="oee" name="OEE" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 2 }} />
-              </LineChart>
-            </ResponsiveContainer>
-          </CardBody>
-        </Card>
-      </div>
+      {suspect.length > 0 && (
+        <Alert tone="warning" title="Performance is reading above 100%" className="mb-4">
+          {suspect.map((w) => `${w.workCentreCode} at ${w.performancePct}%`).join(', ')}. A line cannot beat its own standard
+          by this margin. Either the routing standard is set far too high, or the minutes on the production entries are being
+          under-recorded. The figure is shown as calculated rather than capped, because capping it would hide the problem.
+        </Alert>
+      )}
 
       <Card className="mb-4">
-        <CardHeader title="Where to look first" description="The three lowest machines this shift" />
-        <CardBody className="grid gap-3 sm:grid-cols-3">
-          {worst.map((m) => {
-            const o = oeeOf(m)
-            const weakest = o.availability <= o.performance && o.availability <= o.quality ? 'availability' : o.performance <= o.quality ? 'performance' : 'quality'
-            return (
-              <div key={m.uid} className="rounded border border-border p-3">
-                <p className="flex items-center gap-1.5 font-mono text-xs font-medium text-fg">
-                  <MachineDot state={m.state} /> {m.code}
-                </p>
-                <p className="mt-1 truncate text-2xs text-fg-subtle" title={String(m.name ?? "")}>{m.name}</p>
-                <p className={cn('mt-2 text-xl font-semibold tabular', o.oee >= 70 ? 'text-warning' : 'text-danger')}>{o.oee.toFixed(1)}%</p>
-                <p className="mt-1 text-2xs text-fg-muted">
-                  Weakest factor: <span className="font-medium text-fg">{weakest}</span>
-                  {weakest === 'availability' && ` — ${Math.round(m.downMinutes)} minutes of stops`}
-                  {weakest === 'performance' && ' — running slower than the ideal cycle'}
-                  {weakest === 'quality' && ` — ${m.totalPieces - m.goodPieces} pieces not right first time`}
-                </p>
+        <CardHeader
+          title="By work centre"
+          description="Every figure below is computed from the production entries, not stored"
+          actions={<Link to="/production/entry" className="text-2xs font-medium text-brand-600 hover:underline">Entries</Link>}
+        />
+        <CardBody className="p-0">
+          {data.workCentres.length ? (
+            <div className="overflow-x-auto">
+              <table className="grid-table">
+                <thead>
+                  <tr>
+                    <th>Work centre</th>
+                    <th className="w-20 text-right">Entries</th>
+                    <th className="w-28 text-right">Good</th>
+                    <th className="w-24 text-right">Scrap</th>
+                    <th className="w-28 text-right">Standard</th>
+                    <th className="w-28 text-right">Actual</th>
+                    <th className="w-24 text-right">Quality</th>
+                    <th className="w-28 text-right">Performance</th>
+                    <th className="w-28 text-right">Availability</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.workCentres.map((w) => (
+                    <tr key={w.workCentreCode}>
+                      <td className="font-mono text-2xs">{w.workCentreCode}</td>
+                      <td className="text-right tabular">{w.entries}</td>
+                      <td className="text-right tabular text-success">{formatQty(w.goodQty)}</td>
+                      <td className="text-right tabular text-danger">{formatQty(w.scrapQty)}</td>
+                      <td className="text-right tabular text-2xs">{w.standardMinutes} min</td>
+                      <td className="text-right tabular text-2xs">{w.runMinutes} min</td>
+                      <td className={cn('text-right tabular', (w.qualityPct ?? 100) < 95 && 'text-warning')}>
+                        {w.qualityPct === null ? '—' : `${w.qualityPct}%`}
+                      </td>
+                      <td className={cn('text-right tabular', (w.performancePct ?? 0) > 100 && 'text-warning')}>
+                        {w.performancePct === null ? '—' : `${w.performancePct}%`}
+                      </td>
+                      <td className="text-right text-2xs text-fg-subtle">not measured</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="p-4 text-xs text-fg-muted">
+              Nothing has been booked yet, so there is nothing to measure. Effectiveness is calculated from production entries.
+            </p>
+          )}
+        </CardBody>
+      </Card>
+
+      {data.cannotCompute.length > 0 && (
+        <Card>
+          <CardHeader title="What is missing, and what it would take" />
+          <CardBody className="space-y-3">
+            {data.cannotCompute.map((c) => (
+              <div key={c.factor} className="rounded border border-border bg-surface-2 px-3 py-2">
+                <p className="text-xs font-medium text-fg">{c.factor}</p>
+                <p className="mt-0.5 text-2xs leading-relaxed text-fg-muted">{c.reason}</p>
+                <p className="mt-1 text-2xs leading-relaxed text-fg-subtle">Needs: {c.needs}</p>
               </div>
-            )
-          })}
-        </CardBody>
-      </Card>
-
-      <DataTable
-        rows={filtered}
-        columns={columns}
-        rowKey={(m) => m.uid}
-        searchPlaceholder="Search machine or work centre…"
-        onExport={doExport}
-        emptyTitle="No machines with planned time"
-      />
-
-      <Card className="mt-4">
-        <CardHeader title="What each factor actually measures" description="Kept simple on purpose — three questions, three numbers" />
-        <CardBody className="grid gap-3 text-xs leading-relaxed text-fg-muted sm:grid-cols-3">
-          <p>
-            <span className="font-medium text-fg">Availability</span> — of the time we planned to run, how much did we actually
-            run? Every downtime event with a reason lands here.
-          </p>
-          <p>
-            <span className="font-medium text-fg">Performance</span> — while running, did we hit the ideal cycle time? Slow
-            running, small stops and speed losses land here.
-          </p>
-          <p>
-            <span className="font-medium text-fg">Quality</span> — of what we made, how much was right first time? Scrap and
-            rework both count against it; rework is not free.
-          </p>
-        </CardBody>
-      </Card>
+            ))}
+          </CardBody>
+        </Card>
+      )}
     </div>
+  )
+}
+
+function Factor({
+  label,
+  value,
+  note,
+  warn = false,
+}: {
+  label: string
+  value: number | null
+  note: string
+  warn?: boolean
+}) {
+  return (
+    <Card>
+      <CardBody>
+        <p className="text-2xs uppercase tracking-wide text-fg-subtle">{label}</p>
+        <p
+          className={cn(
+            'mt-1 text-xl font-semibold tabular',
+            value === null ? 'text-fg-subtle' : warn ? 'text-warning' : 'text-fg',
+          )}
+        >
+          {value === null ? '—' : `${value}%`}
+        </p>
+        <p className="mt-0.5 text-2xs text-fg-muted">{note}</p>
+      </CardBody>
+    </Card>
   )
 }

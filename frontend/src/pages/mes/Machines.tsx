@@ -1,344 +1,290 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader, DataGrid } from '@/components/ui/Card'
 import { DataTable, type Column } from '@/components/ui/DataTable'
-import { Drawer, Modal } from '@/components/ui/Modal'
+import { Drawer } from '@/components/ui/Modal'
 import { MenuItem } from '@/components/ui/Menu'
-import { Select, Textarea } from '@/components/ui/Input'
-import { PageHeader } from '@/components/ui/Misc'
-import { Tabs } from '@/components/ui/Tabs'
+import { Alert, PageHeader } from '@/components/ui/Misc'
 import { useToast } from '@/components/ui/Toast'
-import { useRowEdit } from '@/components/crud/RowEdit'
-import { Duration, MachineDot, MesStatusBadge, OeeBar } from '@/components/mes/MesShell'
+import { MachineDot, MesDetailBlock, MesStatusBadge } from '@/components/mes/MesShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDate, formatQty } from '@/lib/format'
 import { cn } from '@/lib/cn'
-import { newUid, useCollection } from '@/store/data'
-import { DOWNTIME_REASON_LABEL } from '@/components/mes/MesShell'
-import { downtimeEvents as seedDowntime, machines as seedMachines } from '@/mock/mes'
-import type { DowntimeEvent, DowntimeReason, Machine, MachineState } from '@/types/mes'
+import { ProblemError } from '@/api/client'
+import { getMachines } from '@/api/masters'
+import { productionApi, type WorkOrderRow } from '@/api/production'
 
-/** Availability, performance and quality for one machine's current shift. */
-export function oeeOf(m: Machine) {
-  const availability = m.plannedMinutes ? ((m.plannedMinutes - m.downMinutes) / m.plannedMinutes) * 100 : 0
-  const idealMinutes = (m.totalPieces * m.idealCycleSeconds) / 60
-  const performance = m.runMinutes ? Math.min(100, (idealMinutes / m.runMinutes) * 100) : 0
-  const quality = m.totalPieces ? (m.goodPieces / m.totalPieces) * 100 : 0
-  return { availability, performance, quality, oee: (availability * performance * quality) / 10_000 }
+/**
+ * Machines — the master, with what each one is actually doing right now.
+ *
+ * Two sources, kept apart on purpose. The machine master owns the asset facts:
+ * code, work centre, capacity, criticality, preventive-maintenance dates. What
+ * a machine is doing this minute is not stored anywhere — it is read off the
+ * work orders, because a machine is busy exactly when an operation assigned to
+ * it is running.
+ *
+ * The master also carries a `currentState` and an `oeePct` column. Nothing
+ * writes to either, so they are shown as the master's own stale values and
+ * labelled as such rather than presented as live readings.
+ */
+
+interface MachineRow {
+  id: number
+  code: string
+  name: string
+  machineGroup?: string | null
+  machineGroupCode?: string | null
+  plantName?: string | null
+  lineCode?: string | null
+  lineName?: string | null
+  workCentreCode?: string | null
+  workCentreName?: string | null
+  manufacturer?: string | null
+  modelNumber?: string | null
+  serialNumber?: string | null
+  assetCode?: string | null
+  capacityPerHour?: number | null
+  capacityUom?: string | null
+  powerKw?: number | null
+  operatorsRequired?: number | null
+  pmFrequencyDays?: number | null
+  lastPmOn?: string | null
+  nextPmOn?: string | null
+  criticality?: string | null
+  currentState?: string | null
+  oeePct?: number | null
+  status?: string | null
 }
 
-/** Machine status & assignment — what every machine is doing right now. */
+/** What the work orders say a machine is doing, which is the only live truth. */
+type LiveState = 'RUNNING' | 'ASSIGNED' | 'FREE'
+
 export function MachinesPage() {
   const toast = useToast()
   const navigate = useNavigate()
-  const mcSeed = useMemo(() => seedMachines, [])
-  const dtSeed = useMemo(() => seedDowntime, [])
-  const { rows: machines, update } = useCollection<Machine>('mes:machine', mcSeed)
-  const rowEdit = useRowEdit<Machine>({
-    key: 'mes:machine',
-    seed: mcSeed,
-    entity: 'Machine',
-    titleOf: (r) => r.code,
-  })
-  const { rows: downtime, create: createDowntime, update: updateDowntime } = useCollection<DowntimeEvent>('mes:downtime', dtSeed)
+  const [machines, setMachines] = useState<MachineRow[]>([])
+  const [work, setWork] = useState<WorkOrderRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [detail, setDetail] = useState<MachineRow | null>(null)
 
-  const [view, setView] = useState<'board' | 'list'>('board')
-  const [detail, setDetail] = useState<Machine | null>(null)
-  const [stopTarget, setStopTarget] = useState<Machine | null>(null)
-  const [stop, setStop] = useState({ reason: 'BREAKDOWN' as DowntimeReason, note: '' })
+  useEffect(() => {
+    Promise.all([getMachines(), productionApi.getWorkOrders()])
+      .then(([list, orders]) => {
+        setMachines(Array.isArray(list) ? list : [])
+        setWork(orders)
+        setError(null)
+      })
+      .catch((err) =>
+        setError(err instanceof ProblemError ? err.problem.detail : 'Could not reach the backend.'),
+      )
+      .finally(() => setLoading(false))
+  }, [])
 
-  const counts = {
-    running: machines.filter((m) => m.state === 'RUNNING').length,
-    idle: machines.filter((m) => m.state === 'IDLE').length,
-    down: machines.filter((m) => m.state === 'BREAKDOWN').length,
-    maintenance: machines.filter((m) => m.state === 'MAINTENANCE').length,
-  }
-  const dueSoon = machines.filter((m) => new Date(m.nextMaintenanceOn).getTime() - Date.now() < 7 * 86_400_000)
-  const calibrationDue = machines.filter((m) => m.calibrationDueOn && new Date(m.calibrationDueOn).getTime() < Date.now())
-
-  function stopMachine() {
-    if (!stopTarget) return
-    if (!stop.note.trim()) {
-      toast.error('Say what happened', 'Downtime without a reason cannot be analysed, and this is where OEE availability comes from.')
-      return
+  /** Work orders sitting on each machine, live. */
+  const onMachine = useMemo(() => {
+    const map = new Map<string, WorkOrderRow[]>()
+    for (const w of work) {
+      if (!w.machineCode) continue
+      if (['COMPLETED', 'CANCELLED'].includes(w.status)) continue
+      const list = map.get(w.machineCode) ?? []
+      list.push(w)
+      map.set(w.machineCode, list)
     }
-    update(stopTarget.uid, { state: stop.reason === 'PLANNED_MAINTENANCE' ? 'MAINTENANCE' : 'BREAKDOWN', currentWorkOrder: null })
-    const next = Math.max(...downtime.map((x) => Number(x.docNo.slice(-4)) || 0)) + 1
-    createDowntime({
-      uid: newUid('dt'),
-      docNo: `DT/2607/${String(next).padStart(4, '0')}`,
-      machine: stopTarget.name,
-      machineCode: stopTarget.code,
-      workCentre: stopTarget.workCentre,
-      reason: stop.reason,
-      startedAt: new Date().toISOString(),
-      endedAt: null,
-      minutes: 0,
-      shift: 'A',
-      reportedBy: stopTarget.currentOperator ?? 'Supervisor',
-      correctiveAction: stop.note.trim(),
-      maintenanceRequestNo: stop.reason === 'BREAKDOWN' ? `MWO/26-27/${String(180 + next)}` : null,
-      isOpen: true,
-    } as DowntimeEvent)
-    toast.success(
-      'Machine stopped',
-      `${stopTarget.code} logged as ${DOWNTIME_REASON_LABEL[stop.reason].toLowerCase()}${stop.reason === 'BREAKDOWN' ? ' and a maintenance request has been raised' : ''}. The clock is running against availability.`,
-    )
-    setStopTarget(null)
+    return map
+  }, [work])
+
+  function liveState(code: string): LiveState {
+    const jobs = onMachine.get(code) ?? []
+    if (jobs.some((j) => j.status === 'RUNNING')) return 'RUNNING'
+    return jobs.length ? 'ASSIGNED' : 'FREE'
   }
 
-  function restart(m: Machine) {
-    const open = downtime.find((d) => d.machineCode === m.code && d.isOpen)
-    if (open) {
-      const minutes = Math.max(1, Math.round((Date.now() - new Date(open.startedAt).getTime()) / 60_000))
-      updateDowntime(open.uid, { isOpen: false, endedAt: new Date().toISOString(), minutes })
-    }
-    update(m.uid, { state: 'IDLE' })
-    toast.success('Back in service', `${m.code} is available again${open ? ` after ${Math.round((Date.now() - new Date(open.startedAt).getTime()) / 60_000)} minutes down` : ''}.`)
-  }
-
-  const columns: Column<Machine>[] = [
-    { key: 'code', header: 'Machine', sortable: true, width: '13rem', render: (m) => (
+  const columns: Column<MachineRow>[] = [
+    { key: 'code', header: 'Machine', sortable: true, width: '10rem', render: (m) => (
       <div className="flex items-center gap-2">
-        <MachineDot state={m.state} />
-        <div className="min-w-0">
-          <p className="font-mono text-xs font-medium text-brand-600">{m.code}</p>
-          <p className="truncate text-2xs text-fg-subtle" title={String(m.name ?? "")}>{m.name}</p>
+        <MachineDot state={liveState(m.code) === 'RUNNING' ? 'RUNNING' : liveState(m.code) === 'ASSIGNED' ? 'SETUP' : 'IDLE'} />
+        <div>
+          <p className="font-mono text-2xs font-medium text-brand-600">{m.code}</p>
+          <p className="truncate text-2xs text-fg-subtle" title={m.name}>{m.name?.trim()}</p>
         </div>
       </div>
     ) },
-    { key: 'workCentre', header: 'Work centre', sortable: true },
-    { key: 'line', header: 'Line', sortable: true, width: '6.5rem' },
-    { key: 'currentWorkOrder', header: 'Running', width: '11rem', render: (m) => (
-      m.currentWorkOrder ? <div><p className="font-mono text-2xs text-fg">{m.currentWorkOrder}</p><p className="text-2xs text-fg-subtle">{m.currentOperator}</p></div> : <span className="text-2xs text-fg-subtle">nothing</span>
+    { key: 'workCentreCode', header: 'Work centre', sortable: true, width: '9rem', render: (m) => (
+      <div>
+        <p className="font-mono text-2xs">{m.workCentreCode || '—'}</p>
+        <p className="truncate text-2xs text-fg-subtle">{m.workCentreName ?? ''}</p>
+      </div>
     ) },
-    { key: 'runMinutes', header: 'Run', width: '7rem', sortable: true, render: (m) => <Duration minutes={m.runMinutes} /> },
-    { key: 'downMinutes', header: 'Down', width: '7rem', sortable: true, render: (m) => (m.downMinutes ? <span className="text-danger"><Duration minutes={m.downMinutes} /></span> : <span className="text-2xs text-success">none</span>) },
-    { key: 'oee', header: 'OEE (shift)', align: 'right', width: '8rem', sortable: true, accessor: (m) => oeeOf(m).oee, render: (m) => {
-      const o = oeeOf(m).oee
-      return <span className={cn('tabular font-medium', o >= 85 ? 'text-success' : o >= 70 ? 'text-warning' : 'text-danger')}>{o.toFixed(1)}%</span>
+    { key: 'live', header: 'Doing now', width: '13rem', accessor: (m) => liveState(m.code), render: (m) => {
+      const jobs = onMachine.get(m.code) ?? []
+      const running = jobs.find((j) => j.status === 'RUNNING')
+      if (running) {
+        return (
+          <div>
+            <Badge tone="success" size="sm">Running</Badge>
+            <p className="mt-0.5 font-mono text-2xs text-fg-subtle">{running.docNo} · {running.operationName}</p>
+          </div>
+        )
+      }
+      if (jobs.length) {
+        return (
+          <div>
+            <Badge tone="neutral" size="sm">Assigned</Badge>
+            <p className="mt-0.5 text-2xs text-fg-subtle">{jobs.length} operation{jobs.length === 1 ? '' : 's'} waiting</p>
+          </div>
+        )
+      }
+      return <span className="text-2xs text-fg-subtle">nothing assigned</span>
     } },
-    { key: 'goodPieces', header: 'Good today', align: 'right', sortable: true, render: (m) => <span className="tabular">{formatQty(m.goodPieces)}</span> },
-    { key: 'nextMaintenanceOn', header: 'Next service', width: '9rem', sortable: true, accessor: (m) => m.nextMaintenanceOn, render: (m) => {
-      const days = Math.ceil((new Date(m.nextMaintenanceOn).getTime() - Date.now()) / 86_400_000)
-      return <span className={cn('text-2xs', days < 0 ? 'font-medium text-danger' : days < 7 ? 'text-warning' : 'text-fg-muted')}>{formatDate(m.nextMaintenanceOn)}{days < 0 ? ' · overdue' : ''}</span>
-    } },
-    { key: 'state', header: 'State', sortable: true, width: '9rem', render: (m) => <MesStatusBadge status={m.state} size="sm" /> },
+    { key: 'capacityPerHour', header: 'Capacity', align: 'right', width: '8rem', sortable: true, render: (m) => (
+      m.capacityPerHour ? <span className="tabular text-2xs">{formatQty(m.capacityPerHour)} {m.capacityUom ?? ''}/h</span> : <span className="text-2xs text-fg-subtle">—</span>
+    ) },
+    { key: 'criticality', header: 'Criticality', align: 'center', width: '7rem', sortable: true, render: (m) => (
+      m.criticality ? <Badge tone={m.criticality === 'A' ? 'danger' : m.criticality === 'B' ? 'warning' : 'neutral'} size="sm" dot={false}>{m.criticality}</Badge> : <span className="text-2xs text-fg-subtle">—</span>
+    ) },
+    { key: 'nextPmOn', header: 'Next service', sortable: true, width: '9rem', accessor: (m) => m.nextPmOn ?? '', render: (m) => (
+      m.nextPmOn ? formatDate(m.nextPmOn) : <span className="text-2xs text-fg-subtle">not scheduled</span>
+    ) },
+    { key: 'status', header: 'Master status', width: '8rem', sortable: true, render: (m) => (
+      <Badge tone={m.status === 'ACTIVE' ? 'success' : 'neutral'} size="sm">{m.status ?? '—'}</Badge>
+    ) },
+    { key: 'machineGroup', header: 'Group', defaultHidden: true },
+    { key: 'plantName', header: 'Plant', defaultHidden: true },
+    { key: 'assetCode', header: 'Asset code', defaultHidden: true },
+    { key: 'serialNumber', header: 'Serial', defaultHidden: true },
   ]
 
   function doExport(format: ExportFormat) {
     try {
-      const n = exportRows(format, 'machine-status', 'Machine status & utilisation', columnsFromTable(columns), machines)
+      const n = exportRows(format, 'machines', 'Machines', columnsFromTable(columns), machines)
       toast.success('Export ready', `${n} rows written as ${format === 'xlsx' ? 'Excel' : format.toUpperCase()}.`)
     } catch (e) {
       toast.error('Export failed', e instanceof Error ? e.message : 'Unknown error.')
     }
   }
 
+  const running = machines.filter((m) => liveState(m.code) === 'RUNNING').length
+  const assigned = machines.filter((m) => liveState(m.code) === 'ASSIGNED').length
+
   return (
     <div>
       <PageHeader
-        title="Machine status"
+        title="Machines"
         breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Shop floor', to: '/production' }, { label: 'Machines' }]}
-        actions={<Button variant="outline" size="sm" onClick={() => navigate('/production/downtime')}>Downtime log</Button>}
-        tabs={
-          <Tabs
-            variant="pill"
-            active={view}
-            onChange={(v) => setView(v as typeof view)}
-            tabs={[{ id: 'board', label: 'Floor board' }, { id: 'list', label: 'List', count: machines.length }]}
-          />
-        }
+        actions={<Button variant="outline" size="sm" onClick={() => navigate('/masters/machines')}>Machine master</Button>}
       />
 
-      <p className="mb-3 text-xs text-fg-muted">
-        <span className="font-medium text-success">{counts.running}</span> running ·{' '}
-        <span className="font-medium text-fg">{counts.idle}</span> idle ·{' '}
-        <span className={cn('font-medium', counts.down ? 'text-danger' : 'text-success')}>{counts.down}</span> broken down ·{' '}
-        <span className="font-medium text-warning">{counts.maintenance}</span> under maintenance ·{' '}
-        <span className={cn('font-medium', dueSoon.length ? 'text-warning' : 'text-success')}>{dueSoon.length}</span> due for
-        service within a week
-        {calibrationDue.length > 0 && <> · <span className="font-medium text-danger">{calibrationDue.length}</span> past calibration</>}.
-      </p>
-
-      {view === 'board' ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {machines.map((m) => {
-            const o = oeeOf(m)
-            return (
-              <button
-                key={m.uid}
-                onClick={() => setDetail(m)}
-                className={cn(
-                  'card p-3 text-left transition-colors hover:border-border-strong hover:bg-surface-2',
-                  m.state === 'BREAKDOWN' && 'border-danger/40 bg-danger/[0.04]',
-                  m.state === 'RUNNING' && 'border-success/30',
-                )}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="flex items-center gap-1.5 font-mono text-xs font-medium text-fg">
-                      <MachineDot state={m.state} /> {m.code}
-                    </p>
-                    <p className="mt-0.5 truncate text-2xs text-fg-subtle" title={String(m.name ?? "")}>{m.name}</p>
-                  </div>
-                  <MesStatusBadge status={m.state} size="sm" />
-                </div>
-                <p className="mt-2 truncate text-2xs text-fg-muted">
-                  {m.currentWorkOrder ? `${m.currentWorkOrder} · ${m.currentOperator}` : m.workCentre}
-                </p>
-                <div className="mt-2 flex items-end justify-between gap-2">
-                  <div>
-                    <p className={cn('text-lg font-semibold tabular', o.oee >= 85 ? 'text-success' : o.oee >= 70 ? 'text-warning' : 'text-danger')}>
-                      {o.oee.toFixed(0)}%
-                    </p>
-                    <p className="text-2xs text-fg-subtle">OEE this shift</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-2xs text-fg-muted">run <span className="tabular text-fg">{Math.round(m.runMinutes)}m</span></p>
-                    <p className="text-2xs text-fg-muted">down <span className={cn('tabular', m.downMinutes ? 'text-danger' : 'text-fg')}>{Math.round(m.downMinutes)}m</span></p>
-                  </div>
-                </div>
-              </button>
-            )
-          })}
-        </div>
-      ) : (
-        <DataTable
-          rows={machines}
-          columns={columns}
-          rowKey={(m) => m.uid}
-          searchPlaceholder="Search machine, work centre or line…"
-          onExport={doExport}
-          onRowClick={setDetail}
-          emptyTitle="No machines"
-          rowClassName={(m) => cn(m.state === 'BREAKDOWN' && 'bg-danger/[0.04]')}
-          rowActions={(m) => (
-            <>
-              {rowEdit.actions(m)}
-              <MenuItem label="Open" onClick={() => setDetail(m)} />
-              <MenuItem label="Stop the machine" danger disabled={m.state === 'BREAKDOWN' || m.state === 'MAINTENANCE'} onClick={() => { setStopTarget(m); setStop({ reason: 'BREAKDOWN', note: '' }) }} />
-              <MenuItem label="Put back in service" disabled={m.state !== 'BREAKDOWN' && m.state !== 'MAINTENANCE'} onClick={() => restart(m)} />
-              <MenuItem label="Raise a maintenance request" separatorBefore onClick={() => toast.success('Request raised', `A maintenance work order has been created for ${m.code} and sent to ${'D. Anand'}.`)} />
-            </>
-          )}
-        />
+      {error && (
+        <Alert tone="danger" title="Machines could not be loaded" className="mb-4">
+          {error}
+        </Alert>
       )}
 
-      {/* Detail --------------------------------------------------------------- */}
-      <Drawer
-        open={!!detail}
-        onClose={() => setDetail(null)}
-        title={detail ? `${detail.code} — ${detail.name}` : ''}
-        description={detail ? `${detail.workCentre} · ${detail.line}` : undefined}
-        width="max-w-3xl"
-        footer={
-          detail && (
-            <div className="flex w-full justify-end gap-2">
-              {detail.state === 'BREAKDOWN' || detail.state === 'MAINTENANCE' ? (
-                <Button variant="success" size="sm" onClick={() => { restart(detail); setDetail(null) }}>Back in service</Button>
-              ) : (
-                <Button variant="danger" size="sm" onClick={() => { setStopTarget(detail); setStop({ reason: 'BREAKDOWN', note: '' }); setDetail(null) }}>Stop machine</Button>
-              )}
-              <Button variant="outline" size="sm" onClick={() => setDetail(null)}>Close</Button>
-            </div>
-          )
-        }
-      >
+      <p className="mb-4 text-xs text-fg-muted">
+        <span className="font-medium text-fg">{machines.length}</span> machine{machines.length === 1 ? '' : 's'} in the master ·{' '}
+        <span className="font-medium text-success">{running}</span> running ·{' '}
+        <span className="font-medium text-fg">{assigned}</span> with work assigned. What a machine is doing is read from the work
+        orders, not from a status column — nothing writes a live state anywhere.
+      </p>
+
+      <DataTable
+        rows={machines}
+        columns={columns}
+        rowKey={(m) => m.code}
+        loading={loading}
+        searchPlaceholder="Search machine, work centre or group…"
+        onExport={doExport}
+        onRowClick={(m) => setDetail(m)}
+        emptyTitle="No machine in the master"
+        emptyDescription="Add machines in the machine master before they can be assigned to operations."
+        rowActions={(m) => (
+          <>
+            <MenuItem label="Open" onClick={() => setDetail(m)} />
+            <MenuItem label="Queue for this work centre" onClick={() => navigate('/production/queue')} />
+          </>
+        )}
+      />
+
+      <Alert tone="info" title="Availability and OEE are not shown here" className="mt-4">
+        The machine master holds a <span className="font-mono">currentState</span> and an{' '}
+        <span className="font-mono">oeePct</span> column, but nothing in the system writes to either, so they would be a stale
+        number rather than a reading. Real availability needs reason-coded downtime with start and end times, and a planned-time
+        calendar. Neither exists yet.
+      </Alert>
+
+      <Drawer open={!!detail} onClose={() => setDetail(null)} title={detail ? `${detail.code} — ${detail.name?.trim()}` : ''} width="md">
         {detail && (
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
-              <MesStatusBadge status={detail.state} />
-              {detail.calibrationDueOn && new Date(detail.calibrationDueOn).getTime() < Date.now() && (
-                <Badge tone="danger" size="sm">Calibration overdue</Badge>
-              )}
+              <Badge tone={liveState(detail.code) === 'RUNNING' ? 'success' : 'neutral'} size="sm">
+                {liveState(detail.code) === 'RUNNING' ? 'Running' : liveState(detail.code) === 'ASSIGNED' ? 'Work assigned' : 'Nothing assigned'}
+              </Badge>
+              <Badge tone={detail.status === 'ACTIVE' ? 'success' : 'neutral'} size="sm">{detail.status ?? '—'}</Badge>
             </div>
+
+            <MesDetailBlock title="Where it sits">
+              <DataGrid
+                items={[
+                  { label: 'Plant', value: detail.plantName ?? '—' },
+                  { label: 'Line', value: detail.lineName ?? detail.lineCode ?? '—' },
+                  { label: 'Work centre', value: `${detail.workCentreCode ?? '—'} ${detail.workCentreName ?? ''}`.trim() },
+                  { label: 'Group', value: detail.machineGroup ?? '—' },
+                ]}
+              />
+            </MesDetailBlock>
+
+            <MesDetailBlock title="The asset">
+              <DataGrid
+                items={[
+                  { label: 'Manufacturer', value: detail.manufacturer ?? '—' },
+                  { label: 'Model', value: detail.modelNumber ?? '—' },
+                  { label: 'Serial', value: detail.serialNumber ?? '—' },
+                  { label: 'Asset code', value: detail.assetCode ?? '—' },
+                  { label: 'Capacity', value: detail.capacityPerHour ? `${formatQty(detail.capacityPerHour)} ${detail.capacityUom ?? ''}/h` : '—' },
+                  { label: 'Operators needed', value: detail.operatorsRequired != null ? String(detail.operatorsRequired) : '—' },
+                  { label: 'Power', value: detail.powerKw ? `${detail.powerKw} kW` : '—' },
+                  { label: 'Criticality', value: detail.criticality ?? '—' },
+                ]}
+              />
+            </MesDetailBlock>
+
+            <MesDetailBlock title="Service">
+              <DataGrid
+                items={[
+                  { label: 'Every', value: detail.pmFrequencyDays ? `${detail.pmFrequencyDays} days` : '—' },
+                  { label: 'Last done', value: detail.lastPmOn ? formatDate(detail.lastPmOn) : 'not recorded' },
+                  { label: 'Next due', value: detail.nextPmOn ? formatDate(detail.nextPmOn) : 'not scheduled' },
+                ]}
+              />
+            </MesDetailBlock>
 
             <Card>
-              <CardHeader title="OEE this shift" description="Availability × performance × quality" />
-              <CardBody>
-                <OeeBar {...oeeOf(detail)} />
-              </CardBody>
-            </Card>
-
-            <DataGrid
-              columns={2}
-              items={[
-                { label: 'Currently running', value: detail.currentWorkOrder ?? 'Nothing' },
-                { label: 'Operator', value: detail.currentOperator ?? '—' },
-                { label: 'Planned minutes', value: `${detail.plannedMinutes} min` },
-                { label: 'Run · down', value: `${detail.runMinutes} min · ${detail.downMinutes} min` },
-                { label: 'Ideal cycle', value: `${detail.idealCycleSeconds} s per piece` },
-                { label: 'Capacity', value: `${formatQty(detail.capacityPerHour)} pieces per hour` },
-                { label: 'Pieces today', value: `${formatQty(detail.totalPieces)} (${formatQty(detail.goodPieces)} good)` },
-                { label: 'Last service', value: formatDate(detail.lastMaintenanceOn) },
-                { label: 'Next service', value: formatDate(detail.nextMaintenanceOn) },
-                { label: 'Calibration due', value: detail.calibrationDueOn ? formatDate(detail.calibrationDueOn) : 'Not applicable' },
-              ]}
-            />
-
-            <div>
-              <p className="mb-2 text-2xs font-semibold uppercase tracking-wider text-fg-subtle">Downtime today</p>
-              {downtime.filter((d) => d.machineCode === detail.code).length === 0 ? (
-                <p className="text-xs text-success">No downtime logged — a clean shift.</p>
-              ) : (
-                <div className="space-y-2">
-                  {downtime.filter((d) => d.machineCode === detail.code).map((d) => (
-                    <div key={d.uid} className="flex items-start justify-between gap-3 rounded border border-border p-2.5">
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-fg">{DOWNTIME_REASON_LABEL[d.reason]}</p>
-                        <p className="truncate text-2xs text-fg-muted" title={String(d.correctiveAction ?? 'No corrective action recorded yet')}>{d.correctiveAction ?? 'No corrective action recorded yet'}</p>
+              <CardHeader title="On this machine now" description="Open operations assigned to it" />
+              <CardBody className="space-y-2">
+                {(onMachine.get(detail.code) ?? []).length ? (
+                  (onMachine.get(detail.code) ?? []).map((w) => (
+                    <div key={w.uid} className="flex items-center justify-between gap-2 rounded border border-border bg-surface-2 px-3 py-2">
+                      <div>
+                        <p className="font-mono text-2xs text-brand-600">{w.docNo}</p>
+                        <p className="text-2xs text-fg-subtle">{w.seq} · {w.operationName}</p>
                       </div>
-                      <div className="shrink-0 text-right">
-                        <Duration minutes={d.minutes} />
-                        {d.isOpen && <Badge tone="danger" size="sm">Still down</Badge>}
+                      <div className="text-right">
+                        <MesStatusBadge status={w.status} size="sm" />
+                        <p className={cn('mt-0.5 text-2xs tabular text-fg-subtle')}>{formatQty(w.inputQty)} in</p>
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-fg-muted">No open operation is assigned to this machine.</p>
+                )}
+              </CardBody>
+            </Card>
           </div>
         )}
       </Drawer>
-
-      {/* Stop ----------------------------------------------------------------- */}
-      <Modal
-        open={!!stopTarget}
-        onClose={() => setStopTarget(null)}
-        title={stopTarget ? `Stop ${stopTarget.code}` : ''}
-        size="md"
-        footer={
-          <>
-            <Button variant="outline" onClick={() => setStopTarget(null)}>Cancel</Button>
-            <Button variant="danger" onClick={stopMachine}>Stop and log downtime</Button>
-          </>
-        }
-      >
-        {stopTarget && (
-          <div className="space-y-3.5">
-            <p className="text-sm text-fg-muted">
-              {stopTarget.name}
-              {stopTarget.currentWorkOrder ? ` is running ${stopTarget.currentWorkOrder}. That work order will be paused.` : ' is idle.'}
-            </p>
-            <Select
-              label="Reason"
-              value={stop.reason}
-              onChange={(e) => setStop({ ...stop, reason: e.target.value as DowntimeReason })}
-              options={Object.entries(DOWNTIME_REASON_LABEL).map(([v, l]) => ({ value: v, label: l }))}
-            />
-            <Textarea label="What happened (required)" rows={3} value={stop.note} onChange={(e) => setStop({ ...stop, note: e.target.value })} placeholder="Drive belt snapped on the polishing head…" />
-            <p className="rounded border border-border bg-surface-2 px-3 py-2 text-2xs text-fg-subtle">
-              The clock starts now and runs against availability until the machine is put back in service. A breakdown also
-              raises a maintenance request automatically.
-            </p>
-          </div>
-        )}
-      </Modal>
-
-      {rowEdit.dialogs}
     </div>
   )
 }

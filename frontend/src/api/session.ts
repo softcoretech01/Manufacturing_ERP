@@ -12,7 +12,73 @@
  */
 
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware'
+
+/**
+ * "Remember me" decides where the session lives, which is the only thing that
+ * can actually make it survive a closed browser:
+ *
+ *   remembered  → localStorage   (still signed in tomorrow)
+ *   not         → sessionStorage (signed out when the browser closes)
+ *
+ * The flag itself is always in localStorage — it is a preference, not a
+ * credential, and it has to be readable before the session is rehydrated.
+ */
+const REMEMBER_KEY = 'ssberp.remember'
+
+export function isRemembered(): boolean {
+  try {
+    return localStorage.getItem(REMEMBER_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+/** Call before signing in, so the tokens are written to the right store. */
+export function setRemember(remember: boolean): void {
+  try {
+    if (remember) localStorage.setItem(REMEMBER_KEY, '1')
+    else localStorage.removeItem(REMEMBER_KEY)
+  } catch {
+    // Private mode with storage blocked: the session simply stays in memory.
+  }
+}
+
+export const rememberAwareStorage: StateStorage = {
+  // Read the per-tab copy first, then fall back to the remembered one. The
+  // fallback is also what carries an existing session over from before this
+  // choice existed, rather than signing everyone out once.
+  getItem: (name) => {
+    try {
+      return sessionStorage.getItem(name) ?? localStorage.getItem(name)
+    } catch {
+      return null
+    }
+  },
+  // Writing to one store always clears the other, so a session can never be
+  // left behind in localStorage after the user unticks the box.
+  setItem: (name, value) => {
+    try {
+      if (isRemembered()) {
+        localStorage.setItem(name, value)
+        sessionStorage.removeItem(name)
+      } else {
+        sessionStorage.setItem(name, value)
+        localStorage.removeItem(name)
+      }
+    } catch {
+      /* storage unavailable */
+    }
+  },
+  removeItem: (name) => {
+    try {
+      sessionStorage.removeItem(name)
+      localStorage.removeItem(name)
+    } catch {
+      /* storage unavailable */
+    }
+  },
+}
 
 interface SessionState {
   accessToken: string | null
@@ -60,7 +126,7 @@ export const useSession = create<SessionState>()(
           companyUid: null,
         }),
     }),
-    { name: 'ssberp.session' },
+    { name: 'ssberp.session', storage: createJSONStorage(() => rememberAwareStorage) },
   ),
 )
 

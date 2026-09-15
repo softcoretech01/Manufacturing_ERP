@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { createJSONStorage, persist } from 'zustand/middleware'
+import { rememberAwareStorage, useSession } from '@/api/session'
 import { branches, companies, financialYears, plants, roles, users } from '@/mock/data'
 import type { PortalCode } from '@/config/portals'
 import type { User } from '@/types'
@@ -92,7 +93,10 @@ export const useAuth = create<AuthState>()(
       setPlant: (uid) => set({ plantUid: uid }),
       setFy: (uid) => set({ fyUid: uid }),
     }),
-    { name: 'ssberp.auth' },
+    // Same rule as the API session: without "remember me" the signed-in identity
+    // lives in sessionStorage, so closing the browser really does sign the user
+    // out instead of leaving a shell identity behind with no token.
+    { name: 'ssberp.auth', storage: createJSONStorage(() => rememberAwareStorage) },
   ),
 )
 
@@ -110,7 +114,12 @@ function applyUser(set: (partial: Partial<AuthState>) => void, user: User) {
 
 export function useCurrentUser(): User | null {
   const uid = useAuth((s) => s.userUid)
-  return uid ? (users.find((u) => u.uid === uid) ?? null) : null
+  // The name the API authenticated, which outranks the demo profile it is
+  // shown through: the shell must never introduce the user as somebody else.
+  const realName = useSession((s) => s.userName)
+  const profile = uid ? (users.find((u) => u.uid === uid) ?? null) : null
+  if (!profile) return null
+  return realName && realName !== profile.fullName ? { ...profile, fullName: realName } : profile
 }
 
 export function useActiveContext() {

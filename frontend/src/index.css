@@ -192,6 +192,20 @@
   }
   .grid-table thead th.col-center { text-align: center; }
   .grid-table thead th.col-right  { text-align: right; }
+  /*
+   * The same two alignments, spelled the Tailwind way.
+   *
+   * The rule above sets `text-left` through a two-element selector, which
+   * outranks a single utility class — so a `<th className="text-right">` was
+   * silently rendered left while its right-aligned `<td>` values sat under a
+   * header that no longer matched them. Body cells were never affected, since
+   * `tbody td` sets no alignment of its own, which is exactly what made the
+   * mismatch look deliberate. Restating the utilities here at matching
+   * specificity fixes every hand-written table at once; `col-right` keeps
+   * working for the shared DataTable.
+   */
+  .grid-table thead th.text-center { text-align: center; }
+  .grid-table thead th.text-right  { text-align: right; }
 
   .grid-table tbody td {
     @apply border-b border-border/50 px-3 align-middle;

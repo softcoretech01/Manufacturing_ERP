@@ -1,280 +1,176 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowRightLeft } from 'lucide-react'
-import { Badge } from '@/components/ui/Badge'
-import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import { DataTable, type Column } from '@/components/ui/DataTable'
-import { Modal } from '@/components/ui/Modal'
-import { MenuItem } from '@/components/ui/Menu'
-import { Select, Textarea } from '@/components/ui/Input'
-import { PageHeader } from '@/components/ui/Misc'
+import { Alert, PageHeader } from '@/components/ui/Misc'
 import { useToast } from '@/components/ui/Toast'
-import { useRowEdit } from '@/components/crud/RowEdit'
-import { Duration, MesStatusBadge, useCanSeeCost } from '@/components/mes/MesShell'
+import { MesStatusBadge, OperationCell } from '@/components/mes/MesShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
-import { formatCompact, formatCurrency, formatDateTime, formatQty } from '@/lib/format'
+import { formatQty } from '@/lib/format'
 import { cn } from '@/lib/cn'
-import { useCollection } from '@/store/data'
-import { wipLots as seedLots } from '@/mock/mes'
-import type { WipLot, WipState } from '@/types/mes'
+import { ProblemError } from '@/api/client'
+import { shopFloorApi, type WipLotRow, type WipResult } from '@/api/shopfloor'
 
-const STATE_HELP: Record<WipState, string> = {
+/**
+ * Work in progress — what is sitting between operations right now.
+ *
+ * There is no WIP table. A work order that has been fed but not finished is
+ * holding pieces, and how many it holds is what came into it less everything
+ * booked out of it as good, scrap or rework. That subtraction is done on the
+ * server so this screen and any report agree on the figure.
+ *
+ * Age is only shown for an operation that has actually started. An operation
+ * that is queued has no clock to read, and a zero there would read as "just
+ * arrived" when the truth is "nobody has touched it".
+ */
+
+const STATE_HELP: Record<string, string> = {
   READY: 'Sitting at the station, ready for the operator to start.',
-  IN_PROCESS: 'On a machine right now.',
-  QUALITY_HOLD: 'Stopped by inspection — cannot move until quality decides.',
-  WAITING: 'Finished the last operation but the next station is not free.',
-  TRANSFERRED: 'Moved on to the next operation or into finished goods.',
-  COMPLETED: 'Finished the route.',
+  RUNNING: 'On a machine right now.',
+  QUEUED: 'Waiting on the operation in front of it.',
+  PAUSED: 'Started, then stopped. The pieces are still at the station.',
+  HOLD: 'Held by a supervisor. Nothing moves until the hold is lifted.',
+  QC_HOLD: 'Stopped by inspection — cannot move until quality decides.',
 }
 
-/** Work in progress — what is between operations right now, and for how long. */
+const EMPTY: WipResult = { lots: [], byWorkCentre: [], totals: { lots: 0, qty: 0 } }
+
 export function WipPage() {
   const toast = useToast()
   const navigate = useNavigate()
-  const canSeeValue = useCanSeeCost()
-  const seed = useMemo(() => seedLots, [])
-  const { rows: lots, update } = useCollection<WipLot>('mes:wip', seed)
-  const rowEdit = useRowEdit<WipLot>({
-    key: 'mes:wip',
-    seed: seed,
-    entity: 'WIP lot',
-    titleOf: (r) => r.lotNo,
-  })
+  const [data, setData] = useState<WipResult>(EMPTY)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const [moveTarget, setMoveTarget] = useState<WipLot | null>(null)
-  const [moveTo, setMoveTo] = useState('')
-  const [holdTarget, setHoldTarget] = useState<WipLot | null>(null)
-  const [holdReason, setHoldReason] = useState('')
+  useEffect(() => {
+    shopFloorApi
+      .wip()
+      .then((res) => {
+        setData(res)
+        setError(null)
+      })
+      .catch((err) => {
+        setError(err instanceof ProblemError ? err.problem.detail : 'Could not reach the backend.')
+        setData(EMPTY)
+      })
+      .finally(() => setLoading(false))
+  }, [])
 
-  const live = lots.filter((l) => l.state !== 'TRANSFERRED' && l.state !== 'COMPLETED')
-  const totalQty = live.reduce((s, l) => s + l.quantity, 0)
-  const totalValue = live.reduce((s, l) => s + l.value, 0)
-  const held = live.filter((l) => l.state === 'QUALITY_HOLD')
-  const waiting = live.filter((l) => l.state === 'WAITING')
-  const longestWait = Math.max(0, ...live.map((l) => l.waitingMinutes))
-
-  const byWorkCentre = [...new Set(live.map((l) => l.workCentre))].map((wc) => ({
-    workCentre: wc,
-    qty: live.filter((l) => l.workCentre === wc).reduce((s, l) => s + l.quantity, 0),
-    value: live.filter((l) => l.workCentre === wc).reduce((s, l) => s + l.value, 0),
-    lots: live.filter((l) => l.workCentre === wc).length,
-  }))
-
-  const columns: Column<WipLot>[] = [
-    { key: 'lotNo', header: 'Lot', sortable: true, width: '11rem', render: (l) => (
+  const columns: Column<WipLotRow>[] = [
+    { key: 'docNo', header: 'Work order', sortable: true, width: '11rem', render: (l) => (
       <div>
-        <p className="font-mono text-xs font-medium text-brand-600">{l.lotNo}</p>
-        <p className="font-mono text-2xs text-fg-subtle">{l.productionOrderNo}</p>
+        <p className="font-mono text-2xs font-medium text-brand-600">{l.docNo}</p>
+        <p className="font-mono text-2xs text-fg-subtle">{l.orderDocNo}</p>
       </div>
     ) },
-    { key: 'itemName', header: 'What it is', width: '16rem', sortable: true, render: (l) => (
-      <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-fg" title={String(l.itemName ?? "")}>{l.itemName}</p>
-        <p className="truncate font-mono text-2xs text-fg-subtle">{l.itemCode} · batch {l.batchNo}</p>
+    { key: 'productCode', header: 'Product', sortable: true, render: (l) => (
+      <div>
+        <p className="font-mono text-2xs text-fg">{l.productCode}</p>
+        <p className="truncate text-2xs text-fg-subtle" title={l.productName}>{l.productName}</p>
       </div>
     ) },
-    { key: 'quantity', header: 'Quantity', align: 'right', sortable: true, render: (l) => <span className="tabular">{formatQty(l.quantity)} <span className="text-2xs text-fg-subtle">{l.uom}</span></span> },
-    { key: 'currentOperation', header: 'At operation', width: '13rem', sortable: true, render: (l) => (
-      <div className="min-w-0">
-        <p className="truncate text-xs text-fg" title={String(l.currentOperation ?? "")}>{l.currentOperation}</p>
-        <p className="truncate text-2xs text-fg-subtle">{l.nextOperation ? `next: ${l.nextOperation}` : 'last operation'}</p>
-      </div>
+    { key: 'operationName', header: 'Operation', width: '14rem', render: (l) => (
+      <OperationCell sequence={l.seq} name={l.operationName} workCentre={l.workCentreCode} />
     ) },
-    { key: 'workCentre', header: 'Work centre', sortable: true, defaultHidden: true },
-    { key: 'location', header: 'Where', width: '11rem', render: (l) => <span className="font-mono text-2xs">{l.location}</span> },
-    { key: 'machine', header: 'Machine · operator', width: '11rem', accessor: (l) => l.machine ?? '', render: (l) => (
-      l.machine ? <div><p className="font-mono text-2xs">{l.machine}</p><p className="text-2xs text-fg-subtle">{l.operator}</p></div> : <span className="text-2xs text-fg-subtle">—</span>
+    { key: 'machineCode', header: 'Machine', width: '8rem', sortable: true, render: (l) => <span className="font-mono text-2xs">{l.machineCode || '—'}</span> },
+    { key: 'batchNo', header: 'Batch', width: '9rem', render: (l) => <span className="font-mono text-2xs">{l.batchNo || '—'}</span> },
+    { key: 'inputQty', header: 'Came in', align: 'right', sortable: true, render: (l) => <span className="tabular">{formatQty(l.inputQty)}</span> },
+    { key: 'heldQty', header: 'Held here', align: 'right', sortable: true, render: (l) => <span className="tabular font-medium text-fg">{formatQty(l.heldQty)}</span> },
+    { key: 'producedQty', header: 'Booked good', align: 'right', defaultHidden: true, render: (l) => <span className="tabular text-success">{formatQty(l.producedQty)}</span> },
+    { key: 'scrapQty', header: 'Booked scrap', align: 'right', defaultHidden: true, render: (l) => <span className="tabular text-danger">{formatQty(l.scrapQty)}</span> },
+    { key: 'ageHours', header: 'Waiting', align: 'right', width: '7rem', sortable: true, accessor: (l) => l.ageHours ?? -1, render: (l) => (
+      l.ageHours === null
+        ? <span className="text-2xs text-fg-subtle">not started</span>
+        : <span className={cn('tabular text-2xs', l.ageHours > 24 && 'text-warning')}>{l.ageHours} h</span>
     ) },
-    { key: 'waitingMinutes', header: 'Waiting', width: '7rem', sortable: true, render: (l) => (
-      l.waitingMinutes ? <span className={cn(l.waitingMinutes > 240 ? 'text-danger' : l.waitingMinutes > 60 ? 'text-warning' : '')}><Duration minutes={l.waitingMinutes} /></span> : <span className="text-2xs text-success">moving</span>
-    ) },
-    { key: 'enteredAt', header: 'Since', width: '11rem', defaultHidden: true, render: (l) => formatDateTime(l.enteredAt) },
-    ...(canSeeValue ? [{ key: 'value', header: 'Value', align: 'right' as const, sortable: true, render: (l: WipLot) => formatCurrency(l.value) }] : []),
-    { key: 'state', header: 'State', sortable: true, width: '9.5rem', render: (l) => <MesStatusBadge status={l.state} size="sm" /> },
+    { key: 'state', header: 'State', width: '8rem', sortable: true, render: (l) => <MesStatusBadge status={l.state} size="sm" /> },
   ]
 
   function doExport(format: ExportFormat) {
     try {
-      const n = exportRows(format, 'wip-report', 'Work in progress', columnsFromTable(columns), lots)
+      const n = exportRows(format, 'work-in-progress', 'Work in progress', columnsFromTable(columns), data.lots)
       toast.success('Export ready', `${n} rows written as ${format === 'xlsx' ? 'Excel' : format.toUpperCase()}.`)
     } catch (e) {
       toast.error('Export failed', e instanceof Error ? e.message : 'Unknown error.')
     }
   }
 
+  const states = [...new Set(data.lots.map((l) => l.state))]
+
   return (
     <div>
       <PageHeader
         title="Work in progress"
-        breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Shop floor', to: '/production' }, { label: 'WIP' }]}
-        actions={<Button variant="outline" size="sm" onClick={() => navigate('/production/work-orders')}>Work orders</Button>}
+        breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Shop floor', to: '/production' }, { label: 'Work in progress' }]}
       />
 
-      <p className="mb-3 text-xs text-fg-muted">
-        Everything between the first and last operation. <span className="font-medium text-fg tabular">{formatQty(totalQty)}</span>{' '}
-        pieces in <span className="font-medium text-fg">{live.length}</span> lots
-        {canSeeValue && <> worth <span className="font-medium text-fg tabular">₹{formatCompact(totalValue)}</span></>} ·{' '}
-        <span className={cn('font-medium', held.length ? 'text-danger' : 'text-success')}>{held.length}</span> on quality hold ·{' '}
-        <span className={cn('font-medium', waiting.length ? 'text-warning' : 'text-success')}>{waiting.length}</span> waiting for a
-        free station, the longest for <Duration minutes={longestWait} />.
+      {error && (
+        <Alert tone="danger" title="Work in progress could not be loaded" className="mb-4">
+          {error}
+        </Alert>
+      )}
+
+      <p className="mb-4 text-xs text-fg-muted">
+        Derived from the work orders themselves, not from a separate register: what came into an operation less everything booked
+        out of it is what it is still holding. <span className="font-medium text-fg tabular">{formatQty(data.totals.qty)}</span>{' '}
+        across <span className="font-medium text-fg">{data.totals.lots}</span> lot{data.totals.lots === 1 ? '' : 's'}.
       </p>
 
-      <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        {byWorkCentre.map((w) => (
-          <div key={w.workCentre} className="card p-3">
-            <p className="truncate text-xs font-medium text-fg" title={String(w.workCentre ?? "")}>{w.workCentre}</p>
-            <p className="mt-1 text-lg font-semibold tabular text-fg">{formatQty(w.qty)}</p>
-            <p className="mt-0.5 text-2xs text-fg-muted">
-              {w.lots} lot{w.lots === 1 ? '' : 's'}{canSeeValue ? ` · ₹${formatCompact(w.value)}` : ''}
-            </p>
-          </div>
-        ))}
-      </div>
+      {data.byWorkCentre.length > 0 && (
+        <Card className="mb-4">
+          <CardHeader title="By work centre" description="Where the floor is holding stock between operations" />
+          <CardBody className="p-0">
+            <div className="overflow-x-auto">
+              <table className="grid-table">
+                <thead>
+                  <tr>
+                    <th>Work centre</th>
+                    <th className="w-24 text-right">Lots</th>
+                    <th className="w-32 text-right">Quantity held</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.byWorkCentre.map((w) => (
+                    <tr
+                      key={w.workCentreCode}
+                      className="cursor-pointer"
+                      onClick={() => navigate(`/production/queue`)}
+                    >
+                      <td className="font-mono text-2xs">{w.workCentreCode}</td>
+                      <td className="text-right tabular">{w.lots}</td>
+                      <td className="text-right tabular font-medium">{formatQty(w.qty)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardBody>
+        </Card>
+      )}
 
       <DataTable
-        rows={lots}
+        rows={data.lots}
         columns={columns}
         rowKey={(l) => l.uid}
-        searchPlaceholder="Search lot, item, batch, operation or location…"
+        loading={loading}
+        searchPlaceholder="Search work order, product, operation or batch…"
         onExport={doExport}
-        emptyTitle="Nothing in progress"
-        rowClassName={(l) => cn(l.state === 'QUALITY_HOLD' && 'bg-danger/[0.04]', l.state === 'WAITING' && l.waitingMinutes > 240 && 'bg-warning/[0.04]')}
-        rowActions={(l) => (
-          <>
-            {rowEdit.actions(l)}
-            <MenuItem
-              label="Move to the next operation"
-              icon={<ArrowRightLeft />}
-              disabled={l.state === 'QUALITY_HOLD' || !l.nextOperation}
-              onClick={() => {
-                setMoveTarget(l)
-                setMoveTo(l.nextOperation ?? '')
-              }}
-            />
-            <MenuItem
-              label="Put on quality hold"
-              danger
-              disabled={l.state === 'QUALITY_HOLD'}
-              onClick={() => {
-                setHoldTarget(l)
-                setHoldReason('')
-              }}
-            />
-            <MenuItem
-              label="Release from hold"
-              disabled={l.state !== 'QUALITY_HOLD'}
-              onClick={() => {
-                update(l.uid, { state: 'READY', waitingMinutes: 0 })
-                toast.success('Released', `${l.lotNo} back in the queue at ${l.currentOperation}.`)
-              }}
-            />
-            <MenuItem label="Trace this lot" separatorBefore onClick={() => navigate('/production/genealogy')} />
-          </>
-        )}
+        emptyTitle="Nothing is in progress"
+        emptyDescription="Every released operation has either finished or has not been fed yet, so no lot is waiting between stations."
       />
 
-      {/* Move ----------------------------------------------------------------- */}
-      <Modal
-        open={!!moveTarget}
-        onClose={() => setMoveTarget(null)}
-        title={moveTarget ? `Move ${moveTarget.lotNo}` : ''}
-        size="md"
-        footer={
-          <>
-            <Button variant="outline" onClick={() => setMoveTarget(null)}>Cancel</Button>
-            <Button
-              variant="primary"
-              onClick={() => {
-                if (!moveTarget) return
-                update(moveTarget.uid, {
-                  currentOperation: moveTo,
-                  state: 'READY',
-                  waitingMinutes: 0,
-                  enteredAt: new Date().toISOString(),
-                  machine: null,
-                  operator: null,
-                })
-                toast.success('Moved', `${formatQty(moveTarget.quantity)} ${moveTarget.uom} handed over to ${moveTo}. The batch identity travels with it.`)
-                setMoveTarget(null)
-              }}
-            >
-              Move lot
-            </Button>
-          </>
-        }
-      >
-        {moveTarget && (
-          <div className="space-y-3.5">
-            <p className="text-sm text-fg-muted">
-              <span className="font-medium text-fg">{formatQty(moveTarget.quantity)} {moveTarget.uom}</span> of{' '}
-              {moveTarget.itemName}, batch {moveTarget.batchNo}, currently at {moveTarget.currentOperation}.
-            </p>
-            <Select
-              label="Next operation"
-              value={moveTo}
-              onChange={(e) => setMoveTo(e.target.value)}
-              options={[moveTarget.nextOperation ?? '', 'Rework', 'Quality hold trolley'].filter(Boolean).map((v) => ({ value: v, label: v }))}
-            />
-            <p className="rounded border border-border bg-surface-2 px-3 py-2 text-2xs text-fg-subtle">
-              The lot keeps its batch number through every operation. That is what lets a finished bottle be traced back to the
-              steel heat it came from.
-            </p>
-          </div>
-        )}
-      </Modal>
-
-      {/* Hold ----------------------------------------------------------------- */}
-      <Modal
-        open={!!holdTarget}
-        onClose={() => setHoldTarget(null)}
-        title={holdTarget ? `Hold ${holdTarget.lotNo}` : ''}
-        size="md"
-        footer={
-          <>
-            <Button variant="outline" onClick={() => setHoldTarget(null)}>Cancel</Button>
-            <Button
-              variant="danger"
-              onClick={() => {
-                if (!holdTarget) return
-                if (!holdReason.trim()) {
-                  toast.error('Reason required', 'Quality and the next shift both need to know why this lot stopped.')
-                  return
-                }
-                update(holdTarget.uid, { state: 'QUALITY_HOLD', location: 'QTN-01', machine: null, operator: null })
-                toast.success('On quality hold', `${holdTarget.lotNo} moved to the hold area. It cannot advance until quality decides.`)
-                setHoldTarget(null)
-              }}
-            >
-              Hold lot
-            </Button>
-          </>
-        }
-      >
-        {holdTarget && (
-          <div className="space-y-3">
-            <p className="text-sm text-fg-muted">
-              Holding {formatQty(holdTarget.quantity)} {holdTarget.uom} stops it moving to {holdTarget.nextOperation ?? 'the next step'}.
-              It stays counted as WIP and keeps its place in the genealogy.
-            </p>
-            <Textarea label="Why (required)" rows={3} value={holdReason} onChange={(e) => setHoldReason(e.target.value)} placeholder="Weld porosity found on the sample, awaiting inspector…" />
-          </div>
-        )}
-      </Modal>
-
-      <Card className="mt-4">
-        <CardHeader title="What each state means" description="The floor and the planner use the same six words" />
-        <CardBody className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {(Object.keys(STATE_HELP) as WipState[]).map((s) => (
-            <div key={s} className="rounded border border-border p-3">
-              <MesStatusBadge status={s} size="sm" />
-              <p className="mt-1.5 text-2xs leading-relaxed text-fg-muted">{STATE_HELP[s]}</p>
-            </div>
-          ))}
-        </CardBody>
-      </Card>
-
-      {rowEdit.dialogs}
+      {states.length > 0 && (
+        <Card className="mt-4">
+          <CardHeader title="What each state means" />
+          <CardBody className="grid gap-2 text-xs leading-relaxed text-fg-muted sm:grid-cols-2">
+            {states.map((s) => (
+              <p key={s}>
+                <span className="font-medium text-fg">{s}</span> — {STATE_HELP[s] ?? 'Set by the server as the operation moves.'}
+              </p>
+            ))}
+          </CardBody>
+        </Card>
+      )}
     </div>
   )
 }

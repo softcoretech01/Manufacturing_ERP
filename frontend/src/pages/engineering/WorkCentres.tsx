@@ -10,9 +10,11 @@ import { Alert, PageHeader } from '@/components/ui/Misc'
 import { useToast } from '@/components/ui/Toast'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatAmount } from '@/lib/format'
+import { workCentreUsage } from '@/lib/engFlow'
 import { machines } from '@/mock/masters'
 import type { EngWorkCentre, Routing } from '@/types/engineering'
 import { engineeringApi as api } from '@/api/engineering'
+import { ProblemError } from '@/api/client'
 
 const SHIFTS = ['A (8 h)', 'A + B (16 h)', 'A + B + C (24 h)']
 const PLANTS = ['Chennai — Unit 1', 'Hosur — Unit 2']
@@ -77,11 +79,12 @@ export function WorkCentresPage() {
     loadData()
   }, [])
 
-  /** How many live routing operations depend on a centre — blocks deletion. */
-  const usageOf = (code: string) =>
-    routings
-      .filter((r) => r.status === 'ACTIVE' || r.status === 'APPROVED')
-      .reduce((n, r) => n + r.operations.filter((o) => o.workCentreCode === code).length, 0)
+  /**
+   * How many live routing operations depend on a centre — blocks deletion.
+   * The server's delete guard counts the same thing, so the disabled Delete
+   * action and the API's answer always agree.
+   */
+  const usageOf = (code: string) => workCentreUsage(code, routings)
 
   const machineRate = Number(form.machineRatePerHour) || 0
   const labourRate = Number(form.labourRatePerHour) || 0
@@ -190,7 +193,12 @@ export function WorkCentresPage() {
       toast.success('Deleted', `${confirmDelete.code} was soft-deleted; history is retained.`)
       loadData()
     } catch (err) {
-      toast.error('Error', 'Failed to delete work centre')
+      // The server says exactly why — usually that live routing steps still run
+      // here. Replacing that with "Failed to delete" hides the fix from the user.
+      toast.error(
+        'Cannot delete',
+        err instanceof ProblemError ? err.problem.detail : 'Could not delete the work centre.',
+      )
     } finally {
       setConfirmDelete(null)
     }
@@ -229,7 +237,7 @@ export function WorkCentresPage() {
               onClick={() => toggleActive(w)}
             />
             <MenuItem
-              label={usageOf(w.code) ? `Delete — blocked (${usageOf(w.code)} operations)` : 'Delete'}
+              label={usageOf(w.code) ? `Delete — blocked (${usageOf(w.code)} routing operations)` : 'Delete'}
               icon={<Trash2 />}
               danger
               separatorBefore

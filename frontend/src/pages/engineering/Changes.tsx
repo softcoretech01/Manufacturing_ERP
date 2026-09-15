@@ -15,8 +15,9 @@ import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatAmount, formatDate } from '@/lib/format'
 import {
   CHANGE_CATEGORY_LABEL,
+  // analyseChange still previews the cost impact here; applying the change is
+  // the server's job now, so applyChangeLines is no longer called from the page.
   analyseChange,
-  applyChangeLines,
   isLiveBom,
   latestRevisionOf,
   nextDocNo,
@@ -26,6 +27,7 @@ import { useEffect } from 'react'
 import type { Item } from '@/types/master'
 import type { Bom, ChangeAction, ChangeLine, EngChange, EngProduct, EngWorkCentre, Routing, Tool } from '@/types/engineering'
 import { engineeringApi as api } from '@/api/engineering'
+import { ProblemError } from '@/api/client'
 import { getItems } from '@/api/masters'
 
 /**
@@ -109,7 +111,11 @@ export function ChangesPage() {
       const [chgs, bs, ps, rs, wcs, ts, is] = await Promise.all([
         api.getEngChanges().catch(() => []),
         api.getBoms().catch(() => []),
-        api.getEngProducts().catch(() => []),
+        // A change alters a released structure, so the product it is raised
+        // against has to be something the factory builds. Argon gas and barcode
+        // labels are purchased and have no structure to change. Components still
+        // come from the full item list below, which the instructions need.
+        api.getEngProducts({ manufacturableOnly: true }).catch(() => []),
         api.getRoutings().catch(() => []),
         api.getEngWorkCentres().catch(() => []),
         api.getEngTools().catch(() => []),
@@ -190,6 +196,22 @@ export function ChangesPage() {
 
   const liveBoms = boms.filter(isLiveBom)
 
+  /**
+   * What a change can be raised against: a product that has a structure to
+   * change. Derived from the bills themselves — the parents of live revisions —
+   * intersected with the active manufacturable items, so nothing here is a
+   * hardcoded list and nothing appears that cannot be built.
+   *
+   * A product with no live bill is excluded whatever its item type: there is no
+   * structure to alter yet, and the instruction rows would have no bill to name.
+   * Superseded and draft revisions do not qualify either, because a change is
+   * raised against what the floor is building today. Several revisions of one
+   * bill collapse to a single entry, since the list is of products, not bills.
+   *
+   * Components are a separate question and stay on the full item master below.
+   */
+  const changeableProducts = products.filter((p) => liveBoms.some((b) => b.productCode === p.code))
+
   function addLine() {
     setForm((f) => ({
       ...f,
@@ -211,11 +233,14 @@ export function ChangesPage() {
 
   async function openCreate() {
     setEditing(null)
+    // No pre-selected product: whichever item happened to sort first is not a
+    // sensible guess at what someone is changing, and the field is required.
+    const today = new Date().toISOString().slice(0, 10)
     try {
       const docNo = await api.getNextEngChangeCode('ECR')
-      setForm({ ...emptyForm, docNo, productCode: products[0]?.code ?? '', effectiveFrom: new Date().toISOString().slice(0, 10) })
+      setForm({ ...emptyForm, docNo, effectiveFrom: today })
     } catch (e) {
-      setForm({ ...emptyForm, productCode: products[0]?.code ?? '', effectiveFrom: new Date().toISOString().slice(0, 10) })
+      setForm({ ...emptyForm, effectiveFrom: today })
     }
     setErrors({})
     setFormOpen(true)
@@ -417,43 +442,28 @@ export function ChangesPage() {
    * effective date, so nothing that was already built loses its structure.
    */
   async function implement(c: EngChange) {
-    const byDoc = new Map<string, ChangeLine[]>()
-    for (const l of c.changeLines) byDoc.set(l.bomDocNo, [...(byDoc.get(l.bomDocNo) ?? []), l])
-
-    const produced: string[] = []
-    const warnings: string[] = []
-
-    for (const [docNo, lines] of byDoc) {
-      const baseBom = latestRevisionOf(docNo, boms)
-      if (!baseBom) {
-        warnings.push(`${docNo} no longer exists.`)
-        continue
+    try {
+      // One call, one transaction. The server supersedes each bill's live
+      // revision, publishes the next revision under the same document number
+      // and closes the change — or changes nothing at all.
+      const result = await api.applyEngChange(c.uid)
+      if (result.warnings.length) {
+        toast.error('Implemented with warnings', result.warnings[0])
+      } else {
+        toast.success(
+          'Change implemented',
+          `${result.resultingBom.join(', ')} is live. Costing and planning pick it up immediately.`,
+        )
       }
-      const revised = applyChangeLines(baseBom, lines, warnings)
-      await api.createBom({
-        ...revised,
-        status: 'ACTIVE',
-        effectiveFrom: c.effectiveFrom,
-        effectiveTo: null,
-        createdBy: c.requestedBy,
-        createdAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
-        approvedBy: 'Meera Rajan',
-        approvedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
-        sourceEcn: c.docNo,
-        changeReason: c.title,
-      } as any)
-      await api.updateBom(baseBom.uid, { status: 'SUPERSEDED', effectiveTo: c.effectiveFrom })
-      produced.push(`${docNo} R${revised.revision}`)
+      setImplementing(null)
+      setDetail(null)
+    } catch (err) {
+      // Without this the rejection was swallowed and the button looked dead.
+      toast.error(
+        'Could not apply the change',
+        err instanceof ProblemError ? err.problem.detail : 'The bill of material was not changed.',
+      )
     }
-
-    await api.updateEngChange(c.uid, { ...c, status: 'IMPLEMENTED', resultingBom: produced.join(', ') || null })
-    if (warnings.length) {
-      toast.error('Implemented with warnings', warnings[0])
-    } else {
-      toast.success('Change implemented', `${produced.join(', ')} is live. Costing and planning pick it up immediately.`)
-    }
-    setImplementing(null)
-    setDetail(null)
     loadData()
   }
 
@@ -727,7 +737,9 @@ export function ChangesPage() {
         open={formOpen}
         onClose={() => setFormOpen(false)}
         title={editing ? `Edit ${editing.docNo}` : 'Raise an engineering change'}
-        size="xl"
+        // The instruction grid needs 63rem of columns before it starts scrolling
+        // sideways and clipping the Action column; 3xl gave it 48rem.
+        size="4xl"
         footer={
           <>
             <Button variant="outline" onClick={() => setFormOpen(false)}>
@@ -767,7 +779,15 @@ export function ChangesPage() {
             value={form.productCode}
             error={errors.productCode}
             onChange={(e) => setForm({ ...form, productCode: e.target.value })}
-            options={[{ value: '', label: 'Select a product…' }, ...products.map((p) => ({ value: p.code, label: `${p.code} — ${p.name}` }))]}
+            options={[
+              { value: '', label: 'Select a product…' },
+              ...changeableProducts.map((p) => ({ value: p.code, label: `${p.code} — ${p.name}` })),
+            ]}
+            hint={
+              changeableProducts.length
+                ? 'Products with a live bill of material.'
+                : 'No product has a live bill of material yet, so there is no structure to change.'
+            }
           />
           <Select label="Category" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value as EngChange['category'] })} options={CATEGORIES.map((c) => ({ value: c, label: CHANGE_CATEGORY_LABEL[c] }))} />
           <Select label="Priority" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value as EngChange['priority'] })} options={PRIORITIES.map((p) => ({ value: p, label: p.charAt(0) + p.slice(1).toLowerCase() }))} />

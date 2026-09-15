@@ -138,7 +138,42 @@ export const engineeringApi = {
 
   // Routings
   getRoutings: (): Promise<Routing[]> => api.get<Routing[]>('/engineering/routings').then((res: any) => Array.isArray(res) ? res : res.data || []),
+  /**
+   * Execute an approved change against its bills. One server transaction
+   * supersedes each live revision, publishes its successor under the same
+   * document number and closes the change.
+   */
+  applyEngChange: (uid: string | number) =>
+    api.post<{
+      uid: string
+      docNo: string
+      status: string
+      appliedBy: string
+      resultingBom: string[]
+      warnings: string[]
+    }>(`/engineering/changes/${uid}/apply`),
   createRouting: (data: Partial<Routing>) => api.post<Routing>('/engineering/routings', data),
+  /**
+   * The next revision of an existing routing. The server keeps the document
+   * number and works out the revision, so neither is sent.
+   */
+  createRoutingRevision: (uid: string | number, data: Partial<Routing>) =>
+    api.post<{ uid: string; docNo: string; revision: number }>(`/engineering/routings/${uid}/revisions`, data),
+  /** Make a live routing the product's default, clearing the previous one. */
+  setDefaultRouting: (uid: string | number) =>
+    api.post<{ uid: string; docNo: string; revision: number; defaultTakenFrom: string[] }>(
+      `/engineering/routings/${uid}/set-default`,
+    ),
+  /** Publish a revision: supersede the previous one, take the default, activate. */
+  approveRouting: (uid: string | number) =>
+    api.post<{
+      uid: string
+      docNo: string
+      revision: number
+      approvedBy: string
+      superseded: string[]
+      defaultTakenFrom: string[]
+    }>(`/engineering/routings/${uid}/approve`),
   updateRouting: (id: string | number, data: Partial<Routing>) => api.put<Routing>(`/engineering/routings/${id}`, data),
   deleteRouting: (id: string | number) => api.del(`/engineering/routings/${id}`),
   getRoutingsNextCode: () => api.get<{nextCode: string}>('/engineering/routings/next-code'),

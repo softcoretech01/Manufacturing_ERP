@@ -19,6 +19,7 @@ import type {
   EngProduct,
   Lifecycle,
   Routing,
+  RoutingOperation,
   Tool,
   EngWorkCentre,
 } from '@/types/engineering'
@@ -56,6 +57,28 @@ export function bomsForProduct(productCode: string, boms: Bom[]) {
 export function defaultBomFor(productCode: string, boms: Bom[]): Bom | undefined {
   const live = bomsForProduct(productCode, boms).filter(isLiveBom)
   return live.find((b) => b.isDefault) ?? live[0]
+}
+
+/**
+ * Products a roll-up can put a number against: those with a live bill of
+ * material or a live routing.
+ *
+ * Material comes from the bill and conversion from the routing, so a product
+ * with neither has nothing to roll up and would show zeroes in every bucket —
+ * which reads as a broken calculation rather than an absent one. The server
+ * takes the same view and returns no cost rather than writing a zero.
+ *
+ * Derived from the documents themselves, so a product becomes costable the
+ * moment its bill or routing goes live.
+ */
+export function costableProducts(
+  products: EngProduct[],
+  boms: Bom[],
+  routings: Routing[],
+): EngProduct[] {
+  return products.filter(
+    (p) => defaultBomFor(p.code, boms) !== undefined || defaultRoutingFor(p.code, routings) !== undefined,
+  )
 }
 
 /** Alternate BOMs — the same product built a different way for a customer. */
@@ -227,6 +250,54 @@ export function wouldCreateCycle(productCode: string, componentCode: string, bom
 
 export function routingsForProduct(productCode: string, routings: Routing[]) {
   return routings.filter((r) => r.productCode === productCode).sort((a, b) => b.revision - a.revision)
+}
+
+/**
+ * A routing holds capacity only once it is live. Draft, pending-approval and
+ * superseded revisions describe intent or history, not what the floor runs.
+ */
+export const isLiveRouting = (r: Routing) => r.status === 'ACTIVE' || r.status === 'APPROVED'
+
+/**
+ * Every routing step that runs on a work centre, with the routing it belongs to
+ * (the caller usually needs the lot size or the status alongside the step).
+ */
+export function liveRoutingOpsForWorkCentre(
+  code: string,
+  routings: Routing[],
+): { op: RoutingOperation; routing: Routing }[] {
+  return routings
+    .filter(isLiveRouting)
+    .flatMap((routing) => routing.operations.filter((op) => op.workCentreCode === code).map((op) => ({ op, routing })))
+}
+
+/**
+ * "Used by" for a work centre — the count the grid shows and the count the
+ * Delete guard obeys. The backend's delete guard applies the same rule in SQL
+ * (`engineering_workcentre_repository.LIVE_ROUTING_USAGE_SQL`); the two must not
+ * drift apart, or a centre reading 0 ops will still refuse to delete.
+ *
+ * A standard operation's default work centre is not usage: it is a template,
+ * and it commits nothing until a routing step is built from it.
+ */
+export function workCentreUsage(code: string, routings: Routing[]): number {
+  return liveRoutingOpsForWorkCentre(code, routings).length
+}
+
+/**
+ * Every revision of one routing document, newest first.
+ *
+ * A revision keeps its document number and increments the revision, so the
+ * document is the set of rows sharing `docNo` — never the row identifier, which
+ * belongs to the revision.
+ */
+export function revisionsOf(docNo: string, routings: Routing[]): Routing[] {
+  return routings.filter((r) => r.docNo === docNo).sort((a, b) => b.revision - a.revision)
+}
+
+/** The revision immediately before this one, if it is still on file. */
+export function previousRevisionOf(routing: Routing, routings: Routing[]): Routing | undefined {
+  return revisionsOf(routing.docNo, routings).find((r) => r.revision < routing.revision)
 }
 
 export function defaultRoutingFor(productCode: string, routings: Routing[]): Routing | undefined {

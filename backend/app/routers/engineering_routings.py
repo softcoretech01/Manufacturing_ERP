@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
+from app.core.context import TenantContext
 from app.core.database import get_session
 from app.core.deps import require
 from app.schemas.engineering_routing import EngRoutingSchema
@@ -9,50 +10,97 @@ from pydantic import BaseModel
 
 router = APIRouter()
 
+# Every rejection below travels as RFC 9457 problem+json: the service raises the
+# typed errors from app.core.errors and the global handler renders them, so these
+# handlers deliberately do not catch and flatten exceptions into a bare 400.
+
 @router.get("/next-code", dependencies=[Depends(require("ENGINEERING.ROUTING.CREATE"))])
 async def get_next_routing_code(db: AsyncSession = Depends(get_session)):
     service = EngineeringRoutingService(db)
     code = await service.get_next_code()
     return {"nextCode": code}
 
+# Registered with and without the trailing slash: the redirect FastAPI issues for
+# the missing one points at the API's own origin, which breaks any client reaching
+# it through a proxy.
+@router.get("", dependencies=[Depends(require("ENGINEERING.ROUTING.VIEW"))], include_in_schema=False)
 @router.get("/", dependencies=[Depends(require("ENGINEERING.ROUTING.VIEW"))])
 async def get_routings(db: AsyncSession = Depends(get_session)):
     service = EngineeringRoutingService(db)
-    try:
-        return await service.get_all_routings()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return await service.get_all_routings()
 
+@router.post("", dependencies=[Depends(require("ENGINEERING.ROUTING.CREATE"))], include_in_schema=False)
 @router.post("/", dependencies=[Depends(require("ENGINEERING.ROUTING.CREATE"))])
-async def create_routing(routing: EngRoutingSchema, db: AsyncSession = Depends(get_session)):
+async def create_routing(
+    routing: EngRoutingSchema,
+    db: AsyncSession = Depends(get_session),
+    ctx: TenantContext = Depends(require("ENGINEERING.ROUTING.CREATE")),
+):
+    """A new routing document. The server mints the number; revisions do not come here."""
     service = EngineeringRoutingService(db)
-    try:
-        uid = await service.create_routing(routing)
-        return {"uid": uid}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    uid = await service.create_routing(routing, ctx.user_name)
+    return {"uid": uid}
+
+@router.post("/{uid}/revisions", status_code=201, dependencies=[Depends(require("ENGINEERING.ROUTING.CREATE"))])
+async def create_routing_revision(
+    uid: str,
+    routing: EngRoutingSchema,
+    db: AsyncSession = Depends(get_session),
+    ctx: TenantContext = Depends(require("ENGINEERING.ROUTING.CREATE")),
+):
+    """The next revision of {uid}, keeping its document number.
+
+    The payload's revision number and document number are ignored: the server
+    takes the number from the document being revised and the revision from the
+    database.
+    """
+    service = EngineeringRoutingService(db)
+    return await service.create_revision(uid, routing, ctx.user_name)
+
+@router.post("/{uid}/approve", dependencies=[Depends(require("ENGINEERING.ROUTING.APPROVE"))])
+async def approve_routing(
+    uid: str,
+    db: AsyncSession = Depends(get_session),
+    ctx: TenantContext = Depends(require("ENGINEERING.ROUTING.APPROVE")),
+):
+    """Publish a revision: supersede the previous one, move the default, activate.
+
+    One transaction, and the approver is the authenticated user — never a name
+    supplied by the caller.
+    """
+    service = EngineeringRoutingService(db)
+    return await service.approve_routing(uid, ctx.user_name)
+
+@router.post("/{uid}/set-default", dependencies=[Depends(require("ENGINEERING.ROUTING.EDIT"))])
+async def set_default_routing(
+    uid: str,
+    db: AsyncSession = Depends(get_session),
+    ctx: TenantContext = Depends(require("ENGINEERING.ROUTING.EDIT")),
+):
+    """Make this live routing the product's default, clearing the previous one."""
+    service = EngineeringRoutingService(db)
+    return await service.set_default_routing(uid, ctx.user_name)
 
 @router.put("/{uid}", dependencies=[Depends(require("ENGINEERING.ROUTING.EDIT"))])
-async def update_routing(uid: str, routing: EngRoutingSchema, db: AsyncSession = Depends(get_session)):
+async def update_routing(
+    uid: str,
+    routing: EngRoutingSchema,
+    db: AsyncSession = Depends(get_session),
+    ctx: TenantContext = Depends(require("ENGINEERING.ROUTING.EDIT")),
+):
     service = EngineeringRoutingService(db)
-    try:
-        updated_uid = await service.update_routing(uid, routing)
-        if not updated_uid:
-            raise HTTPException(status_code=404, detail="Routing not found")
-        return {"uid": updated_uid}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    updated_uid = await service.update_routing(uid, routing, ctx.user_name)
+    return {"uid": updated_uid}
 
 @router.delete("/{uid}", dependencies=[Depends(require("ENGINEERING.ROUTING.DELETE"))])
-async def delete_routing(uid: str, db: AsyncSession = Depends(get_session)):
+async def delete_routing(
+    uid: str,
+    db: AsyncSession = Depends(get_session),
+    ctx: TenantContext = Depends(require("ENGINEERING.ROUTING.DELETE")),
+):
     service = EngineeringRoutingService(db)
-    try:
-        deleted_uid = await service.delete_routing(uid)
-        if not deleted_uid:
-            raise HTTPException(status_code=404, detail="Routing not found")
-        return {"uid": deleted_uid}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    deleted_uid = await service.delete_routing(uid, ctx.user_name)
+    return {"uid": deleted_uid}
 
 # Pickers for the routing builder.
 #
