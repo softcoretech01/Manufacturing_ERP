@@ -4,13 +4,14 @@ import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { Modal } from '@/components/ui/Modal'
-import { Input, Select } from '@/components/ui/Input'
+import { Input, Select, Textarea } from '@/components/ui/Input'
 import { PageHeader } from '@/components/ui/Misc'
 import { useToast } from '@/components/ui/Toast'
-import { formatDate, formatCurrency } from '@/lib/format'
+import { formatDate, formatDateTime, formatCurrency } from '@/lib/format'
 import { ProcStatusBadge } from '@/components/procurement/ProcShell'
 import { ProcurementToolbar } from '@/components/procurement/ProcurementToolbar'
 import * as api from '@/api/procurement'
+import { approvals, approvalRules, type DocumentApproval } from '@/api/workflow'
 import { getItems, getEmployees } from '@/api/masters'
 import { useItemCategories } from '@/hooks/useItemCategories'
 import { useDocDetail } from '@/hooks/useDocDetail'
@@ -19,6 +20,20 @@ import {
   ProcModal, ModalFooter, Section, FieldGrid, Field,
   LineItemsTable, TotalsPanel, RowActions, money, qty as fmtQty,
 } from '@/components/procurement/ProcKit'
+
+const EVENT_LABEL: Record<string, string> = {
+  SUBMITTED: 'Submitted for approval',
+  ASSIGNED: 'Assigned to approver',
+  APPROVED: 'Approved',
+  REJECTED: 'Rejected',
+  RETURNED: 'Returned for correction',
+  AUTO_APPROVED: 'Auto-approved',
+  LEVEL_COMPLETED: 'Level completed',
+  LEVEL_SKIPPED: 'Level skipped',
+  REASSIGNED: 'Reassigned',
+  ESCALATED: 'Escalated',
+  RECALLED: 'Recalled',
+}
 
 export function RequisitionsPage() {
   const toast = useToast()
@@ -34,7 +49,17 @@ export function RequisitionsPage() {
   const [formOpen, setFormOpen] = useState(false)
   const [viewOpen, setViewOpen] = useState(false)
   const [editing, setEditing] = useState<any | null>(null)
-  
+
+  // Approval workflow state for the PR being viewed. The PR does not own
+  // approval — this reads the real engine (core_workflow_*) and, when the current
+  // user holds the pending task, decides through the same /approvals endpoint.
+  const [wf, setWf] = useState<DocumentApproval | null>(null)
+  const [deciding, setDeciding] = useState(false)
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const [rejectReason, setRejectReason] = useState('')
+  const [rejectComments, setRejectComments] = useState('')
+  const [reasonCodes, setReasonCodes] = useState<{ code: string; label: string }[]>([])
+
   const [form, setForm] = useState<any>({
     requestedBy: '',
     requiredBy: '',
@@ -66,6 +91,7 @@ export function RequisitionsPage() {
     Promise.all([getItems(), getEmployees()]).then(
       ([items, employees]) => setMasters({items, employees})
     ).catch(() => toast.error('Error', 'Failed to load master data'))
+    approvalRules.reasonCodes().then(setReasonCodes).catch(() => {})
   }, [])
 
   const filteredData = useMemo(() => {
@@ -129,10 +155,55 @@ export function RequisitionsPage() {
     setFormOpen(true)
   }
 
+  const loadApproval = async (pr: any) => {
+    const id = String(pr?.uid ?? pr?.id ?? '')
+    if (!id) { setWf(null); return }
+    try { setWf(await approvals.forDocument('PURCHASE_REQUISITION', id)) }
+    catch { setWf(null) }
+  }
+
   const handleView = async (pr: any) => {
     setEditing(pr)
+    setWf(null)
     setViewOpen(true)
-    setEditing(await detail.load(pr))
+    const full = await detail.load(pr)
+    setEditing(full)
+    await loadApproval(full)
+  }
+
+  const refreshAfterDecision = async (pr: any) => {
+    fetchList()
+    const full = await detail.load(pr)
+    setEditing(full)
+    await loadApproval(full)
+  }
+
+  const handleApprove = async () => {
+    const taskUid = wf?.my_pending_task_uid
+    if (!taskUid || deciding) return
+    setDeciding(true)
+    try {
+      await approvals.decide(taskUid, { action: 'APPROVE' })
+      toast.success('Approved', 'The requisition has been approved.')
+      await refreshAfterDecision(editing)
+    } catch (err: any) {
+      toast.error('Could not approve', err.message || 'Please try again.')
+    } finally { setDeciding(false) }
+  }
+
+  const submitReject = async () => {
+    const taskUid = wf?.my_pending_task_uid
+    if (!taskUid) return
+    if (!rejectReason) return toast.error('Reason required', 'Choose a reason code to reject.')
+    setDeciding(true)
+    try {
+      await approvals.decide(taskUid, { action: 'REJECT', reason_code: rejectReason, comments: rejectComments || null })
+      toast.success('Rejected', 'The requisition has been rejected and returned to the requester.')
+      setRejectOpen(false); setRejectReason(''); setRejectComments('')
+      await refreshAfterDecision(editing)
+    } catch (err: any) {
+      toast.error('Could not reject', err.message || 'Please try again.')
+    } finally { setDeciding(false) }
   }
 
   const handleSave = (isDraft: boolean) => async () => {
@@ -446,6 +517,16 @@ export function RequisitionsPage() {
                 Submit for Approval
               </Button>
             )}
+            {wf?.my_pending_task_uid && (
+              <>
+                <Button variant="outline" onClick={() => { setRejectReason(''); setRejectComments(''); setRejectOpen(true) }} disabled={deciding}>
+                  Reject
+                </Button>
+                <Button variant="primary" onClick={handleApprove} loading={deciding} disabled={deciding}>
+                  Approve
+                </Button>
+              </>
+            )}
           </ModalFooter>
         }
       >
@@ -454,8 +535,8 @@ export function RequisitionsPage() {
           const sub = lines.reduce(
             (a: number, l: any) => a + (Number(l.qty) || 0) * Number(l.estimatedRate ?? l.unitPrice ?? 0), 0)
           const taxAmt = 0 // Default to 0% tax
-          const approvals = editing.approvals || []
-          const decided = approvals.find((a: any) => a.status && a.status !== 'PENDING')
+          const inst = wf?.instance
+          const pendingApprover = wf?.tasks?.find((t) => t.status === 'PENDING')?.assignee
           return (
             <>
               <Section title="PR Information">
@@ -495,19 +576,75 @@ export function RequisitionsPage() {
                 <TotalsPanel subtotal={sub} tax={taxAmt} grandTotal={sub + taxAmt} />
               </Section>
 
-              {decided && (
-                <Section title="Approval">
+              {inst && (
+                <Section title="Approval Workflow">
                   <FieldGrid>
-                    <Field label="Approval Status" value={<ProcStatusBadge status={decided.status} />} />
-                    <Field label="Approved By" value={decided.approver} />
-                    <Field label="Approved Date" value={decided.actedAt ? formatDate(decided.actedAt) : null} />
-                    <Field label="Approval Remarks" value={decided.remarks} />
+                    <Field label="Workflow Status" value={<ProcStatusBadge status={inst.status} />} />
+                    <Field label="Level" value={
+                      inst.status === 'IN_PROGRESS'
+                        ? `${inst.current_level ?? '—'} of ${inst.total_levels}${inst.current_level_name ? ` · ${inst.current_level_name}` : ''}`
+                        : `${inst.total_levels} level${inst.total_levels === 1 ? '' : 's'}`} />
+                    <Field label="Initiated" value={inst.initiated_at ? formatDateTime(inst.initiated_at) : null} />
+                    {inst.completed_at && <Field label="Completed" value={formatDateTime(inst.completed_at)} />}
                   </FieldGrid>
+
+                  {wf?.my_pending_task_uid ? (
+                    <div className="mt-1 rounded-md border border-brand-200 bg-brand-50 px-3 py-2 text-sm text-brand-700">
+                      This requisition is waiting for <strong>your</strong> approval — use <strong>Approve</strong> or <strong>Reject</strong> below.
+                    </div>
+                  ) : inst.status === 'IN_PROGRESS' ? (
+                    <div className="mt-1 rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-fg-muted">
+                      Awaiting approval{pendingApprover ? <> by <strong className="text-fg">{pendingApprover}</strong></> : null}. Approvers act on it from the Approvals inbox.
+                    </div>
+                  ) : null}
+
+                  {wf && wf.history.length > 0 && (
+                    <div className="mt-3">
+                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-fg-muted">Approval trail</div>
+                      <div className="space-y-2">
+                        {wf.history.map((h, i) => (
+                          <div key={i} className="flex items-start gap-3 text-sm">
+                            <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-brand-400" />
+                            <div>
+                              <span className="font-medium text-fg">{EVENT_LABEL[h.event_type] || h.event_type}</span>
+                              {h.level_name && <span className="text-fg-muted"> · {h.level_name}</span>}
+                              {h.user_name && <span className="text-fg-muted"> · {h.user_name}</span>}
+                              <span className="block text-[11px] text-fg-subtle">
+                                {formatDateTime(h.created_at)}{h.comments ? ` — ${h.comments}` : ''}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </Section>
               )}
             </>
           )
         })()}
+      </ProcModal>
+
+      <ProcModal
+        open={rejectOpen}
+        onClose={() => setRejectOpen(false)}
+        title="Reject requisition"
+        subtitle="The PR is marked Rejected and returned to the requester to correct and resubmit."
+        footer={
+          <ModalFooter onCancel={() => setRejectOpen(false)}>
+            <Button variant="primary" onClick={submitReject} loading={deciding} disabled={deciding || !rejectReason}>
+              Confirm rejection
+            </Button>
+          </ModalFooter>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <Select label="Reason code" value={rejectReason} onChange={e => setRejectReason(e.target.value)}>
+            <option value="">Select a reason…</option>
+            {reasonCodes.map(r => <option key={r.code} value={r.code}>{r.label}</option>)}
+          </Select>
+          <Textarea label="Comments (optional)" rows={3} value={rejectComments} onChange={e => setRejectComments(e.target.value)} />
+        </div>
       </ProcModal>
     </div>
   )

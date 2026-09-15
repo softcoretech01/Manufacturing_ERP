@@ -258,6 +258,55 @@ async def reassign_task(uid: str, body: s.ReassignRequest, session: SessionDep, 
     return _instance_out(inst, new_task)
 
 
+@router.get("/approvals/for-document")
+async def document_approval(
+    entity_type: str, entity_uid: str, session: SessionDep, ctx: ContextDep
+) -> dict[str, Any]:
+    """Read-only approval state for a source document (e.g. a PR), so its detail
+    view can show the real workflow status/history and offer Approve/Reject to the
+    user who holds the pending task. The decision itself still goes through
+    POST /approvals/tasks/{uid}/decide — no new approval path.
+    """
+    svc = WorkflowService(session, ctx)
+    d = await svc.document_approval(entity_type, entity_uid)
+    if d is None:
+        return {"instance": None, "tasks": [], "history": [], "my_pending_task_uid": None}
+    return {
+        "instance": _instance_out(d["instance"], d.get("current_task")).model_dump(),
+        "my_pending_task_uid": d["my_pending_task_uid"],
+        "tasks": [
+            {
+                "uid": t.uid,
+                "level_no": t.level_no,
+                "level_name": t.level_name,
+                "assignee": await svc._user_name(t.assigned_to_user_id),
+                "on_behalf_of": await svc._user_name(t.on_behalf_of_user_id),
+                "status": t.status,
+                "assigned_at": t.assigned_at,
+                "due_at": t.due_at,
+                "acted_at": t.acted_at,
+                "comments": t.comments,
+                "reason_code": t.reason_code,
+            }
+            for t in d["tasks"]
+        ],
+        "history": [
+            s.HistoryEventOut(
+                sequence_no=h.sequence_no,
+                event_type=h.event_type,
+                from_status=h.from_status,
+                to_status=h.to_status,
+                level_no=h.level_no,
+                level_name=h.level_name,
+                user_name=h.user_name,
+                comments=h.comments,
+                created_at=h.created_at,
+            ).model_dump()
+            for h in d["history"]
+        ],
+    }
+
+
 # ═══════════════════════════ Workflow monitor ═══════════════════════════════
 @router.get("/workflow-instances", response_model=list[s.InstanceOut])
 async def list_instances(
