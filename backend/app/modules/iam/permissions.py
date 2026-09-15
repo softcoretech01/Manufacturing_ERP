@@ -62,11 +62,15 @@ _MODULES: dict[str, dict[str, tuple[str, ...]]] = {
     # Product engineering — BOM, routing and change control (Vol 5).
     "ENGINEERING": {
         "BOM": _MASTER_CRUD,
-        "ROUTING": _MASTER_CRUD,
+        # APPROVE publishes a revision: it supersedes the previous one and moves
+        # the default, so it is a separate grant from EDIT.
+        "ROUTING": (*_MASTER_CRUD, "APPROVE"),
         "OPERATION": _MASTER_CRUD,
         "WORK_CENTRE": _MASTER_CRUD,
         "TOOL": _MASTER_CRUD,
-        "CHANGE": _MASTER_CRUD,
+        # APPLY executes an approved change against its bills: it supersedes a
+        # revision and publishes its successor, so it is its own grant.
+        "CHANGE": (*_MASTER_CRUD, "APPLY"),
         "DOCUMENT": _MASTER_CRUD,
         "DOCUMENT_TYPE": _MASTER_CRUD,  # master behind the document Type picker
         "COST": ("VIEW", "ROLLUP"),  # standard-cost roll-up over the live structure
@@ -101,6 +105,22 @@ _MODULES: dict[str, dict[str, tuple[str, ...]]] = {
         "CAPACITY": ("VIEW", "PLAN"),
         "CALENDAR": ("VIEW", "EDIT"),
         "RESERVATION": ("VIEW", "CREATE", "RELEASE"),
+    },
+    # Shop-floor execution (Vol 6) — what actually happened on the floor.
+    # The actions are split because a line operator books production without
+    # being able to release orders, clear an inspection or close an order.
+    "PRODUCTION": {
+        "ORDER": ("VIEW", "RELEASE", "COMPLETE"),
+        "WORKORDER": ("VIEW", "ASSIGN"),
+        "OPERATION": ("START", "COMPLETE", "HOLD"),
+        # Reading the floor — the queue, WIP, the traveller, the dashboard and
+        # the production reports. Separate from posting, so a supervisor or a
+        # planner can watch the floor without being able to book against it.
+        "FLOOR": ("VIEW",),
+        "ENTRY": ("VIEW", "POST"),
+        "MATERIAL": ("ISSUE",),
+        "SCRAP": ("VIEW", "CREATE"),
+        "QC": ("EXECUTE",),
     },
     # Procurement (Vol 3). Raising a document, approving it and receiving against
     # it are separate duties — segregation of duties depends on them being

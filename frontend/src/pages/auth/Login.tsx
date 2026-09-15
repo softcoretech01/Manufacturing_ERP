@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -22,7 +22,7 @@ import { Input } from '@/components/ui/Input'
 import { Alert, Avatar } from '@/components/ui/Misc'
 import { HeroSection } from '@/components/auth/HeroSection'
 import { useAuth } from '@/store/auth'
-import { useSession } from '@/api/session'
+import { isRemembered, setRemember as setRememberPreference, useSession } from '@/api/session'
 import { users } from '@/mock/data'
 import { PORTALS, portalOf, type PortalCode } from '@/config/portals'
 import type { User } from '@/types'
@@ -56,6 +56,22 @@ function clearReturnTo(): void {
   }
 }
 
+
+/**
+ * Which demo profile drives the shell for the account that just signed in.
+ *
+ * The prototype's navigation, permissions and default plant still come from the
+ * mock user list, so the signed-in login id is matched against it by login id or
+ * email. A real account with no demo profile (a freshly created user, say) gets
+ * the system administrator profile, which is what every login used to get.
+ */
+const FALLBACK_PROFILE = 'usr-16'
+
+function shellProfileFor(loginId: string): string {
+  const id = loginId.trim().toLowerCase()
+  const match = users.find((u) => u.loginId.toLowerCase() === id || u.email.toLowerCase() === id)
+  return match?.uid ?? FALLBACK_PROFILE
+}
 
 type Step = 'credentials' | 'forgot' | 'otp' | 'reset' | 'pin'
 
@@ -92,7 +108,10 @@ export function LoginPage() {
 
   const handlePortalPick = (code: PortalCode) => {
     setPortal(code)
-    if (userUid) navigate(portalOf(code).home)
+    // Only an authenticated user is sent straight through. With a stale mock
+    // session but no API token, navigating would land them on screens that 401
+    // and bounce them back here; the pick just selects the portal to sign in to.
+    if (userUid && apiToken) navigate(portalOf(code).home)
   }
 
   return (
@@ -145,10 +164,13 @@ export function LoginPage() {
                     <Credentials
                       onNext={setStep}
                       portal={chosen}
-                      onSuccess={() => {
+                      onSuccess={(loginId) => {
                         // The backend authenticated the user; drive the mock UI
-                        // shell (nav, portals, permissions) with the sysadmin.
-                        loginAsDemo('usr-16')
+                        // shell (nav, portals, permissions) with that person's
+                        // own profile. Only an account with no demo profile
+                        // falls back to the sysadmin one, and even then the real
+                        // name is shown — see useCurrentUser.
+                        loginAsDemo(shellProfileFor(loginId))
                         goToDestination()
                       }}
                     />
@@ -205,10 +227,16 @@ export function LoginPage() {
    ═══════════════════════════════════════════════════════════ */
 
 function PortalChooser({ active, onPick }: { active: PortalCode; onPick: (c: PortalCode) => void }) {
-  const live = PORTALS.filter((p) => p.status === 'LIVE')
+  // Stable across renders: the key listener below is mounted once, and a new
+  // array each render would tear it down — taking the half-typed digit with it.
+  const live = useMemo(() => PORTALS.filter((p) => p.status === 'LIVE'), [])
   const [focus, setFocus] = useState<PortalCode | null>(null)
   const [cursor, setCursor] = useState(0)
   const typed = useRef<{ digits: string; timer: number | null }>({ digits: '', timer: null })
+  // Read through a ref so the listener always sees current values without
+  // needing to be re-registered — re-registering is what cancelled the timer.
+  const latest = useRef({ cursor, onPick })
+  latest.current = { cursor, onPick }
 
   useEffect(() => {
     const clearTyped = () => {
@@ -216,7 +244,11 @@ function PortalChooser({ active, onPick }: { active: PortalCode; onPick: (c: Por
       typed.current = { digits: '', timer: null }
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement && e.key.length === 1) return
+      const target = e.target instanceof HTMLElement ? e.target : null
+      // A field the user is typing into owns every key it can use: digits are
+      // characters, arrows move the caret, Enter submits. These grid shortcuts
+      // are listening on the window, so they have to stand back for it.
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
       if (/^[0-9]$/.test(e.key)) {
         e.preventDefault()
         const next = typed.current.digits + e.key
@@ -225,7 +257,7 @@ function PortalChooser({ active, onPick }: { active: PortalCode; onPick: (c: Por
           const label = String(i + 1)
           return label.length > next.length && label.startsWith(next)
         })
-        if (!extendable) { clearTyped(); if (live[index]) onPick(live[index].code); return }
+        if (!extendable) { clearTyped(); if (live[index]) latest.current.onPick(live[index].code); return }
         if (live[index]) { setFocus(null); setCursor(index) }
         if (typed.current.timer !== null) window.clearTimeout(typed.current.timer)
         typed.current = {
@@ -233,7 +265,7 @@ function PortalChooser({ active, onPick }: { active: PortalCode; onPick: (c: Por
           timer: window.setTimeout(() => {
             const settled = Number(typed.current.digits) - 1
             clearTyped()
-            if (live[settled]) onPick(live[settled].code)
+            if (live[settled]) latest.current.onPick(live[settled].code)
           }, 450),
         }
         return
@@ -244,14 +276,21 @@ function PortalChooser({ active, onPick }: { active: PortalCode; onPick: (c: Por
         setCursor((c) => Math.max(0, Math.min(live.length - 1, c + step)))
         return
       }
-      if (e.key === 'Enter' && live[cursor] && !(e.target instanceof HTMLInputElement)) {
-        e.preventDefault(); clearTyped(); onPick(live[cursor].code); return
+      if (e.key === 'Enter') {
+        // Enter activates whatever is focused — the Login button, "Forgot
+        // password?", a tabbed-to tile. Only an unfocused page hands it to the
+        // grid cursor, otherwise Enter on Login would switch portal instead of
+        // signing in.
+        if (target?.closest('button, a')) return
+        const at = latest.current.cursor
+        if (live[at]) { e.preventDefault(); clearTyped(); latest.current.onPick(live[at].code) }
+        return
       }
       if (e.key === 'Escape') clearTyped()
     }
     window.addEventListener('keydown', onKey)
     return () => { window.removeEventListener('keydown', onKey); clearTyped() }
-  }, [live, cursor, onPick])
+  }, [live])
 
   return (
     <div className="flex flex-col h-full">
@@ -317,7 +356,7 @@ function Credentials({
   portal,
 }: {
   onNext: (s: Step) => void
-  onSuccess: () => void
+  onSuccess: (loginId: string) => void
   portal: { name: string; icon: LucideIcon; gradient: string }
 }) {
   const [loginId, setLoginId] = useState('admin')
@@ -325,17 +364,22 @@ function Credentials({
   const [show, setShow] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [remember, setRemember] = useState(false)
+  // Reflects the choice made last time, so a remembered user sees it ticked.
+  const [remember, setRemember] = useState(isRemembered)
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
     setBusy(true)
     try {
+      // Decided before the tokens arrive, because it is what picks the store
+      // they are written to: localStorage to outlive the browser, session
+      // storage to die with it.
+      setRememberPreference(remember)
       // Authenticate against the real FastAPI backend; this stores the JWT +
       // active company in the session, so the Organisation screens can load.
       await apiLogin(loginId.trim(), password)
-      onSuccess()
+      onSuccess(loginId)
     } catch (err) {
       setError(
         err instanceof ProblemError

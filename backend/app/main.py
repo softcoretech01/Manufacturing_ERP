@@ -9,6 +9,7 @@ from app.modules.planning.api.dashboard_router import router as planning_dashboa
 from app.modules.planning.api.demand_router import router as planning_demand_router
 from app.modules.planning.api.mrp_router import router as planning_mrp_router
 from app.modules.planning.api.routers import router as planning_router
+from app.modules.production.api.routers import router as production_router
 
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
@@ -273,6 +274,7 @@ def create_app() -> FastAPI:
     app.include_router(planning_demand_router, prefix=api)
     app.include_router(planning_capacity_router, prefix=api)
     app.include_router(planning_dashboard_router, prefix=api)
+    app.include_router(production_router, prefix=api)
     return app
 
 

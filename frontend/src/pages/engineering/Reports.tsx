@@ -14,6 +14,7 @@ import {
   defaultBomFor,
   defaultRoutingFor,
   isLiveBom,
+  liveRoutingOpsForWorkCentre,
   rollUpCost,
   routingTime,
   toolLifePct,
@@ -410,12 +411,11 @@ export function EngReportsPage() {
         ],
         build: () =>
           workCentres.map((w) => {
-            const ops = routings
-              .filter((r) => r.status === 'ACTIVE' || r.status === 'APPROVED')
-              .flatMap((r) => r.operations.filter((o) => o.workCentreCode === w.code).map((o) => ({ o, r })))
+            const ops = liveRoutingOpsForWorkCentre(w.code, routings)
             // Setup once per costing lot, run time for every one of the 1,000 pieces.
             const minutes = ops.reduce(
-              (s, { o, r }) => s + (o.setupMinutes / Math.max(1, r.costingLotSize)) * 1000 + (o.cycleSeconds / 60) * 1000,
+              (s, { op, routing }) =>
+                s + (op.setupMinutes / Math.max(1, routing.costingLotSize)) * 1000 + (op.cycleSeconds / 60) * 1000,
               0,
             )
             const hours = minutes / 60

@@ -1,282 +1,538 @@
-import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Pause, Play, Square } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Check, Hand, Pause, Play, Square } from 'lucide-react'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
-import { Card, CardBody, CardHeader, DataGrid } from '@/components/ui/Card'
+import { Card, CardBody, DataGrid } from '@/components/ui/Card'
 import { DataTable, type Column } from '@/components/ui/DataTable'
-import { Drawer } from '@/components/ui/Modal'
+import { Drawer, Modal } from '@/components/ui/Modal'
 import { MenuItem } from '@/components/ui/Menu'
-import { PageHeader } from '@/components/ui/Misc'
+import { Input, Select, Textarea } from '@/components/ui/Input'
+import { Alert, PageHeader } from '@/components/ui/Misc'
 import { Tabs } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
-import { useRowEdit } from '@/components/crud/RowEdit'
-import { Duration, EfficiencyChip, MesDetailBlock, MesStatusBadge, OperationCell, ProgressCell } from '@/components/mes/MesShell'
+import { MesDetailBlock, OperationCell, ProgressCell } from '@/components/mes/MesShell'
 import { columnsFromTable, exportRows, type ExportFormat } from '@/lib/export'
 import { formatDateTime, formatQty } from '@/lib/format'
 import { cn } from '@/lib/cn'
-import { useCollection } from '@/store/data'
-import { productionEntries, workOrders as seedWorkOrders } from '@/mock/mes'
-import type { WorkOrder } from '@/types/mes'
+import { ProblemError } from '@/api/client'
+import { productionApi, type WorkOrderRow } from '@/api/production'
 
 /**
- * Work orders — one per routing operation. The floor works this list, not the
- * production order: each row is a real job on a real machine with a real person.
+ * Work orders — one per routing operation, read from the shop floor itself.
+ *
+ * Every figure on this screen comes from `prd_work_order` and the production
+ * entries posted against it. Nothing here is a browser counter: starting,
+ * booking and completing are server actions, and the server decides whether the
+ * sequence, the input quantity and the status allow them.
  */
+
+const ACTIVE = ['READY', 'RUNNING', 'PAUSED']
+
+const STATUS_TONE: Record<string, 'success' | 'warning' | 'danger' | 'neutral' | 'progress'> = {
+  RUNNING: 'success',
+  READY: 'progress',
+  PAUSED: 'warning',
+  QC_HOLD: 'danger',
+  HOLD: 'danger',
+  COMPLETED: 'neutral',
+  CANCELLED: 'neutral',
+  QUEUED: 'neutral',
+}
+
+interface EntryForm {
+  goodQty: string
+  scrapQty: string
+  reworkQty: string
+  scrapReason: string
+  remarks: string
+}
+
+const EMPTY_ENTRY: EntryForm = { goodQty: '', scrapQty: '', reworkQty: '', scrapReason: '', remarks: '' }
+
 export function WorkOrdersPage() {
   const toast = useToast()
-  const navigate = useNavigate()
-  const seed = useMemo(() => seedWorkOrders, [])
-  const { rows: workOrders, update } = useCollection<WorkOrder>('mes:workorder', seed)
-  const rowEdit = useRowEdit<WorkOrder>({
-    key: 'mes:workorder',
-    seed: seed,
-    entity: 'Work order',
-    titleOf: (r) => r.docNo,
-  })
-
+  const [rows, setRows] = useState<WorkOrderRow[]>([])
+  const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('active')
-  const [detail, setDetail] = useState<WorkOrder | null>(null)
+  const [detail, setDetail] = useState<WorkOrderRow | null>(null)
+  const [booking, setBooking] = useState<WorkOrderRow | null>(null)
+  const [entry, setEntry] = useState<EntryForm>(EMPTY_ENTRY)
+  const [entryErrors, setEntryErrors] = useState<Record<string, string>>({})
+  const [qcTarget, setQcTarget] = useState<WorkOrderRow | null>(null)
+  const [qc, setQc] = useState({ result: 'PASS', inspectionDocNo: '', note: '' })
+  const [holdTarget, setHoldTarget] = useState<WorkOrderRow | null>(null)
+  const [holdReason, setHoldReason] = useState('')
 
-  const filtered = workOrders.filter((w) => {
-    if (tab === 'active') return ['READY', 'SETUP', 'RUNNING', 'PAUSED'].includes(w.status)
+  async function load() {
+    try {
+      setRows(await productionApi.getWorkOrders())
+    } catch (err) {
+      toast.error('Could not load work orders', message(err, 'Is the backend running?'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function message(err: unknown, fallback: string) {
+    return err instanceof ProblemError ? err.problem.detail : fallback
+  }
+
+  /** Every action is the same shape: call the server, report it, reload. */
+  async function act(label: string, run: () => Promise<unknown>, success: (result: any) => string) {
+    try {
+      const result = await run()
+      toast.success(label, success(result))
+      await load()
+      setDetail(null)
+    } catch (err) {
+      toast.error(`Could not ${label.toLowerCase()}`, message(err, 'The floor was not changed.'))
+    }
+  }
+
+  const filtered = rows.filter((w) => {
+    if (tab === 'active') return ACTIVE.includes(w.status)
     if (tab === 'queued') return w.status === 'QUEUED'
-    if (tab === 'hold') return w.status === 'QC_HOLD'
-    if (tab === 'done') return w.status === 'COMPLETED'
+    if (tab === 'hold') return w.status === 'QC_HOLD' || w.status === 'HOLD'
+    if (tab === 'done') return w.status === 'COMPLETED' || w.status === 'CANCELLED'
     return true
   })
 
-  const running = workOrders.filter((w) => w.status === 'RUNNING')
-  const yieldPct = (w: WorkOrder) => (w.inputQty ? (w.producedQty / w.inputQty) * 100 : 0)
+  const yieldPct = (w: WorkOrderRow) => (w.inputQty ? (w.producedQty / w.inputQty) * 100 : 0)
+  const booked = (w: WorkOrderRow) => w.producedQty + w.scrapQty + w.reworkQty
 
-  /** Only one operation can be running per machine, and sequence must be respected. */
-  function start(w: WorkOrder) {
-    const previous = workOrders.filter((x) => x.productionOrderNo === w.productionOrderNo && x.sequence < w.sequence)
-    const unfinished = previous.filter((x) => x.status !== 'COMPLETED')
-    if (unfinished.length) {
-      toast.error(
-        'Earlier operation is not finished',
-        `${unfinished[0].operationName} (seq ${unfinished[0].sequence}) must complete before ${w.operationName} can start — the material has not reached this station yet.`,
+  /* ── Booking ───────────────────────────────────────────────────────────── */
+
+  function openBooking(w: WorkOrderRow) {
+    setBooking(w)
+    setEntry(EMPTY_ENTRY)
+    setEntryErrors({})
+  }
+
+  async function postEntry() {
+    if (!booking) return
+    const good = Number(entry.goodQty) || 0
+    const scrap = Number(entry.scrapQty) || 0
+    const rework = Number(entry.reworkQty) || 0
+    const errors: Record<string, string> = {}
+    if (good + scrap + rework <= 0) errors.goodQty = 'Book at least one piece.'
+    if (scrap > 0 && !entry.scrapReason.trim()) errors.scrapReason = 'Scrap needs a reason.'
+    setEntryErrors(errors)
+    if (Object.keys(errors).length) return
+
+    try {
+      const result = await productionApi.recordProduction(booking.uid, {
+        goodQty: good,
+        scrapQty: scrap,
+        reworkQty: rework,
+        scrapReason: entry.scrapReason,
+        remarks: entry.remarks,
+      })
+      toast.success(
+        `Booked on ${booking.docNo}`,
+        `${result.entryDocNo} — ${formatQty(good)} good${scrap ? `, ${formatQty(scrap)} scrap` : ''}. ` +
+          `${formatQty(result.remainingToBook)} of the input is still unbooked.`,
       )
-      return
+      setBooking(null)
+      await load()
+    } catch (err) {
+      toast.error('Could not book production', message(err, 'Nothing was posted.'))
     }
-    const busy = workOrders.find((x) => x.machine && x.machine === w.machine && x.status === 'RUNNING')
-    if (busy) {
-      toast.error('Machine already running', `${w.machine} is on ${busy.docNo} (${busy.operationName}). Pause or finish that first.`)
-      return
-    }
-    update(w.uid, { status: 'RUNNING', startedAt: new Date().toISOString() })
-    toast.success('Started', `${w.docNo} — ${w.operationName} running on ${w.machine ?? 'the work centre'}. Machine and labour hours are now accumulating.`)
   }
 
-  function complete(w: WorkOrder) {
-    if (w.producedQty === 0) {
-      toast.error('Nothing booked yet', 'Post a production entry before completing the operation — the quantity has to come from somewhere.')
-      return
-    }
-    update(w.uid, {
-      status: w.qcRequired ? 'QC_HOLD' : 'COMPLETED',
-      completedAt: new Date().toISOString(),
-      qcResult: w.qcRequired ? 'PENDING' : 'NOT_REQUIRED',
-    })
-    const next = workOrders.find((x) => x.productionOrderNo === w.productionOrderNo && x.sequence === w.sequence + 1)
-    if (next && !w.qcRequired) update(next.uid, { status: 'READY', inputQty: w.producedQty })
-    toast.success(
-      w.qcRequired ? 'Sent for inspection' : 'Operation complete',
-      w.qcRequired
-        ? `${formatQty(w.producedQty)} ${w.uom} held for QC. The next operation stays queued until it passes.`
-        : `${formatQty(w.producedQty)} ${w.uom} moved on to ${next ? next.operationName : 'finished goods'}.`,
-    )
-  }
+  /* ── Columns ───────────────────────────────────────────────────────────── */
 
-  const columns: Column<WorkOrder>[] = [
-    { key: 'docNo', header: 'Work order', sortable: true, width: '11rem', render: (w) => (
-      <div>
-        <p className="font-mono text-xs font-medium text-brand-600">{w.docNo}</p>
-        <p className="font-mono text-2xs text-fg-subtle">{w.productionOrderNo}</p>
-      </div>
-    ) },
-    { key: 'sequence', header: 'Operation', sortable: true, render: (w) => <OperationCell sequence={w.sequence} name={w.operationName} workCentre={w.workCentre} /> },
-    { key: 'machine', header: 'Machine', sortable: true, width: '9rem', render: (w) => <span className="font-mono text-2xs">{w.machine ?? '—'}</span> },
-    { key: 'tool', header: 'Tool', width: '10rem', defaultHidden: true, render: (w) => <span className="text-2xs text-fg-muted">{w.tool ?? '—'}</span> },
-    { key: 'operator', header: 'Operator', sortable: true, render: (w) => (w.operator ? <span className="text-xs">{w.operator}{w.shift ? ` · ${w.shift}` : ''}</span> : <span className="text-2xs text-fg-subtle">unassigned</span>) },
-    { key: 'inputQty', header: 'In', align: 'right', width: '6rem', sortable: true, render: (w) => (w.inputQty ? <span className="tabular">{formatQty(w.inputQty)}</span> : <span className="text-2xs text-fg-subtle">—</span>) },
-    { key: 'producedQty', header: 'Out', width: '11rem', accessor: (w) => w.producedQty, render: (w) => <ProgressCell done={w.producedQty} total={w.inputQty || w.plannedQty} /> },
-    { key: 'scrapQty', header: 'Scrap', align: 'right', width: '6rem', sortable: true, render: (w) => (w.scrapQty ? <span className="tabular text-danger">{w.scrapQty}</span> : <span className="text-2xs text-fg-subtle">—</span>) },
-    { key: 'yield', header: 'Yield', align: 'right', width: '6rem', accessor: (w) => yieldPct(w), render: (w) => (
-      w.inputQty ? <span className={cn('tabular text-2xs', yieldPct(w) < 96 ? 'text-warning' : 'text-success')}>{yieldPct(w).toFixed(1)}%</span> : <span className="text-2xs text-fg-subtle">—</span>
-    ) },
-    { key: 'actualMinutes', header: 'Time', width: '7rem', render: (w) => <Duration minutes={w.actualMinutes} /> },
-    { key: 'efficiency', header: 'vs standard', align: 'right', width: '8rem', accessor: (w) => (w.actualMinutes ? (w.standardMinutes / w.actualMinutes) * 100 : 0), render: (w) => <EfficiencyChip standard={w.standardMinutes} actual={w.actualMinutes} /> },
-    { key: 'qcResult', header: 'QC', width: '8rem', render: (w) => (w.qcRequired ? <MesStatusBadge status={w.qcResult} size="sm" /> : <span className="text-2xs text-fg-subtle">not required</span>) },
-    { key: 'status', header: 'Status', sortable: true, width: '9rem', render: (w) => <MesStatusBadge status={w.status} size="sm" /> },
+  const columns: Column<WorkOrderRow>[] = [
+    {
+      key: 'docNo',
+      header: 'Work order',
+      sortable: true,
+      width: '12rem',
+      render: (w) => (
+        <div>
+          <p className="font-mono text-xs font-medium text-brand-600">{w.docNo}</p>
+          <p className="font-mono text-2xs text-fg-subtle">{w.orderDocNo}</p>
+        </div>
+      ),
+    },
+    {
+      key: 'seq',
+      header: 'Operation',
+      sortable: true,
+      render: (w) => <OperationCell sequence={w.seq} name={w.operationName} workCentre={w.workCentreCode} />,
+    },
+    { key: 'productCode', header: 'Product', width: '11rem', render: (w) => <span className="font-mono text-2xs">{w.productCode}</span> },
+    { key: 'machineCode', header: 'Machine', width: '8rem', render: (w) => <span className="font-mono text-2xs">{w.machineCode ?? '—'}</span> },
+    {
+      key: 'inputQty',
+      header: 'In',
+      align: 'right',
+      width: '7rem',
+      accessor: (w) => w.inputQty,
+      render: (w) => <span className="tabular text-xs">{formatQty(w.inputQty)}</span>,
+    },
+    {
+      key: 'producedQty',
+      header: 'Good / scrap',
+      align: 'right',
+      width: '9rem',
+      accessor: (w) => w.producedQty,
+      render: (w) => (
+        <span className="tabular text-xs">
+          {formatQty(w.producedQty)}
+          {w.scrapQty > 0 && <span className="text-danger"> / {formatQty(w.scrapQty)}</span>}
+        </span>
+      ),
+    },
+    {
+      key: 'progress',
+      header: 'Booked',
+      width: '9rem',
+      accessor: (w) => yieldPct(w),
+      render: (w) => <ProgressCell done={booked(w)} total={w.inputQty || w.plannedQty} />,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      sortable: true,
+      width: '10rem',
+      accessor: (w) => w.status,
+      render: (w) => (
+        <div>
+          <Badge tone={STATUS_TONE[w.status] ?? 'neutral'} size="sm">
+            {w.status.replace('_', ' ').toLowerCase()}
+          </Badge>
+          {w.qcCheckpoint && w.qcResult !== 'NOT_REQUIRED' && (
+            <p className="mt-0.5 text-3xs text-fg-subtle">QC {w.qcResult.toLowerCase()}</p>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'blockedReason',
+      header: 'Waiting on',
+      width: '14rem',
+      render: (w) => <span className="text-2xs text-fg-muted">{w.blockedReason ?? '—'}</span>,
+    },
   ]
 
-  function doExport(format: ExportFormat) {
-    try {
-      const n = exportRows(format, 'work-orders', 'Work order register', columnsFromTable(columns), filtered)
-      toast.success('Export ready', `${n} rows written as ${format === 'xlsx' ? 'Excel' : format.toUpperCase()}.`)
-    } catch (e) {
-      toast.error('Export failed', e instanceof Error ? e.message : 'Unknown error.')
-    }
-  }
-
-  const detailEntries = detail ? productionEntries.filter((e) => e.workOrderNo === detail.docNo) : []
+  const runningCount = rows.filter((w) => w.status === 'RUNNING').length
+  const holdCount = rows.filter((w) => w.status === 'QC_HOLD' || w.status === 'HOLD').length
 
   return (
     <div>
       <PageHeader
         title="Work orders"
         breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Shop floor', to: '/production' }, { label: 'Work orders' }]}
-        actions={
-          <>
-            <Button variant="outline" size="sm" onClick={() => navigate('/production/queue')}>Operation queue</Button>
-            <Button variant="primary" size="sm" onClick={() => navigate('/production/entry')}>Book production</Button>
-          </>
-        }
-        tabs={
-          <Tabs
-            active={tab}
-            onChange={setTab}
-            tabs={[
-              { id: 'active', label: 'On the floor', count: workOrders.filter((w) => ['READY', 'SETUP', 'RUNNING', 'PAUSED'].includes(w.status)).length },
-              { id: 'queued', label: 'Queued', count: workOrders.filter((w) => w.status === 'QUEUED').length },
-              { id: 'hold', label: 'QC hold', count: workOrders.filter((w) => w.status === 'QC_HOLD').length },
-              { id: 'done', label: 'Completed', count: workOrders.filter((w) => w.status === 'COMPLETED').length },
-              { id: 'all', label: 'All', count: workOrders.length },
-            ]}
-          />
-        }
       />
 
-      <p className="mb-3 text-xs text-fg-muted">
-        One work order per routing operation. An operation cannot start before the one in front of it has finished, and a machine
-        can only run one at a time — the same two rules the floor already works to.{' '}
-        <span className="font-medium text-success">{running.length}</span> running now.
-      </p>
+      {!loading && !rows.length && (
+        <Alert tone="info" className="mb-4">
+          Nothing has been released to the floor. A planner releases a production order in Planning,
+          and its routing operations appear here as work orders.
+        </Alert>
+      )}
+
+      {holdCount > 0 && (
+        <Alert tone="warning" className="mb-4">
+          {holdCount} operation{holdCount === 1 ? ' is' : 's are'} held. A lot waiting on inspection
+          passes nothing to the next operation until quality decides.
+        </Alert>
+      )}
 
       <DataTable
         rows={filtered}
         columns={columns}
         rowKey={(w) => w.uid}
-        searchPlaceholder="Search work order, operation, machine or operator…"
-        onExport={doExport}
+        loading={loading}
+        searchPlaceholder="Search work order, order, product or work centre…"
+        toolbar={
+          <Tabs
+            tabs={[
+              { id: 'active', label: 'On the floor', count: rows.filter((w) => ACTIVE.includes(w.status)).length },
+              { id: 'queued', label: 'Queued', count: rows.filter((w) => w.status === 'QUEUED').length },
+              { id: 'hold', label: 'Held', count: holdCount },
+              { id: 'done', label: 'Finished', count: rows.filter((w) => w.status === 'COMPLETED').length },
+              { id: 'all', label: 'All', count: rows.length },
+            ]}
+            active={tab}
+            onChange={setTab}
+          />
+        }
         onRowClick={setDetail}
-        emptyTitle="No work orders in this state"
-        rowClassName={(w) => cn(w.status === 'RUNNING' && 'bg-success/[0.04]', w.status === 'QC_HOLD' && 'bg-danger/[0.04]')}
+        onExport={(f: ExportFormat) => {
+          const n = exportRows(f, 'work-orders', 'Work orders', columnsFromTable(columns), filtered)
+          toast.success('Export ready', `${n} rows written.`)
+        }}
+        emptyTitle="No work orders"
+        emptyDescription="Release a production order in Planning to put work on the floor."
+        rowClassName={(w) => cn(w.status === 'RUNNING' && 'bg-success/[0.04]', (w.status === 'QC_HOLD' || w.status === 'HOLD') && 'bg-danger/[0.04]')}
         rowActions={(w) => (
           <>
-            {rowEdit.actions(w)}
             <MenuItem label="Open" onClick={() => setDetail(w)} />
-            <MenuItem label="Start operation" icon={<Play />} disabled={w.status !== 'READY' && w.status !== 'PAUSED'} onClick={() => start(w)} />
+            <MenuItem
+              label="Start"
+              icon={<Play />}
+              disabled={!w.canStart || w.status === 'RUNNING'}
+              onClick={() => act('Started', () => productionApi.startOperation(w.uid), () => `${w.docNo} is running on ${w.workCentreCode}.`)}
+            />
+            <MenuItem
+              label="Book production"
+              disabled={w.status !== 'RUNNING' && w.status !== 'PAUSED'}
+              onClick={() => openBooking(w)}
+            />
             <MenuItem
               label="Pause"
               icon={<Pause />}
               disabled={w.status !== 'RUNNING'}
+              onClick={() => act('Paused', () => productionApi.pauseOperation(w.uid), () => `${w.docNo} is paused.`)}
+            />
+            <MenuItem
+              label="Resume"
+              disabled={w.status !== 'PAUSED' && w.status !== 'HOLD'}
+              onClick={() => act('Resumed', () => productionApi.resumeOperation(w.uid), () => `${w.docNo} is running again.`)}
+            />
+            <MenuItem
+              label="Complete"
+              icon={<Square />}
+              separatorBefore
+              disabled={w.status !== 'RUNNING' && w.status !== 'PAUSED'}
+              onClick={() =>
+                act(
+                  'Completed',
+                  () => productionApi.completeOperation(w.uid),
+                  (r: any) =>
+                    r.awaitingQc
+                      ? `${w.docNo} is held for inspection. Nothing moves on until quality decides.`
+                      : r.finishedGoods
+                        ? `${formatQty(r.finishedGoods.quantity)} received into finished goods on ${r.finishedGoods.documentNo}.`
+                        : `${formatQty(r.next?.inputQty ?? 0)} passed to operation ${r.next?.seq}.`,
+                )
+              }
+            />
+            <MenuItem
+              label="Record QC decision"
+              icon={<Check />}
+              disabled={!w.qcCheckpoint || w.status !== 'QC_HOLD'}
               onClick={() => {
-                update(w.uid, { status: 'PAUSED' })
-                toast.success('Paused', `${w.docNo} paused — record why on the downtime screen so the lost minutes are explained.`)
+                setQcTarget(w)
+                setQc({ result: 'PASS', inspectionDocNo: '', note: '' })
               }}
             />
-            <MenuItem label="Complete operation" icon={<Square />} disabled={w.status !== 'RUNNING'} onClick={() => complete(w)} />
-            <MenuItem label="Book production against it" separatorBefore onClick={() => navigate('/production/entry')} />
-            <MenuItem label="Open work instruction" onClick={() => navigate('/production/instructions')} />
+            <MenuItem
+              label="Hold"
+              icon={<Hand />}
+              danger
+              separatorBefore
+              disabled={['COMPLETED', 'CANCELLED'].includes(w.status)}
+              onClick={() => {
+                setHoldTarget(w)
+                setHoldReason('')
+              }}
+            />
           </>
         )}
       />
 
+      <Card className="mt-4">
+        <CardBody>
+          <DataGrid
+            items={[
+              { label: 'Running now', value: String(runningCount) },
+              { label: 'Held', value: String(holdCount) },
+              { label: 'Released operations', value: String(rows.length) },
+              {
+                label: 'Good booked today',
+                value: formatQty(rows.reduce((s, w) => s + w.producedQty, 0)),
+              },
+            ]}
+          />
+        </CardBody>
+      </Card>
+
+      {/* Detail ------------------------------------------------------------ */}
       <Drawer
         open={!!detail}
         onClose={() => setDetail(null)}
-        title={detail?.docNo}
-        description={detail ? `${detail.operationName} · ${detail.workCentre}` : undefined}
-        width="max-w-3xl"
-        footer={
-          detail && (
-            <div className="flex w-full justify-end gap-2">
-              {(detail.status === 'READY' || detail.status === 'PAUSED') && (
-                <Button variant="success" size="sm" onClick={() => { start(detail); setDetail(null) }}>Start</Button>
-              )}
-              {detail.status === 'RUNNING' && (
-                <Button variant="primary" size="sm" onClick={() => { complete(detail); setDetail(null) }}>Complete</Button>
-              )}
-              <Button variant="outline" size="sm" onClick={() => setDetail(null)}>Close</Button>
-            </div>
-          )
-        }
+        title={detail?.docNo ?? ''}
+        description={detail ? `${detail.orderDocNo} · ${detail.productCode}` : ''}
+        width="42rem"
       >
         {detail && (
           <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <MesStatusBadge status={detail.status} />
-              {detail.qcRequired && <Badge tone="warning" size="sm" dot={false}>Inspection point</Badge>}
-              {detail.batchNo && <Badge tone="brand" size="sm" dot={false}>Batch {detail.batchNo}</Badge>}
-            </div>
-
-            <DataGrid
-              columns={2}
-              items={[
-                { label: 'Production order', value: detail.productionOrderNo, mono: true },
-                { label: 'Sequence', value: `${detail.sequence} of 15` },
-                { label: 'Operation', value: `${detail.operationCode} — ${detail.operationName}` },
-                { label: 'Work centre', value: detail.workCentre },
-                { label: 'Machine', value: detail.machine ?? 'Not assigned' },
-                { label: 'Tool / die', value: detail.tool ?? '—' },
-                { label: 'Operator · shift', value: detail.operator ? `${detail.operator} · ${detail.shift}` : 'Unassigned' },
-                { label: 'Input quantity', value: detail.inputQty ? `${formatQty(detail.inputQty)} ${detail.uom}` : 'Awaiting the previous operation' },
-                { label: 'Produced', value: `${formatQty(detail.producedQty)} ${detail.uom}` },
-                { label: 'Scrap · rework', value: `${detail.scrapQty} · ${detail.reworkQty}` },
-                { label: 'Standard time', value: `${detail.standardMinutes} min (setup ${detail.setupMinutes} min)` },
-                { label: 'Actual time', value: detail.actualMinutes ? `${detail.actualMinutes} min` : 'Not started' },
-                { label: 'Started', value: detail.startedAt ? formatDateTime(detail.startedAt) : '—' },
-                { label: 'Completed', value: detail.completedAt ? formatDateTime(detail.completedAt) : '—' },
-              ]}
-            />
-
-            <MesDetailBlock title={`Production entries (${detailEntries.length})`}>
-              {detailEntries.length === 0 ? (
-                <p className="text-xs text-fg-subtle">Nothing booked against this work order yet.</p>
-              ) : (
-                <div className="overflow-x-auto rounded border border-border">
-                  <table className="grid-table">
-                    <thead>
-                      <tr>
-                        <th>Entry</th>
-                        <th>Window</th>
-                        <th>Operator</th>
-                        <th className="text-right">Good</th>
-                        <th className="text-right">Scrap</th>
-                        <th className="text-right">Rework</th>
-                        <th className="text-right">Cycle</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detailEntries.map((e) => (
-                        <tr key={e.uid}>
-                          <td className="font-mono text-2xs text-brand-600">{e.docNo}</td>
-                          <td className="text-2xs">{formatDateTime(e.startedAt).slice(-5)} → {formatDateTime(e.endedAt).slice(-5)}</td>
-                          <td className="text-xs">{e.operator} · {e.shift}</td>
-                          <td className="text-right tabular text-success">{formatQty(e.goodQty)}</td>
-                          <td className="text-right tabular text-danger">{e.scrapQty || '—'}</td>
-                          <td className="text-right tabular text-warning">{e.reworkQty || '—'}</td>
-                          <td className="text-right tabular text-2xs">{e.cycleSeconds}s</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+            {detail.blockedReason && <Alert tone="warning">{detail.blockedReason}</Alert>}
+            <MesDetailBlock title="The operation, as the routing specified it">
+              <DataGrid
+                items={[
+                  { label: 'Operation', value: `${detail.seq} · ${detail.operationName}` },
+                  { label: 'Work centre', value: detail.workCentreCode },
+                  { label: 'Machine', value: detail.machineCode ?? 'Any' },
+                  { label: 'Tool', value: detail.toolCode ?? 'None' },
+                  { label: 'Skill', value: detail.skill || '—' },
+                  { label: 'Operators', value: String(detail.operators) },
+                  { label: 'Setup (std)', value: `${detail.setupMinutesStd} min` },
+                  { label: 'Run (std)', value: `${detail.runMinutesStd} min` },
+                  { label: 'QC checkpoint', value: detail.qcCheckpoint ? `Yes — ${detail.qcResult.toLowerCase()}` : 'No' },
+                ]}
+              />
             </MesDetailBlock>
-
-            <p className="text-2xs leading-relaxed text-fg-subtle">
-              Completing an operation moves its good quantity to the next one as input, updates machine and labour hours, and —
-              where the operation is an inspection point — holds the lot until quality releases it.
-            </p>
+            <MesDetailBlock title="What has actually happened">
+              <DataGrid
+                items={[
+                  { label: 'Received', value: `${formatQty(detail.inputQty)} ${detail.uom}` },
+                  { label: 'Good', value: formatQty(detail.producedQty) },
+                  { label: 'Scrap', value: formatQty(detail.scrapQty) },
+                  { label: 'Rework', value: formatQty(detail.reworkQty) },
+                  { label: 'Still unbooked', value: formatQty(detail.inputQty - booked(detail)) },
+                  { label: 'Operator', value: detail.operatorName ?? '—' },
+                  { label: 'Started', value: detail.startedAt ? formatDateTime(detail.startedAt) : '—' },
+                  { label: 'Completed', value: detail.completedAt ? formatDateTime(detail.completedAt) : '—' },
+                  { label: 'Batch', value: detail.batchNo || '—' },
+                ]}
+              />
+            </MesDetailBlock>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" icon={<Play className="h-3.5 w-3.5" />} disabled={!detail.canStart || detail.status === 'RUNNING'} onClick={() => act('Started', () => productionApi.startOperation(detail.uid), () => `${detail.docNo} is running.`)}>
+                Start
+              </Button>
+              <Button size="sm" variant="outline" disabled={detail.status !== 'RUNNING' && detail.status !== 'PAUSED'} onClick={() => openBooking(detail)}>
+                Book production
+              </Button>
+              <Button size="sm" variant="outline" disabled={detail.status !== 'RUNNING' && detail.status !== 'PAUSED'} onClick={() => act('Completed', () => productionApi.completeOperation(detail.uid), (r: any) => (r.awaitingQc ? 'Held for inspection.' : 'Operation complete.'))}>
+                Complete
+              </Button>
+            </div>
           </div>
         )}
       </Drawer>
 
-      {rowEdit.dialogs}
+      {/* Book production --------------------------------------------------- */}
+      <Modal
+        open={!!booking}
+        onClose={() => setBooking(null)}
+        title={booking ? `Book production on ${booking.docNo}` : ''}
+        description={booking ? `${booking.operationName} · ${formatQty(booking.inputQty - booked(booking))} of ${formatQty(booking.inputQty)} still unbooked` : ''}
+        size="lg"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setBooking(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={postEntry}>
+              Post entry
+            </Button>
+          </>
+        }
+      >
+        <div className="grid gap-3.5 sm:grid-cols-3">
+          <Input label="Good" type="number" min={0} required value={entry.goodQty} error={entryErrors.goodQty} onChange={(e) => setEntry({ ...entry, goodQty: e.target.value })} />
+          <Input label="Scrap" type="number" min={0} value={entry.scrapQty} onChange={(e) => setEntry({ ...entry, scrapQty: e.target.value })} />
+          <Input label="Rework" type="number" min={0} value={entry.reworkQty} onChange={(e) => setEntry({ ...entry, reworkQty: e.target.value })} />
+          <Input
+            label="Scrap reason"
+            containerClassName="sm:col-span-3"
+            value={entry.scrapReason}
+            error={entryErrors.scrapReason}
+            hint="Recorded against the order and the operation; scrap is a document, not a number."
+            onChange={(e) => setEntry({ ...entry, scrapReason: e.target.value })}
+          />
+          <Textarea label="Remarks" containerClassName="sm:col-span-3" rows={2} value={entry.remarks} onChange={(e) => setEntry({ ...entry, remarks: e.target.value })} />
+        </div>
+      </Modal>
+
+      {/* QC decision ------------------------------------------------------- */}
+      <Modal
+        open={!!qcTarget}
+        onClose={() => setQcTarget(null)}
+        title={qcTarget ? `Quality decision on ${qcTarget.docNo}` : ''}
+        size="md"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setQcTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={async () => {
+                if (!qcTarget) return
+                try {
+                  const r = await productionApi.recordQc(qcTarget.uid, qc)
+                  toast.success(
+                    'Quality decision recorded',
+                    r.released
+                      ? `${qcTarget.docNo} passed; ${formatQty(r.next?.inputQty ?? r.finishedGoods?.quantity ?? 0)} moved on.`
+                      : `${qcTarget.docNo} stays held. Nothing moved on.`,
+                  )
+                  setQcTarget(null)
+                  await load()
+                } catch (err) {
+                  toast.error('Could not record the decision', message(err, 'Nothing changed.'))
+                }
+              }}
+            >
+              Record
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3.5">
+          <Select
+            label="Decision"
+            value={qc.result}
+            onChange={(e) => setQc({ ...qc, result: e.target.value })}
+            options={[
+              { value: 'PASS', label: 'Pass — release the quantity to the next operation' },
+              { value: 'FAIL', label: 'Fail — nothing moves on' },
+              { value: 'REWORK', label: 'Rework — hold for repair' },
+              { value: 'HOLD', label: 'Hold — awaiting a decision' },
+            ]}
+          />
+          <Input
+            label="Inspection document"
+            value={qc.inspectionDocNo}
+            hint="Optional. Checked against Quality; an unknown number is refused rather than invented."
+            onChange={(e) => setQc({ ...qc, inspectionDocNo: e.target.value })}
+          />
+          <Textarea label="Note" rows={2} value={qc.note} onChange={(e) => setQc({ ...qc, note: e.target.value })} />
+        </div>
+      </Modal>
+
+      {/* Hold -------------------------------------------------------------- */}
+      <Modal
+        open={!!holdTarget}
+        onClose={() => setHoldTarget(null)}
+        title={holdTarget ? `Hold ${holdTarget.docNo}` : ''}
+        size="md"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setHoldTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={async () => {
+                if (!holdTarget) return
+                try {
+                  await productionApi.holdOperation(holdTarget.uid, holdReason)
+                  toast.success('Held', `${holdTarget.docNo} is on hold.`)
+                  setHoldTarget(null)
+                  await load()
+                } catch (err) {
+                  toast.error('Could not hold', message(err, 'Nothing changed.'))
+                }
+              }}
+            >
+              Hold
+            </Button>
+          </>
+        }
+      >
+        <Textarea label="Reason" required rows={3} value={holdReason} onChange={(e) => setHoldReason(e.target.value)} />
+      </Modal>
     </div>
   )
 }

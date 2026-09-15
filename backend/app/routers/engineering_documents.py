@@ -19,6 +19,10 @@ def get_service(db: AsyncSession = Depends(get_session)) -> EngineeringDocumentS
     repository = EngineeringDocumentRepository(db)
     return EngineeringDocumentService(repository, DocumentTypeRepository(db))
 
+# Registered with and without the trailing slash: the redirect FastAPI issues
+# for the missing one points at the API's own origin, which breaks any client
+# reaching it through a proxy.
+@router.get("", response_model=list[EngDocumentSchema], dependencies=[Depends(require("ENGINEERING.DOCUMENT.VIEW"))], include_in_schema=False)
 @router.get("/", response_model=list[EngDocumentSchema], dependencies=[Depends(require("ENGINEERING.DOCUMENT.VIEW"))])
 async def get_documents(service: EngineeringDocumentService = Depends(get_service)):
     return await service.get_all_documents()
@@ -27,6 +31,7 @@ async def get_documents(service: EngineeringDocumentService = Depends(get_servic
 async def get_next_code(service: EngineeringDocumentService = Depends(get_service)):
     return await service.get_next_code()
 
+@router.post("", response_model=EngDocumentSchema, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require("ENGINEERING.DOCUMENT.CREATE"))], include_in_schema=False)
 @router.post("/", response_model=EngDocumentSchema, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require("ENGINEERING.DOCUMENT.CREATE"))])
 async def create_document(
     doc: EngDocumentSchema,

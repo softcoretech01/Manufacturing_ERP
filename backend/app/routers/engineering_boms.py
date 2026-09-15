@@ -14,6 +14,10 @@ def get_service(db: AsyncSession = Depends(get_session)) -> EngineeringBomServic
     repository = EngineeringBomRepository(db)
     return EngineeringBomService(repository)
 
+# Registered with and without the trailing slash: the redirect FastAPI issues
+# for the missing one points at the API's own origin, which breaks any client
+# reaching it through a proxy.
+@router.get("", response_model=List[EngBomSchema], dependencies=[Depends(require("ENGINEERING.BOM.VIEW"))], include_in_schema=False)
 @router.get("/", response_model=List[EngBomSchema], dependencies=[Depends(require("ENGINEERING.BOM.VIEW"))])
 async def get_boms(service: EngineeringBomService = Depends(get_service)):
     return await service.get_all_boms()
@@ -22,6 +26,7 @@ async def get_boms(service: EngineeringBomService = Depends(get_service)):
 async def get_next_code(service: EngineeringBomService = Depends(get_service)):
     return await service.get_next_code()
 
+@router.post("", response_model=EngBomSchema, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require("ENGINEERING.BOM.CREATE"))], include_in_schema=False)
 @router.post("/", response_model=EngBomSchema, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require("ENGINEERING.BOM.CREATE"))])
 async def create_bom(
     bom: EngBomSchema,

@@ -10,7 +10,14 @@ import { useToast } from '@/components/ui/Toast'
 import { ChartTip } from '@/components/engineering/EngShell'
 import { exportRows, type ExportColumn, type ExportFormat } from '@/lib/export'
 import { formatAmount, formatDate } from '@/lib/format'
-import { NO_SIMULATION, rollUpCost, type CostContext, type MaterialCostLine, type Simulation } from '@/lib/engFlow'
+import {
+  NO_SIMULATION,
+  costableProducts,
+  rollUpCost,
+  type CostContext,
+  type MaterialCostLine,
+  type Simulation,
+} from '@/lib/engFlow'
 import type { Bom, EngProduct, EngWorkCentre, Routing, Tool } from '@/types/engineering'
 import type { Item } from '@/types/master'
 import { engineeringApi as api } from '@/api/engineering'
@@ -64,7 +71,11 @@ export function CostingPage() {
   async function loadData() {
     try {
       const [ps, bs, rs, ws, ts, is] = await Promise.all([
-        api.getEngProducts().catch(() => []),
+        // Only what the factory produces. A purchased item's cost comes from
+        // purchasing, not from a roll-up, so argon gas and barcode labels have
+        // nothing to roll up. Components still arrive in `items` below, which is
+        // what the material lines are priced from.
+        api.getEngProducts({ manufacturableOnly: true }).catch(() => []),
         api.getBoms().catch(() => []),
         api.getRoutings().catch(() => []),
         api.getEngWorkCentres().catch(() => []),
@@ -77,8 +88,12 @@ export function CostingPage() {
       setWorkCentres(ws)
       setTools(ts)
       setItems(is)
-      if (ps.length > 0 && !productCode) {
-        setProductCode(ps[0].code)
+      if (!productCode) {
+        // Open on something that actually rolls up. Landing on a product with
+        // neither a bill nor a routing shows zeroes everywhere and reads as a
+        // broken page rather than an empty one.
+        const first = costableProducts(ps, bs, rs)[0]
+        if (first) setProductCode(first.code)
       }
     } catch (err) {
       toast.error('Error', 'Failed to load costing dependencies')
@@ -92,6 +107,10 @@ export function CostingPage() {
   }, [])
 
   const ctx: CostContext = { boms, routings, workCentres, tools, items, products }
+
+  // Derived from the live bills and routings, so the picker offers only what the
+  // roll-up can answer for.
+  const selectableProducts = costableProducts(products, boms, routings)
 
   const base = useMemo(
     () => (productCode ? rollUpCost(productCode, ctx, NO_SIMULATION) : null),
@@ -191,7 +210,15 @@ export function CostingPage() {
             containerClassName="sm:col-span-2"
             value={productCode}
             onChange={(e) => setProductCode(e.target.value)}
-            options={[{ value: '', label: 'Select a product…' }, ...products.map((p) => ({ value: p.code, label: `${p.code} — ${p.name}` }))]}
+            options={[
+              { value: '', label: 'Select a product…' },
+              ...selectableProducts.map((p) => ({ value: p.code, label: `${p.code} — ${p.name}` })),
+            ]}
+            hint={
+              selectableProducts.length
+                ? 'Products with a live bill of material or routing.'
+                : 'No product has a live bill or routing yet, so there is nothing to roll up.'
+            }
           />
           <Input maxLength={255}
             label="Material price move (%)"

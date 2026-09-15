@@ -27,6 +27,7 @@ import { Badge } from '@/components/ui/Badge'
 import { formatTimeAgo } from '@/lib/format'
 import { PORTALS, portalOf } from '@/config/portals'
 import { useActiveContext, useAuth, useCurrentUser } from '@/store/auth'
+import { logout as apiLogout } from '@/api/organisation'
 import { useUi } from '@/store/ui'
 import { branches, companies, financialYears, plants } from '@/mock/data'
 import { inAppNotifications } from '@/mock/data2'
@@ -77,7 +78,11 @@ export function Topbar() {
               label="Sign out"
               icon={<LogOut />}
               danger
-              onClick={() => {
+              onClick={async () => {
+                // End the API session too, not just the shell identity:
+                // otherwise the tokens outlive the sign-out, and "remember me"
+                // would keep an account signed in that the user just left.
+                await apiLogout()
                 logout()
                 navigate('/login')
               }}

@@ -23,6 +23,21 @@ async def get_next_code(type: str = "ECR", service: EngineeringChangeService = D
     code = await service.get_next_code(type)
     return {"nextCode": code}
 
+@router.post("/{change_uid}/apply", dependencies=[Depends(require("ENGINEERING.CHANGE.APPLY"))])
+async def apply_change(
+    change_uid: str,
+    service: EngineeringChangeService = Depends(get_service),
+    ctx: TenantContext = Depends(require("ENGINEERING.CHANGE.APPLY")),
+):
+    """Execute an approved change against its bills of material.
+
+    One transaction: each bill's live revision is superseded, the next revision of
+    the same document number replaces it, and the change is closed as implemented.
+    Refusals come back as problem+json, so the caller is told why rather than left
+    with a button that appears to do nothing.
+    """
+    return await service.apply_change(change_uid, ctx.user_name)
+
 @router.post("", response_model=EngChangeSchema, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require("ENGINEERING.CHANGE.CREATE"))])
 async def create_change(
     change: EngChangeSchema,

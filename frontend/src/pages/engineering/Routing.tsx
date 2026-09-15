@@ -16,6 +16,7 @@ import { formatAmount, formatDate } from '@/lib/format'
 import { routingProblems, routingTime } from '@/lib/engFlow'
 import type { EngProduct, EngWorkCentre, Operation, Routing, RoutingOperation, Tool } from '@/types/engineering'
 import { engineeringApi as api } from '@/api/engineering'
+import { ProblemError } from '@/api/client'
 
 /**
  * Routing (Ch 10 to 13, 15).
@@ -266,17 +267,17 @@ export function RoutingPage() {
     return [...r.operations]
       .sort((a, b) => a.seq - b.seq)
       .map((o) => ({
-        seq: String(o.seq),
-        operationCode: o.operationCode,
-        workCentreCode: o.workCentreCode,
-        machineCode: o.machineCode,
-        setupMinutes: String(o.setupMinutes),
-        cycleSeconds: String(o.cycleSeconds),
-        operators: String(o.operators),
-        skill: o.skill,
+        seq: String(o.seq ?? 0),
+        operationCode: o.operationCode ?? '',
+        workCentreCode: o.workCentreCode ?? '',
+        machineCode: o.machineCode ?? '',
+        setupMinutes: String(o.setupMinutes ?? 0),
+        cycleSeconds: String(o.cycleSeconds ?? 0),
+        operators: String(o.operators ?? 1),
+        skill: o.skill ?? 'Machine Operator',
         toolCode: o.toolCode ?? '',
         qcCheckpoint: o.qcCheckpoint,
-        instructions: o.instructions,
+        instructions: o.instructions ?? '',
       }))
   }
 
@@ -303,10 +304,11 @@ export function RoutingPage() {
     setForm({
       code: r.docNo,
       productCode: r.productCode,
-      effectiveFrom: r.effectiveFrom,
-      costingLotSize: String(r.costingLotSize),
+      effectiveFrom: r.effectiveFrom ?? new Date().toISOString().slice(0, 10),
+      costingLotSize: String(r.costingLotSize ?? 1),
       isDefault: r.isDefault,
-      changeReason: r.changeReason,
+      // changeReason is nullable on the server; the textarea is controlled.
+      changeReason: r.changeReason ?? '',
       ops: toEntries(r),
     })
     setErrors({})
@@ -320,8 +322,10 @@ export function RoutingPage() {
       code: r.docNo,
       productCode: r.productCode,
       effectiveFrom: new Date().toISOString().slice(0, 10),
-      costingLotSize: String(r.costingLotSize),
-      isDefault: r.isDefault,
+      costingLotSize: String(r.costingLotSize ?? 1),
+      // A draft revision is never the default: R3 keeps it until R4 is approved,
+      // and approval is what moves it across.
+      isDefault: false,
       changeReason: '',
       ops: toEntries(r),
     })
@@ -337,7 +341,7 @@ export function RoutingPage() {
     if (!form.productCode) e.productCode = 'Choose the product this routing makes.'
     if (!(Number(form.costingLotSize) > 0)) e.costingLotSize = 'The costing lot size must be greater than zero.'
     if (!form.effectiveFrom) e.effectiveFrom = 'An effective date is required.'
-    if (revisingFrom && !form.changeReason.trim()) e.changeReason = 'A revision needs a reason.'
+    if (revisingFrom && !(form.changeReason ?? '').trim()) e.changeReason = 'A revision needs a reason.'
 
     if (!form.ops.length) e.ops = 'Add at least one operation.'
     else if (form.ops.some((o) => !o.operationCode)) e.ops = 'Every step needs an operation.'
@@ -366,7 +370,7 @@ export function RoutingPage() {
         skill: o.skill,
         toolCode: o.toolCode || null,
         qcCheckpoint: o.qcCheckpoint,
-        instructions: o.instructions.trim(),
+        instructions: (o.instructions ?? '').trim(),
       }
     })
   }
@@ -380,7 +384,7 @@ export function RoutingPage() {
       effectiveFrom: form.effectiveFrom,
       costingLotSize: Number(form.costingLotSize),
       isDefault: form.isDefault,
-      changeReason: form.changeReason.trim(),
+      changeReason: (form.changeReason ?? '').trim(),
       operations: buildOps(),
       status: (submit ? 'PENDING_APPROVAL' : 'DRAFT') as Routing['status'],
     }
@@ -390,25 +394,21 @@ export function RoutingPage() {
         await api.updateRouting(editing.uid, { ...editing, ...common, version: editing.version + 1 })
         toast.success('Routing saved', `${editing.docNo} updated${submit ? ' and sent for approval' : ''}.`)
       } else if (revisingFrom) {
-        await api.createRouting({
-          ...common,
-          uid: revisingFrom.docNo,
-          revision: revisingFrom.revision + 1,
-          sourceEcn: null,
-        })
-        toast.success(`Revision ${revisingFrom.revision + 1} created`, `Approving it supersedes R${revisingFrom.revision}.`)
+        // The document number and the revision number are the server's: it keeps
+        // the number being revised and takes the next revision from the database.
+        const created = await api.createRoutingRevision(revisingFrom.uid, { ...common, sourceEcn: null })
+        toast.success(
+          `${created.docNo} revision ${created.revision} created`,
+          `Approving it supersedes R${revisingFrom.revision}.`,
+        )
       } else {
-        await api.createRouting({
-          ...common,
-          revision: 1,
-          sourceEcn: null,
-        })
+        await api.createRouting({ ...common, sourceEcn: null })
         toast.success('Routing created', `Saved as ${submit ? 'pending approval' : 'a draft'}.`)
       }
       await loadData()
       setFormOpen(false)
     } catch (err) {
-      toast.error('Save failed', 'Could not save routing to server.')
+      toast.error('Save failed', err instanceof ProblemError ? err.problem.detail : 'Could not save routing to server.')
     }
   }
 
@@ -418,26 +418,21 @@ export function RoutingPage() {
       toast.error('Cannot approve', problems[0])
       return
     }
-    const previous = rows.find((x) => x.docNo === r.docNo && x.uid !== r.uid && isLive(x))
     try {
-      if (previous) {
-        await api.updateRouting(previous.uid, { ...previous, status: 'SUPERSEDED', effectiveTo: r.effectiveFrom })
-      }
-      if (r.isDefault) {
-        const others = rows.filter((x) => x.productCode === r.productCode && x.uid !== r.uid && x.isDefault && isLive(x))
-        for (const o of others) {
-          await api.updateRouting(o.uid, { ...o, isDefault: false })
-        }
-      }
-      await api.updateRouting(r.uid, { ...r, status: 'ACTIVE', approvedBy: 'Meera Rajan', approvedAt: new Date().toISOString() })
+      // One server call, one transaction: the previous revision is superseded,
+      // the default flag moves and this revision goes live together or not at
+      // all. The approver is whoever the token says is asking.
+      const result = await api.approveRouting(r.uid)
       toast.success(
         'Routing approved',
-        previous ? `${r.docNo} R${r.revision} is live; R${previous.revision} is superseded.` : `${r.docNo} R${r.revision} is live.`,
+        result.superseded.length
+          ? `${result.docNo} R${result.revision} is live; ${result.superseded.join(', ')} superseded.`
+          : `${result.docNo} R${result.revision} is live.`,
       )
       await loadData()
       setDetail(null)
     } catch (err) {
-      toast.error('Approve failed', 'Could not approve routing to server.')
+      toast.error('Approve failed', err instanceof ProblemError ? err.problem.detail : 'Could not approve routing to server.')
     }
   }
 
@@ -539,15 +534,14 @@ export function RoutingPage() {
               disabled={r.isDefault || !isLive(r)}
               onClick={async () => {
                 try {
-                  const others = rows.filter((x) => x.productCode === r.productCode && x.uid !== r.uid && x.isDefault)
-                  for (const x of others) {
-                    await api.updateRouting(x.uid, { ...x, isDefault: false })
-                  }
-                  await api.updateRouting(r.uid, { ...r, isDefault: true })
+                  // One call: the server clears the product's previous default
+                  // and sets this one together, which is the only order the
+                  // one-default-per-product rule allows.
+                  await api.setDefaultRouting(r.uid)
                   await loadData()
-                  toast.success('Set as default', `${r.docNo} is now the routing used for ${r.productCode}.`)
+                  toast.success('Set as default', `${r.docNo} R${r.revision} is now the routing used for ${r.productCode}.`)
                 } catch (err) {
-                  toast.error('Failed', 'Could not update default status.')
+                  toast.error('Failed', err instanceof ProblemError ? err.problem.detail : 'Could not update default status.')
                 }
               }}
             />
@@ -647,7 +641,10 @@ export function RoutingPage() {
                           <td>
                             <p className="text-xs font-medium text-fg">
                               {o.operationName}
-                              {o.qcCheckpoint && <Badge tone="progress" size="sm" className="ml-1.5" dot={false}>QC</Badge>}
+                              {/* Boolean, not the raw 0/1 the API used to send — `{0 && …}` renders "0". */}
+                              {o.qcCheckpoint ? (
+                                <Badge tone="progress" size="sm" className="ml-1.5" dot={false}>QC</Badge>
+                              ) : null}
                             </p>
                             <p className="font-mono text-2xs text-fg-subtle">{o.operationCode} · {o.skill}</p>
                             {o.instructions && <p className="mt-0.5 text-2xs text-fg-muted">{o.instructions}</p>}

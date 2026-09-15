@@ -136,16 +136,18 @@ export function OperationsPage() {
 
   function openEdit(o: Operation) {
     setEditing(o)
+    // Nullable columns come back as null from the API, but every field below feeds a
+    // controlled input, so null has to become '' before it reaches form state.
     setForm({
       code: o.code,
-      name: o.name,
-      defaultWorkCentre: o.defaultWorkCentre,
-      setupMinutes: String(o.setupMinutes),
-      cycleSeconds: String(o.cycleSeconds),
-      operators: String(o.operators),
-      skill: o.skill,
+      name: o.name ?? '',
+      defaultWorkCentre: o.defaultWorkCentre ?? '',
+      setupMinutes: String(o.setupMinutes ?? 0),
+      cycleSeconds: String(o.cycleSeconds ?? 0),
+      operators: String(o.operators ?? 1),
+      skill: o.skill ?? SKILLS[0],
       qcCheckpoint: o.qcCheckpoint,
-      instructions: o.instructions,
+      instructions: o.instructions ?? '',
       isActive: o.isActive,
     })
     setErrors({})
@@ -154,7 +156,7 @@ export function OperationsPage() {
 
   function validate() {
     const e: Record<string, string> = {}
-    if (!form.name.trim()) e.name = 'A name is required.'
+    if (!(form.name ?? '').trim()) e.name = 'A name is required.'
     if (!form.defaultWorkCentre) e.defaultWorkCentre = 'Choose the work centre this operation runs at.'
     if (!(Number(form.cycleSeconds) > 0)) e.cycleSeconds = 'Cycle time must be greater than zero.'
     if (!(Number(form.operators) > 0)) e.operators = 'At least one operator is required.'
@@ -167,14 +169,14 @@ export function OperationsPage() {
     if (!validate()) return
     const patch = {
       code: form.code,
-      name: form.name.trim(),
+      name: (form.name ?? '').trim(),
       defaultWorkCentre: form.defaultWorkCentre,
       setupMinutes: Number(form.setupMinutes) || 0,
       cycleSeconds: Number(form.cycleSeconds),
       operators: Number(form.operators),
       skill: form.skill,
       qcCheckpoint: form.qcCheckpoint,
-      instructions: form.instructions.trim(),
+      instructions: (form.instructions ?? '').trim(),
       isActive: form.isActive,
     }
     try {
