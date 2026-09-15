@@ -109,9 +109,22 @@ _MODULES: dict[str, dict[str, tuple[str, ...]]] = {
         "PR": ("VIEW", "CREATE", "EDIT", "DELETE", "SUBMIT", "APPROVE"),
         "RFQ": ("VIEW", "CREATE", "EDIT", "DELETE"),
         "QUOTATION": ("VIEW", "CREATE", "EDIT", "DELETE", "SELECT"),
+        # Quotation comparison: build the scored comparison, award a supplier
+        # (advisory recommendation, never auto-award), approve the award.
+        "COMPARISON": ("VIEW", "CREATE", "CONFIGURE_WEIGHTS", "AWARD", "APPROVE"),
         "PO": ("VIEW", "CREATE", "EDIT", "DELETE", "SUBMIT", "APPROVE", "RELEASE"),
         "GRN": ("VIEW", "CREATE", "EDIT", "DELETE", "POST"),
         "IQC": ("VIEW", "CREATE", "EDIT", "DELETE"),
+        # Supplier invoice verification / 3-way match (settlement stage). MATCH
+        # runs the PO↔GRN↔invoice reconciliation; APPROVE bills the PO and clears
+        # the invoice for finance — kept separate so a matcher can't self-approve.
+        "INVOICE": ("VIEW", "CREATE", "EDIT", "DELETE", "MATCH", "APPROVE"),
+        # Purchase return (rejected/damaged material out) and its debit note.
+        # APPROVE on a return posts the stock-out and auto-drafts the debit note;
+        # DISPATCH records the physical send. Debit note APPROVE is the finance
+        # claim against the supplier — a separate duty from raising the return.
+        "RETURN": ("VIEW", "CREATE", "EDIT", "DELETE", "APPROVE", "DISPATCH", "PRINT"),
+        "DEBIT_NOTE": ("VIEW", "CREATE", "EDIT", "DELETE", "APPROVE", "PRINT"),
         "DASHBOARD": ("VIEW",),
         "ANALYTICS": ("VIEW", "EDIT"),
         "SETTINGS": ("VIEW", "EDIT"),
@@ -137,6 +150,11 @@ _LABELS = {
     "RELEASE": "Release",
     "POST": "Post",
     "SELECT": "Select supplier on",
+    "MATCH": "Run 3-way match on",
+    "DISPATCH": "Dispatch",
+    "PRINT": "Print",
+    "AWARD": "Award",
+    "CONFIGURE_WEIGHTS": "Configure scoring weights for",
 }
 
 _SENSITIVE = {"SYSTEM.FINANCIAL_YEAR.REOPEN", "SYSTEM.CROSS_COMPANY_READ.VIEW"}

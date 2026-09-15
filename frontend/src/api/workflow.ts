@@ -188,6 +188,16 @@ export interface DecideBody {
   reason_code?: string | null
 }
 
+/** Read-only approval state of a source document (e.g. a PR) for its detail view.
+ *  `my_pending_task_uid` is the task the current user must decide (null if none),
+ *  and the decision goes through `approvals.decide` — the same engine, no new path. */
+export interface DocumentApproval {
+  instance: Instance | null
+  my_pending_task_uid: string | null
+  tasks: InstanceTask[]
+  history: HistoryEvent[]
+}
+
 export const approvals = {
   inbox: (includeDone = false) => api.get<InboxTask[]>('/approvals/inbox', { include_done: includeDone }),
   inboxCount: () => api.get<{ count: number }>('/approvals/inbox/count'),
@@ -195,6 +205,8 @@ export const approvals = {
     api.post<Instance>(`/approvals/tasks/${taskUid}/decide`, body),
   reassign: (taskUid: string, body: { to_user_uid: string; reason: string }) =>
     api.post<Instance>(`/approvals/tasks/${taskUid}/reassign`, body),
+  forDocument: (entityType: string, entityUid: string) =>
+    api.get<DocumentApproval>('/approvals/for-document', { entity_type: entityType, entity_uid: entityUid }),
 }
 
 export const workflowInstances = {

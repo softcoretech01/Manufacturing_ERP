@@ -773,3 +773,68 @@ class WorkflowService:
         if task.first_viewed_at is None and task.assigned_to_user_id == self.ctx.user_id:
             task.first_viewed_at = utcnow()
         return {"task": task, "instance": inst}
+
+    async def document_approval(
+        self, entity_type: str, entity_uid: str
+    ) -> dict[str, Any] | None:
+        """The approval state of a source document (e.g. a PR), for its own detail
+        view: the latest workflow instance plus its tasks/history, and the task
+        (if any) the current user must still decide. Read-only — it never mutates
+        anything; the decision still goes through :meth:`decide`.
+        """
+        inst = (
+            await self.session.execute(
+                select(CoreWorkflowInstance)
+                .where(
+                    CoreWorkflowInstance.entity_type == entity_type,
+                    CoreWorkflowInstance.entity_uid == str(entity_uid),
+                    CoreWorkflowInstance.company_id == self.ctx.company_id,
+                    CoreWorkflowInstance.deleted_at.is_(None),
+                )
+                .order_by(CoreWorkflowInstance.id.desc())
+            )
+        ).scalars().first()
+        if inst is None:
+            return None
+        tasks = list(
+            (
+                await self.session.execute(
+                    select(CoreWorkflowTask)
+                    .where(
+                        CoreWorkflowTask.workflow_instance_id == inst.id,
+                        CoreWorkflowTask.deleted_at.is_(None),
+                    )
+                    .order_by(CoreWorkflowTask.level_no, CoreWorkflowTask.id)
+                )
+            ).scalars().all()
+        )
+        history = list(
+            (
+                await self.session.execute(
+                    select(CoreWorkflowHistory)
+                    .where(CoreWorkflowHistory.workflow_instance_id == inst.id)
+                    .order_by(CoreWorkflowHistory.sequence_no)
+                )
+            ).scalars().all()
+        )
+        my_pending = next(
+            (
+                t.uid
+                for t in tasks
+                if t.assigned_to_user_id == self.ctx.user_id
+                and t.status == WorkflowTaskStatus.PENDING.value
+            ),
+            None,
+        )
+        cur = next(
+            (t for t in tasks if t.level_no == inst.current_level
+             and t.status == WorkflowTaskStatus.PENDING.value),
+            None,
+        )
+        return {
+            "instance": inst,
+            "current_task": cur,
+            "tasks": tasks,
+            "history": history,
+            "my_pending_task_uid": my_pending,
+        }
