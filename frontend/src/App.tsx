@@ -65,6 +65,7 @@ import { RequisitionsPage } from '@/pages/procurement/Requisitions'
 import { RfqPage } from '@/pages/procurement/Rfq'
 import { OrdersPage } from '@/pages/procurement/Orders'
 import { GrnPage } from '@/pages/procurement/Grn'
+import { InvoicesPage } from '@/pages/procurement/Invoices'
 import { QuotationsPage } from '@/pages/procurement/Quotations'
 import { ComparisonPage } from '@/pages/procurement/Comparison'
 import { ApprovalsPage } from '@/pages/procurement/Approvals'
@@ -351,6 +352,7 @@ export default function App() {
         <Route path="/procurement/comparison" element={<ComparisonPage />} />
         <Route path="/procurement/orders" element={<OrdersPage />} />
         <Route path="/procurement/grn" element={<GrnPage />} />
+        <Route path="/procurement/invoices" element={<InvoicesPage />} />
         <Route path="/procurement/approvals" element={<ApprovalsPage />} />
 
         {/* Inventory & warehouse */}

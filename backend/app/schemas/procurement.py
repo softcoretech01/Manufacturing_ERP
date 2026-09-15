@@ -329,3 +329,73 @@ class IncomingInspectionSchema(ProcBase):
     modifiedBy: Optional[str] = None
     modifiedAt: Optional[datetime] = None
     parameters: List[InspectionParameterSchema] = []
+
+
+# --- Supplier invoice verification (3-way match) ---------------------------------
+
+class SupplierInvoiceLineSchema(ProcBase):
+    uid: Optional[Union[int, str]] = None
+    poLineRef: Optional[int] = None          # PurchaseOrderLine.Id — the invoice bills this exact PO line
+    grnNo: Optional[str] = None
+    itemCode: str
+    itemName: str
+    uom: str
+    poQty: float = 0
+    receivedAcceptedQty: float = 0           # accepted-so-far snapshot, filled by MATCH
+    billedQty: float = 0
+    poRate: float = 0
+    invoiceRate: float = 0
+    discountPct: float = 0
+    taxPct: float = 0
+    amount: float = 0                        # server-computed from the line
+    taxAmount: float = 0
+    lineTotal: float = 0
+    qtyVariancePct: float = 0
+    rateVariancePct: float = 0
+    matchStatus: str = "NOT_MATCHED"
+    exceptionNote: Optional[str] = None
+    remarks: Optional[str] = None
+
+class SupplierInvoiceExceptionSchema(ProcBase):
+    uid: Optional[Union[int, str]] = None
+    lineRef: Optional[int] = None
+    itemCode: Optional[str] = None
+    type: str
+    expected: Optional[str] = None
+    actual: Optional[str] = None
+    variancePct: float = 0
+    status: str = "OPEN"
+    remarks: Optional[str] = None
+
+class SupplierInvoiceSchema(ProcBase):
+    uid: Optional[Union[int, str]] = None
+    docNo: Optional[str] = None              # None → SP auto-generates PINV/26-27/#####
+    docDate: date
+    status: str = "DRAFT"
+    poNo: str
+    supplierUid: str
+    supplierName: str
+    supplierInvoiceNo: str                   # the vendor's own invoice number
+    supplierInvoiceDate: date
+    currency: str = "INR"
+    exchangeRate: float = 1
+    basicValue: float = 0                    # server-computed from the lines
+    discountValue: float = 0
+    taxValue: float = 0
+    freightValue: float = 0
+    totalValue: float = 0
+    supplierStatedTotal: float = 0
+    matchStatus: str = "NOT_MATCHED"
+    matchedAt: Optional[datetime] = None
+    isBlocked: bool = False
+    blockReason: Optional[str] = None
+    dueDate: Optional[date] = None
+    remarks: Optional[str] = None
+    version: int = 1
+    attachments: int = 0
+    comments: int = 0
+    createdBy: Optional[str] = None
+    createdAt: Optional[datetime] = None
+    modifiedAt: Optional[datetime] = None
+    lines: List[SupplierInvoiceLineSchema] = []
+    exceptions: List[SupplierInvoiceExceptionSchema] = []

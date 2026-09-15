@@ -300,6 +300,7 @@ const PROCUREMENT_NAV: NavGroup[] = [
   { portal: 'PROCUREMENT', label: 'Quotation Comparison', to: '/procurement/comparison', icon: Scale },
   { portal: 'PROCUREMENT', label: 'Purchase Order', to: '/procurement/orders', icon: ShoppingCart },
   { portal: 'PROCUREMENT', label: 'Goods Receipt Note', to: '/procurement/grn', icon: PackageCheck },
+  { portal: 'PROCUREMENT', label: 'Invoice Verification', to: '/procurement/invoices', icon: ShieldCheck, permission: 'PROCUREMENT.INVOICE.VIEW' },
   { portal: 'PROCUREMENT', label: 'Approvals', to: '/procurement/approvals', icon: ClipboardCheck },
 ]
 

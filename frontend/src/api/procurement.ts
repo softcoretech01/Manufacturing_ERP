@@ -41,3 +41,20 @@ export const deleteGrn = (id: string) => api.del(`/procurement/grn/${id}`)
  *  that is already POSTED. Never receive a GRN through the generic stock
  *  endpoint — that bypasses all of it and double-counts stock. */
 export const postGrn = (id: string) => api.post<any>(`/procurement/grn/${id}/post`, {})
+
+// --- Supplier invoice verification (3-way match) — the settlement stage ---
+export const getInvoices = () => api.get<any>('/procurement/invoices').then(res => Array.isArray(res) ? res : res.data || [])
+export const getInvoice = (id: string) => api.get<any>(`/procurement/invoices/${id}`)
+export const createInvoice = (data: any) => api.post<any>('/procurement/invoices', data)
+export const updateInvoice = (id: string, data: any) => api.put<any>(`/procurement/invoices/${id}`, data)
+export const deleteInvoice = (id: string) => api.del(`/procurement/invoices/${id}`)
+/** Run the 3-way match (PO rate ↔ GRN accepted qty ↔ invoice). Writes match
+ *  exceptions and sets the invoice's match status; a matched invoice is cleared
+ *  for approval. */
+export const matchInvoice = (id: string, remarks?: string) =>
+  api.post<any>(`/procurement/invoices/${id}/match`, { remarks: remarks || null })
+/** Approve a matched invoice — bills the quantities back onto the PO (activating
+ *  its BilledPct) and clears the invoice for finance. Open match exceptions
+ *  block approval unless an override reason is supplied. */
+export const approveInvoice = (id: string, override?: boolean, reason?: string) =>
+  api.post<any>(`/procurement/invoices/${id}/approve`, { override: !!override, reason: reason || null })

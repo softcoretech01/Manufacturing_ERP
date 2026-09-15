@@ -112,6 +112,10 @@ _MODULES: dict[str, dict[str, tuple[str, ...]]] = {
         "PO": ("VIEW", "CREATE", "EDIT", "DELETE", "SUBMIT", "APPROVE", "RELEASE"),
         "GRN": ("VIEW", "CREATE", "EDIT", "DELETE", "POST"),
         "IQC": ("VIEW", "CREATE", "EDIT", "DELETE"),
+        # Supplier invoice verification / 3-way match (settlement stage). MATCH
+        # runs the PO↔GRN↔invoice reconciliation; APPROVE bills the PO and clears
+        # the invoice for finance — kept separate so a matcher can't self-approve.
+        "INVOICE": ("VIEW", "CREATE", "EDIT", "DELETE", "MATCH", "APPROVE"),
         "DASHBOARD": ("VIEW",),
         "ANALYTICS": ("VIEW", "EDIT"),
         "SETTINGS": ("VIEW", "EDIT"),
@@ -137,6 +141,7 @@ _LABELS = {
     "RELEASE": "Release",
     "POST": "Post",
     "SELECT": "Select supplier on",
+    "MATCH": "Run 3-way match on",
 }
 
 _SENSITIVE = {"SYSTEM.FINANCIAL_YEAR.REOPEN", "SYSTEM.CROSS_COMPANY_READ.VIEW"}
